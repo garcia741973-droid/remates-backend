@@ -10,6 +10,7 @@ const authRoutes = require('./routes/authRoutes');
 const app = express();
 
 const testRoutes = require('./routes/testRoutes');
+const lotsRoutes = require('./routes/lotsRoutes');
 
 app.use(cors());
 app.use(express.json());
@@ -49,3 +50,5 @@ app.listen(PORT, () => {
 });
 
 app.use('/test', testRoutes);
+
+app.use('/lots', lotsRoutes);
