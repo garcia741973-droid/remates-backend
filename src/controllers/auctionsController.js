@@ -66,3 +66,54 @@ exports.setCurrentLot = async (req, res) => {
   }
 };
 
+exports.getAuctionById = async (req, res) => {
+  try {
+    const company_id = req.user.company_id;
+    const { id } = req.params;
+
+    // 🔍 Obtener remate
+    const auctionResult = await pool.query(
+      `
+      SELECT * FROM auctions
+      WHERE id = $1 AND company_id = $2
+      `,
+      [id, company_id]
+    );
+
+    const auction = auctionResult.rows[0];
+
+    if (!auction) {
+      return res.status(404).json({ error: 'Remate no encontrado' });
+    }
+
+    let currentLot = null;
+
+    // 🔥 Traer lote actual si existe
+    if (auction.current_lot_id) {
+      const lotResult = await pool.query(
+        `
+        SELECT *
+        FROM lots
+        WHERE id = $1
+        `,
+        [auction.current_lot_id]
+      );
+
+      currentLot = lotResult.rows[0] || null;
+    }
+
+    // 🎯 RESPUESTA LIMPIA
+    res.json({
+      id: auction.id,
+      name: auction.name,
+      scheduled_at: auction.scheduled_at,
+      current_lot_id: auction.current_lot_id,
+      current_lot: currentLot
+    });
+
+  } catch (error) {
+    console.error('ERROR GET AUCTION:', error);
+    res.status(500).json({ error: 'Error obteniendo remate' });
+  }
+};
+
