@@ -10,6 +10,7 @@ const lotsRoutes = require('./routes/lotsRoutes');
 const auctionsRoutes = require('./routes/auctionsRoutes');
 const livekitRoutes = require('./routes/livekitRoutes');
 const auctionLotsRoutes = require('./routes/auctionLotsRoutes');
+const bidsRoutes = require('./routes/bidsRoutes');
 
 const { pool } = require('./config/db');
 
@@ -49,3 +50,5 @@ app.listen(PORT, () => {
 });
 
 app.use('/auction-lots', auctionLotsRoutes);
+
+app.use('/bids', bidsRoutes);
