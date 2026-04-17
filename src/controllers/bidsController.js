@@ -1,5 +1,9 @@
 const { pool } = require('../config/db');
 
+if (user.kyc_status !== 'approved') {
+  return res.status(403).json({ error: 'Debes completar verificación para pujar' });
+}
+
 exports.placeBid = async (req, res) => {
   try {
     const user = req.user;
