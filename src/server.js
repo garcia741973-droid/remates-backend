@@ -9,6 +9,7 @@ const testRoutes = require('./routes/testRoutes');
 const lotsRoutes = require('./routes/lotsRoutes');
 const auctionsRoutes = require('./routes/auctionsRoutes');
 const livekitRoutes = require('./routes/livekitRoutes');
+const auctionLotsRoutes = require('./routes/auctionLotsRoutes');
 
 const { pool } = require('./config/db');
 
@@ -46,3 +47,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
 });
+
+app.use('/auction-lots', auctionLotsRoutes);
