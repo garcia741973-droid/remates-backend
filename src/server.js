@@ -4,6 +4,9 @@ const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
 
+// 🔥 ROUTES
+const authRoutes = require('./routes/authRoutes');
+
 const app = express();
 
 app.use(cors());
@@ -32,6 +35,9 @@ app.get('/test-db', async (req, res) => {
     res.status(500).json({ error: 'Error conectando a DB' });
   }
 });
+
+// 🔥 AUTH ROUTES (ESTO TE FALTABA)
+app.use('/auth', authRoutes);
 
 // 🚀 SERVIDOR
 const PORT = process.env.PORT || 3000;
