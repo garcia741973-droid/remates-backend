@@ -46,3 +46,24 @@ exports.createLot = async (req, res) => {
     res.status(500).json({ error: 'Error creando lote' });
   }
 };
+
+exports.getLots = async (req, res) => {
+  try {
+    const company_id = req.user.company_id;
+
+    const { rows } = await pool.query(
+      `
+      SELECT * FROM lots
+      WHERE company_id = $1
+      ORDER BY created_at DESC
+      `,
+      [company_id]
+    );
+
+    res.json(rows);
+
+  } catch (error) {
+    console.error('ERROR GET LOTS:', error);
+    res.status(500).json({ error: 'Error obteniendo lotes' });
+  }
+};
