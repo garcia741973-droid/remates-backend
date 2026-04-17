@@ -12,6 +12,7 @@ const livekitRoutes = require('./routes/livekitRoutes');
 const auctionLotsRoutes = require('./routes/auctionLotsRoutes');
 const bidsRoutes = require('./routes/bidsRoutes');
 const operatorRoutes = require('./routes/operatorRoutes');
+const companyRoutes = require('./routes/companyRoutes');
 
 const { pool } = require('./config/db');
 
@@ -81,3 +82,5 @@ app.use('/bids', bidsRoutes);
 app.set('io', io);
 
 app.use('/operator', operatorRoutes);
+
+app.use('/company', companyRoutes);
