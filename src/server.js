@@ -2,35 +2,27 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
-const { Pool } = require('pg');
 
 // 🔥 ROUTES
 const authRoutes = require('./routes/authRoutes');
-
-const app = express();
-
 const testRoutes = require('./routes/testRoutes');
 const lotsRoutes = require('./routes/lotsRoutes');
 const auctionsRoutes = require('./routes/auctionsRoutes');
 const livekitRoutes = require('./routes/livekitRoutes');
 
+const { pool } = require('./config/db');
+
+const app = express();
+
 app.use(cors());
 app.use(express.json());
-
-// 🔥 CONEXIÓN A POSTGRES (RENDER)
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false,
-  },
-});
 
 // ✅ Ruta base
 app.get('/', (req, res) => {
   res.send('API Remates funcionando 🚀');
 });
 
-// 🔥 TEST DE BASE DE DATOS
+// 🔥 TEST DB
 app.get('/test-db', async (req, res) => {
   try {
     const result = await pool.query('SELECT NOW()');
@@ -41,8 +33,12 @@ app.get('/test-db', async (req, res) => {
   }
 });
 
-// 🔥 AUTH ROUTES (ESTO TE FALTABA)
+// 🔥 ROUTES
 app.use('/auth', authRoutes);
+app.use('/test', testRoutes);
+app.use('/lots', lotsRoutes);
+app.use('/auctions', auctionsRoutes);
+app.use('/livekit', livekitRoutes);
 
 // 🚀 SERVIDOR
 const PORT = process.env.PORT || 3000;
@@ -50,11 +46,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
 });
-
-app.use('/test', testRoutes);
-
-app.use('/lots', lotsRoutes);
-
-app.use('/auctions', auctionsRoutes);
-
-app.use('/livekit', livekitRoutes);
