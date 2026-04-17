@@ -40,6 +40,12 @@ exports.placeBid = async (req, res) => {
       [amount, lot_id]
     );
 
+    req.app.get('io').to(`auction_${auction_id}`).emit('newBid', {
+    lot_id,
+    amount,
+    user_id: user.user_id
+    });
+
     res.json({ message: 'Puja aceptada', amount });
 
   } catch (error) {

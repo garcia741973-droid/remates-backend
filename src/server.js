@@ -45,10 +45,36 @@ app.use('/livekit', livekitRoutes);
 // 🚀 SERVIDOR
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
+const http = require('http');
+const { Server } = require('socket.io');
+
+const server = http.createServer(app);
+
+const io = new Server(server, {
+  cors: {
+    origin: '*',
+  },
+});
+
+// 🔥 conexión sockets
+io.on('connection', (socket) => {
+  console.log('Usuario conectado:', socket.id);
+
+  socket.on('joinAuction', (auction_id) => {
+    socket.join(`auction_${auction_id}`);
+  });
+
+  socket.on('disconnect', () => {
+    console.log('Usuario desconectado');
+  });
+});
+
+server.listen(PORT, () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
 });
 
 app.use('/auction-lots', auctionLotsRoutes);
 
 app.use('/bids', bidsRoutes);
+
+app.set('io', io);
