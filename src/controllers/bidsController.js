@@ -10,6 +10,10 @@ exports.placeBid = async (req, res) => {
       return res.status(403).json({ error: 'Debes completar verificación para pujar' });
     }
 
+    if (lot.status === 'sold') {
+    return res.status(400).json({ error: 'El lote ya está cerrado' });
+    }
+
     // 🔍 obtener lote
     const lotResult = await pool.query(
       'SELECT * FROM lots WHERE id = $1',
