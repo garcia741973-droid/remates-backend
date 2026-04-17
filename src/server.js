@@ -11,6 +11,7 @@ const app = express();
 
 const testRoutes = require('./routes/testRoutes');
 const lotsRoutes = require('./routes/lotsRoutes');
+const auctionsRoutes = require('./routes/auctionsRoutes');
 
 app.use(cors());
 app.use(express.json());
@@ -52,3 +53,5 @@ app.listen(PORT, () => {
 app.use('/test', testRoutes);
 
 app.use('/lots', lotsRoutes);
+
+app.use('/auctions', auctionsRoutes);
