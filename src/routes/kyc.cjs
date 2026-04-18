@@ -12,7 +12,7 @@ const {
   rejectKyc
 } = require("../controllers/kycController.cjs");
 
-const { requireAuth, requireAdmin } = require("../middlewares/auth");
+const { requireAuth, requireAdmin } = require("../middleware/authMiddleware");
 
 // CLIENT
 router.get("/me", requireAuth, getMyKyc);
