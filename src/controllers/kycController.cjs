@@ -1,0 +1,227 @@
+const { pool } = require("../config/db");
+
+// 🧠 1. GET KYC
+exports.getMyKyc = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const result = await pool.query(
+      "SELECT * FROM user_kyc WHERE user_id = $1",
+      [userId]
+    );
+
+    res.json({
+      kyc: result.rows[0] || null
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error obteniendo KYC" });
+  }
+};
+
+// 🧠 2. UPDATE DATA
+exports.updateKyc = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const {
+      full_name,
+      document_number,
+      document_type,
+      phone,
+      country,
+      city,
+      address,
+      nit,
+      client_type
+    } = req.body;
+
+    const result = await pool.query(
+      `INSERT INTO user_kyc (
+        user_id, full_name, document_number, document_type, phone,
+        country, city, address, nit, client_type
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      ON CONFLICT (user_id)
+      DO UPDATE SET
+        full_name = EXCLUDED.full_name,
+        document_number = EXCLUDED.document_number,
+        document_type = EXCLUDED.document_type,
+        phone = EXCLUDED.phone,
+        country = EXCLUDED.country,
+        city = EXCLUDED.city,
+        address = EXCLUDED.address,
+        nit = EXCLUDED.nit,
+        client_type = EXCLUDED.client_type,
+        updated_at = now()
+      RETURNING *`,
+      [
+        userId, full_name, document_number, document_type, phone,
+        country, city, address, nit, client_type
+      ]
+    );
+
+    await pool.query(
+      "UPDATE users SET kyc_status = 'incomplete' WHERE id = $1",
+      [userId]
+    );
+
+    res.json(result.rows[0]);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error actualizando KYC" });
+  }
+};
+
+// 🧠 3. DOCUMENTS
+exports.uploadDocuments = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const { document_front_url, document_back_url } = req.body;
+
+    await pool.query(
+      `UPDATE user_kyc
+       SET document_front_url = $1,
+           document_back_url = $2,
+           updated_at = now()
+       WHERE user_id = $3`,
+      [document_front_url, document_back_url, userId]
+    );
+
+    res.json({ ok: true });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error subiendo documentos" });
+  }
+};
+
+// 🧠 4. VIDEO
+exports.uploadVideo = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const { video_url } = req.body;
+
+    await pool.query(
+      `UPDATE user_kyc
+       SET video_url = $1,
+           updated_at = now()
+       WHERE user_id = $2`,
+      [video_url, userId]
+    );
+
+    res.json({ ok: true });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error subiendo video" });
+  }
+};
+
+// 🧠 5. SUBMIT
+exports.submitKyc = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    await pool.query(
+      `UPDATE user_kyc
+       SET submitted_at = now()
+       WHERE user_id = $1`,
+      [userId]
+    );
+
+    await pool.query(
+      `UPDATE users
+       SET kyc_status = 'submitted'
+       WHERE id = $1`,
+      [userId]
+    );
+
+    res.json({ ok: true });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error enviando KYC" });
+  }
+};
+
+// 🧠 ADMIN: PENDING
+exports.getPendingKyc = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT u.id, u.email, u.kyc_status, k.*
+       FROM users u
+       JOIN user_kyc k ON u.id = k.user_id
+       WHERE u.kyc_status = 'submitted'
+       ORDER BY k.submitted_at DESC`
+    );
+
+    res.json(result.rows);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error obteniendo pendientes" });
+  }
+};
+
+// 🧠 ADMIN: APPROVE
+exports.approveKyc = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    await pool.query(
+      `UPDATE users
+       SET kyc_level = 2,
+           kyc_status = 'approved',
+           kyc_verified_at = now()
+       WHERE id = $1`,
+      [userId]
+    );
+
+    await pool.query(
+      `UPDATE user_kyc
+       SET reviewed_at = now()
+       WHERE user_id = $1`,
+      [userId]
+    );
+
+    res.json({ ok: true });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error aprobando KYC" });
+  }
+};
+
+// 🧠 ADMIN: REJECT
+exports.rejectKyc = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { reason } = req.body;
+
+    await pool.query(
+      `UPDATE users
+       SET kyc_status = 'rejected'
+       WHERE id = $1`,
+      [userId]
+    );
+
+    await pool.query(
+      `UPDATE user_kyc
+       SET rejection_reason = $1,
+           reviewed_at = now()
+       WHERE user_id = $2`,
+      [reason, userId]
+    );
+
+    res.json({ ok: true });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error rechazando KYC" });
+  }
+};
