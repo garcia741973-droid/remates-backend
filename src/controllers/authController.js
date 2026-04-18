@@ -27,7 +27,7 @@ exports.login = async (req, res) => {
     // 🔥 VALIDAR QUE EL USUARIO PERTENECE A ESA EMPRESA
     const companyCheck = await pool.query(
       `
-      SELECT * FROM user_companies
+      SELECT role FROM user_companies
       WHERE user_id = $1 AND company_id = $2
       `,
       [user.id, company_id]
@@ -37,18 +37,24 @@ exports.login = async (req, res) => {
       return res.status(403).json({ error: 'No pertenece a esta empresa' });
     }
 
+    const role = companyCheck.rows[0].role;
+
     // 🔥 TOKEN FINAL CON EMPRESA SELECCIONADA
     const token = jwt.sign(
       {
         user_id: user.id,
         company_id: company_id,
-        role: user.role,
+        role: role,
       },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
 
-    res.json({ token });
+      res.json({
+        token,
+        company_id,
+        role
+      });
 
   } catch (error) {
     console.error(error);
