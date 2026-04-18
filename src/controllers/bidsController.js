@@ -5,13 +5,9 @@ exports.placeBid = async (req, res) => {
     const user = req.user;
     const { auction_id, lot_id, amount } = req.body;
 
-    // 🔒 VALIDACIÓN KYC (BIEN UBICADA)
+    // 🔒 VALIDACIÓN KYC
     if (user.kyc_status !== 'approved') {
       return res.status(403).json({ error: 'Debes completar verificación para pujar' });
-    }
-
-    if (lot.status === 'sold') {
-    return res.status(400).json({ error: 'El lote ya está cerrado' });
     }
 
     // 🔍 obtener lote
@@ -24,6 +20,11 @@ exports.placeBid = async (req, res) => {
 
     if (!lot) {
       return res.status(404).json({ error: 'Lote no existe' });
+    }
+
+    // 🔒 validar estado
+    if (lot.status === 'sold') {
+      return res.status(400).json({ error: 'El lote ya está cerrado' });
     }
 
     // 🔒 validar monto
@@ -56,7 +57,8 @@ exports.placeBid = async (req, res) => {
     io.to(`auction_${auction_id}`).emit('newBid', {
       lot_id,
       amount,
-      user_id: user.user_id
+      user_id: user.user_id,
+      created_at: new Date() // 🔥 importante para frontend
     });
 
     res.json({ message: 'Puja aceptada', amount });
