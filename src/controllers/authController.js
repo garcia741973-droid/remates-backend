@@ -1,17 +1,12 @@
-const { Pool } = require('pg');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
-
 const { pool } = require('../config/db');
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
 
+// 🔐 LOGIN FINAL (YA CON company_id)
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, company_id } = req.body;
 
     const { rows } = await pool.query(
       'SELECT * FROM users WHERE email = $1',
@@ -24,15 +19,29 @@ exports.login = async (req, res) => {
       return res.status(400).json({ error: 'Usuario no existe' });
     }
 
-    // ⚠️ TEMPORAL (luego bcrypt)
+    // ⚠️ TEMPORAL (luego bcrypt.compare)
     if (user.password !== password) {
       return res.status(400).json({ error: 'Password incorrecto' });
     }
 
+    // 🔥 VALIDAR QUE EL USUARIO PERTENECE A ESA EMPRESA
+    const companyCheck = await pool.query(
+      `
+      SELECT * FROM user_companies
+      WHERE user_id = $1 AND company_id = $2
+      `,
+      [user.id, company_id]
+    );
+
+    if (companyCheck.rows.length === 0) {
+      return res.status(403).json({ error: 'No pertenece a esta empresa' });
+    }
+
+    // 🔥 TOKEN FINAL CON EMPRESA SELECCIONADA
     const token = jwt.sign(
       {
         user_id: user.id,
-        company_id: user.company_id,
+        company_id: company_id,
         role: user.role,
       },
       process.env.JWT_SECRET,
@@ -48,11 +57,12 @@ exports.login = async (req, res) => {
 };
 
 
+
+// 🔥 OBTENER EMPRESAS DEL USUARIO (ANTES DEL LOGIN FINAL)
 exports.getUserCompanies = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // 🔍 validar usuario
     const userResult = await pool.query(
       `SELECT * FROM users WHERE email = $1`,
       [email]
@@ -64,9 +74,12 @@ exports.getUserCompanies = async (req, res) => {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    // ⚠️ aquí debes validar password (usa tu lógica actual)
+    // ⚠️ VALIDAR PASSWORD (MISMA LÓGICA)
+    if (user.password !== password) {
+      return res.status(400).json({ error: 'Password incorrecto' });
+    }
 
-    // 🔥 traer empresas del usuario
+    // 🔥 TRAER EMPRESAS
     const companiesResult = await pool.query(
       `
       SELECT c.id, c.name
