@@ -18,6 +18,8 @@ const { pool } = require('./config/db');
 
 const app = express();
 
+const kycRoutes = require('./routes/kyc.cjs');
+
 app.use(cors());
 app.use(express.json());
 
@@ -84,3 +86,5 @@ app.set('io', io);
 app.use('/operator', operatorRoutes);
 
 app.use('/company', companyRoutes);
+
+app.use('/kyc', kycRoutes);
