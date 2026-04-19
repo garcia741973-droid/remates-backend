@@ -27,6 +27,32 @@ exports.setCurrentLot = async (req, res) => {
   try {
     const { auction_id, lot_id } = req.body;
 
+    // 🔥 VALIDAR REMATE
+    const auctionResult = await pool.query(
+      `
+      SELECT status, company_id
+      FROM auctions
+      WHERE id = $1
+      `,
+      [auction_id]
+    );
+
+    const auction = auctionResult.rows[0];
+
+    if (!auction) {
+      return res.status(404).json({ error: 'Remate no existe' });
+    }
+
+    // 🔥 SOLO SI ESTÁ EN VIVO
+    if (auction.status !== 'live') {
+      return res.status(400).json({ error: 'El remate no está en vivo' });
+    }
+
+    // 🔥 VALIDAR EMPRESA (seguridad básica)
+    if (auction.company_id !== req.user.company_id) {
+      return res.status(403).json({ error: 'No autorizado' });
+    }    
+
     // 🔥 validar que el lote pertenece al remate
     const check = await pool.query(
       `
@@ -53,7 +79,7 @@ exports.setCurrentLot = async (req, res) => {
     // ⚡ emitir a todos
     const io = req.app.get('io');
 
-    io.to(`auction_${auction_id}`).emit('currentLotChanged', {
+    io.to(`auction_${auction_id}`).emit('lotChanged', {
       auction_id,
       lot_id
     });

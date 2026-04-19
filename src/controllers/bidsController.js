@@ -1,48 +1,93 @@
 const { pool } = require('../config/db');
 
 exports.placeBid = async (req, res) => {
+  const client = await pool.connect();
+
   try {
     const user = req.user;
     const { auction_id, lot_id, amount } = req.body;
 
-    // 🔒 VALIDACIÓN KYC REAL (DESDE DB)
-    const userResult = await pool.query(
-    `SELECT kyc_status FROM users WHERE id = $1`,
-    [user.user_id]
+    await client.query('BEGIN');
+
+    // 🔒 1. VALIDACIÓN KYC
+    const userResult = await client.query(
+      `SELECT kyc_status FROM users WHERE id = $1`,
+      [user.user_id]
     );
 
     const dbUser = userResult.rows[0];
 
     if (!dbUser || dbUser.kyc_status !== 'approved') {
-    return res.status(403).json({
+      await client.query('ROLLBACK');
+      return res.status(403).json({
         error: 'Debes completar y aprobar tu verificación para pujar'
-    });
+      });
     }
 
-    // 🔍 obtener lote
-    const lotResult = await pool.query(
-      'SELECT * FROM lots WHERE id = $1',
+    // 🔒 2. VALIDAR REMATE ACTIVO
+    const auctionResult = await client.query(
+      `SELECT status FROM auctions WHERE id = $1`,
+      [auction_id]
+    );
+
+    const auction = auctionResult.rows[0];
+
+    if (!auction || auction.status !== 'live') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'El remate no está activo'
+      });
+    }
+
+    // 🔒 3. BLOQUEAR LOTE (ANTI RACE CONDITION)
+    const lotResult = await client.query(
+      `SELECT * FROM lots WHERE id = $1 FOR UPDATE`,
       [lot_id]
     );
 
     const lot = lotResult.rows[0];
 
     if (!lot) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Lote no existe' });
     }
 
-    // 🔒 validar estado
+    // 🔥 NUEVO: VALIDAR LOTE ACTIVO
+    const auctionLotResult = await client.query(
+    `SELECT current_lot_id FROM auctions WHERE id = $1`,
+    [auction_id]
+    );
+
+    const currentLotId = auctionLotResult.rows[0]?.current_lot_id;
+
+    if (currentLotId !== lot_id) {
+    await client.query('ROLLBACK');
+    return res.status(400).json({
+        error: 'Este lote no está activo en el remate'
+    });
+    }    
+
+    // 🔒 4. VALIDAR ESTADO LOTE
     if (lot.status === 'sold') {
-      return res.status(400).json({ error: 'El lote ya está cerrado' });
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'El lote ya está cerrado'
+      });
     }
 
-    // 🔒 validar monto
+    // 🔒 5. VALIDAR MONTO (YA CON LOCK)
     if (Number(amount) <= Number(lot.current_price)) {
-      return res.status(400).json({ error: 'La puja debe ser mayor al precio actual' });
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'La puja debe ser mayor al precio actual'
+      });
     }
 
-    // 💰 guardar puja
-    await pool.query(
+    // 🔥 (HOOK FUTURO) DEPÓSITO
+    // const deposit = ...
+
+    // 💰 6. INSERT BID
+    await client.query(
       `
       INSERT INTO bids (auction_id, lot_id, user_id, amount)
       VALUES ($1,$2,$3,$4)
@@ -50,8 +95,8 @@ exports.placeBid = async (req, res) => {
       [auction_id, lot_id, user.user_id, amount]
     );
 
-    // 🔄 actualizar precio
-    await pool.query(
+    // 🔄 7. UPDATE PRECIO
+    await client.query(
       `
       UPDATE lots
       SET current_price = $1
@@ -60,20 +105,25 @@ exports.placeBid = async (req, res) => {
       [amount, lot_id]
     );
 
-    // ⚡ TIEMPO REAL
+    await client.query('COMMIT');
+
+    // ⚡ SOCKET (FUERA DE TRANSACCIÓN)
     const io = req.app.get('io');
 
     io.to(`auction_${auction_id}`).emit('newBid', {
       lot_id,
       amount,
       user_id: user.user_id,
-      created_at: new Date() // 🔥 importante para frontend
+      created_at: new Date()
     });
 
     res.json({ message: 'Puja aceptada', amount });
 
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('ERROR BID:', error);
     res.status(500).json({ error: 'Error al pujar' });
+  } finally {
+    client.release();
   }
 };
