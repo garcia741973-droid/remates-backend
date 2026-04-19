@@ -22,3 +22,17 @@ exports.requireAuth = (req, res, next) => {
     return res.status(401).json({ error: 'Token inválido' });
   }
 };
+
+exports.requireAdmin = (req, res, next) => {
+  try {
+    if (!req.user || req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'No autorizado (admin)' });
+    }
+
+    next();
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Error validando admin' });
+  }
+};

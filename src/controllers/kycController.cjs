@@ -1,9 +1,11 @@
 const { pool } = require("../config/db");
 
+//
 // 🧠 1. GET KYC
-exports.getMyKyc = async (req, res) => {
+//
+const getMyKyc = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.user_id; // 🔥 CORREGIDO
 
     const result = await pool.query(
       "SELECT * FROM user_kyc WHERE user_id = $1",
@@ -20,10 +22,12 @@ exports.getMyKyc = async (req, res) => {
   }
 };
 
+//
 // 🧠 2. UPDATE DATA
-exports.updateKyc = async (req, res) => {
+//
+const updateKyc = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.user_id;
 
     const {
       full_name,
@@ -75,10 +79,12 @@ exports.updateKyc = async (req, res) => {
   }
 };
 
-// 🧠 3. DOCUMENTS
-exports.uploadDocuments = async (req, res) => {
+//
+// 🧠 3. DOCUMENTOS
+//
+const uploadDocuments = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.user_id;
 
     const { document_front_url, document_back_url } = req.body;
 
@@ -99,10 +105,12 @@ exports.uploadDocuments = async (req, res) => {
   }
 };
 
+//
 // 🧠 4. VIDEO
-exports.uploadVideo = async (req, res) => {
+//
+const uploadVideo = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.user_id;
 
     const { video_url } = req.body;
 
@@ -122,10 +130,12 @@ exports.uploadVideo = async (req, res) => {
   }
 };
 
+//
 // 🧠 5. SUBMIT
-exports.submitKyc = async (req, res) => {
+//
+const submitKyc = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.user_id;
 
     await pool.query(
       `UPDATE user_kyc
@@ -149,8 +159,10 @@ exports.submitKyc = async (req, res) => {
   }
 };
 
+//
 // 🧠 ADMIN: PENDING
-exports.getPendingKyc = async (req, res) => {
+//
+const getPendingKyc = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT u.id, u.email, u.kyc_status, k.*
@@ -168,8 +180,10 @@ exports.getPendingKyc = async (req, res) => {
   }
 };
 
+//
 // 🧠 ADMIN: APPROVE
-exports.approveKyc = async (req, res) => {
+//
+const approveKyc = async (req, res) => {
   try {
     const { userId } = req.params;
 
@@ -197,8 +211,10 @@ exports.approveKyc = async (req, res) => {
   }
 };
 
+//
 // 🧠 ADMIN: REJECT
-exports.rejectKyc = async (req, res) => {
+//
+const rejectKyc = async (req, res) => {
   try {
     const { userId } = req.params;
     const { reason } = req.body;
@@ -224,4 +240,18 @@ exports.rejectKyc = async (req, res) => {
     console.error(err);
     res.status(500).json({ error: "Error rechazando KYC" });
   }
+};
+
+//
+// 🔥 EXPORT FINAL (CLAVE)
+//
+module.exports = {
+  getMyKyc,
+  updateKyc,
+  uploadDocuments,
+  uploadVideo,
+  submitKyc,
+  getPendingKyc,
+  approveKyc,
+  rejectKyc
 };
