@@ -143,3 +143,25 @@ exports.getAuctionById = async (req, res) => {
   }
 };
 
+exports.getAuctions = async (req, res) => {
+  try {
+    const company_id = req.user.company_id;
+
+    const result = await pool.query(
+      `
+      SELECT *
+      FROM auctions
+      WHERE company_id = $1
+      ORDER BY id DESC
+      `,
+      [company_id]
+    );
+
+    res.json(result.rows);
+
+  } catch (error) {
+    console.error('ERROR GET AUCTIONS:', error);
+    res.status(500).json({ error: 'Error obteniendo remates' });
+  }
+};
+
