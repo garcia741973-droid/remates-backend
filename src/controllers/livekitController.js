@@ -1,4 +1,5 @@
 const { AccessToken } = require('livekit-server-sdk');
+const { pool } = require('../config/db');
 
 exports.getLivekitToken = async (req, res) => {
   try {
@@ -9,12 +10,11 @@ exports.getLivekitToken = async (req, res) => {
       return res.status(400).json({ error: 'auctionId requerido' });
     }
 
-    // 🔥 VALIDACIÓN REMATE
-    const auctionResult = await pool.query(`
-      SELECT id, status
-      FROM auctions
-      WHERE id = $1
-    `, [auctionId]);
+    // 🔥 VALIDAR REMATE
+    const auctionResult = await pool.query(
+      `SELECT id, status FROM auctions WHERE id = $1`,
+      [auctionId]
+    );
 
     if (!auctionResult.rows.length) {
       return res.status(404).json({ error: 'Remate no existe' });
@@ -26,16 +26,24 @@ exports.getLivekitToken = async (req, res) => {
       return res.status(400).json({ error: 'Remate no está en vivo' });
     }
 
-    // 🔥 OPCIONAL: bloquear rechazados
-    if (user.kyc_level === 'rejected') {
-      return res.status(403).json({ error: 'Usuario no autorizado' });
+    // 🔥 OBTENER ROL REAL (CLAVE)
+    const roleResult = await pool.query(
+      `SELECT role FROM user_companies
+       WHERE user_id = $1 AND company_id = $2`,
+      [user.user_id, user.company_id]
+    );
+
+    const role = roleResult.rows[0]?.role;
+
+    if (!role) {
+      return res.status(403).json({ error: 'Usuario sin rol en empresa' });
     }
 
-    // 🔥 ROOM CONTROLADA
-    const room = `auction_${auctionId}`;
+    // 🔥 SOLO STREAMER TRANSMITE
+    const isBroadcaster = role === 'streamer';
 
-    // 🔥 ROLES
-    const isBroadcaster = user.role !== 'client';
+    // 🔥 ROOM
+    const room = `auction_${auctionId}`;
 
     const at = new AccessToken(
       process.env.LIVEKIT_API_KEY,
@@ -46,7 +54,7 @@ exports.getLivekitToken = async (req, res) => {
         metadata: JSON.stringify({
           user_id: user.user_id,
           auctionId,
-          role: isBroadcaster ? 'broadcaster' : 'viewer',
+          role,
         }),
         ttl: '6h',
       }
