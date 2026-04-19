@@ -26,5 +26,6 @@ router.get('/:id', requireAuth, getAuctionById);
 // 🟢 CAMBIAR LOTE ACTUAL
 router.post('/current-lot', requireAuth, setCurrentLot);
 
+router.post('/start', requireAuth, auctionsController.startAuction);
 
 module.exports = router;

@@ -165,3 +165,43 @@ exports.getAuctions = async (req, res) => {
   }
 };
 
+exports.startAuction = async (req, res) => {
+  try {
+    const { auction_id } = req.body;
+
+    // 🔥 validar que existe
+    const result = await pool.query(
+      `SELECT company_id, status FROM auctions WHERE id = $1`,
+      [auction_id]
+    );
+
+    const auction = result.rows[0];
+
+    if (!auction) {
+      return res.status(404).json({ error: 'Remate no existe' });
+    }
+
+    // 🔥 seguridad empresa
+    if (auction.company_id !== req.user.company_id) {
+      return res.status(403).json({ error: 'No autorizado' });
+    }
+
+    // 🔥 ya está en vivo
+    if (auction.status === 'live') {
+      return res.json({ message: 'Remate ya está en vivo' });
+    }
+
+    // 🔥 activar remate
+    await pool.query(
+      `UPDATE auctions SET status = 'live' WHERE id = $1`,
+      [auction_id]
+    );
+
+    res.json({ message: 'Remate iniciado correctamente' });
+
+  } catch (error) {
+    console.error('ERROR START AUCTION:', error);
+    res.status(500).json({ error: 'Error iniciando remate' });
+  }
+};
+
