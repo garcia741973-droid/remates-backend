@@ -65,7 +65,7 @@ exports.login = async (req, res) => {
 
 
 // 🔥 OBTENER EMPRESAS DEL USUARIO (ANTES DEL LOGIN FINAL)
-exports.getUserCompanies = async (req, res) => {
+exports.getUser = async (req, res) => {
   try {
     const { email, password } = req.body;
 
