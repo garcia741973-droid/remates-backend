@@ -5,15 +5,27 @@ const { pool } = require("../config/db");
 //
 const getMyKyc = async (req, res) => {
   try {
-    const userId = req.user.user_id; // 🔥 CORREGIDO
+    const userId = req.user.user_id;
 
-    const result = await pool.query(
+    let result = await pool.query(
       "SELECT * FROM user_kyc WHERE user_id = $1",
       [userId]
     );
 
+    // 🔥 SI NO EXISTE → CREAR BASE
+    if (result.rows.length === 0) {
+      const insert = await pool.query(
+        `INSERT INTO user_kyc (user_id, created_at)
+         VALUES ($1, now())
+         RETURNING *`,
+        [userId]
+      );
+
+      result = insert;
+    }
+
     res.json({
-      kyc: result.rows[0] || null
+      kyc: result.rows[0]
     });
 
   } catch (err) {
