@@ -29,7 +29,7 @@ const getMyKyc = async (req, res) => {
     });
 
   } catch (err) {
-    console.error(err);
+    console.error("GET KYC ERROR:", err);
     res.status(500).json({ error: "Error obteniendo KYC" });
   }
 };
@@ -40,6 +40,9 @@ const getMyKyc = async (req, res) => {
 const updateKyc = async (req, res) => {
   try {
     const userId = req.user.user_id;
+
+    console.log("🟡 UPDATE KYC USER:", userId);
+    console.log("🟡 UPDATE KYC BODY:", req.body);
 
     const {
       full_name,
@@ -61,15 +64,15 @@ const updateKyc = async (req, res) => {
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
       ON CONFLICT (user_id)
       DO UPDATE SET
-        full_name = EXCLUDED.full_name,
-        document_number = EXCLUDED.document_number,
-        document_type = EXCLUDED.document_type,
-        phone = EXCLUDED.phone,
-        country = EXCLUDED.country,
-        city = EXCLUDED.city,
-        address = EXCLUDED.address,
-        nit = EXCLUDED.nit,
-        client_type = EXCLUDED.client_type,
+        full_name = COALESCE(EXCLUDED.full_name, user_kyc.full_name),
+        document_number = COALESCE(EXCLUDED.document_number, user_kyc.document_number),
+        document_type = COALESCE(EXCLUDED.document_type, user_kyc.document_type),
+        phone = COALESCE(EXCLUDED.phone, user_kyc.phone),
+        country = COALESCE(EXCLUDED.country, user_kyc.country),
+        city = COALESCE(EXCLUDED.city, user_kyc.city),
+        address = COALESCE(EXCLUDED.address, user_kyc.address),
+        nit = COALESCE(EXCLUDED.nit, user_kyc.nit),
+        client_type = COALESCE(EXCLUDED.client_type, user_kyc.client_type),
         updated_at = now()
       RETURNING *`,
       [
@@ -78,16 +81,26 @@ const updateKyc = async (req, res) => {
       ]
     );
 
-    await pool.query(
-      "UPDATE users SET kyc_status = 'incomplete' WHERE id = $1",
-      [userId]
-    );
+    // 🔥 UPDATE USERS (PROTEGIDO)
+    try {
+      await pool.query(
+        `UPDATE users 
+         SET kyc_status = 'incomplete'
+         WHERE id = $1`,
+        [userId]
+      );
+    } catch (e) {
+      console.error("⚠️ WARNING updating users.kyc_status:", e.message);
+    }
 
     res.json(result.rows[0]);
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Error actualizando KYC" });
+    console.error("❌ UPDATE KYC ERROR:", err);
+    res.status(500).json({
+      error: "Error actualizando KYC",
+      detail: err.message
+    });
   }
 };
 
@@ -112,7 +125,7 @@ const uploadDocuments = async (req, res) => {
     res.json({ ok: true });
 
   } catch (err) {
-    console.error(err);
+    console.error("UPLOAD DOCS ERROR:", err);
     res.status(500).json({ error: "Error subiendo documentos" });
   }
 };
@@ -137,7 +150,7 @@ const uploadVideo = async (req, res) => {
     res.json({ ok: true });
 
   } catch (err) {
-    console.error(err);
+    console.error("UPLOAD VIDEO ERROR:", err);
     res.status(500).json({ error: "Error subiendo video" });
   }
 };
@@ -166,7 +179,7 @@ const submitKyc = async (req, res) => {
     res.json({ ok: true });
 
   } catch (err) {
-    console.error(err);
+    console.error("SUBMIT KYC ERROR:", err);
     res.status(500).json({ error: "Error enviando KYC" });
   }
 };
@@ -187,7 +200,7 @@ const getPendingKyc = async (req, res) => {
     res.json(result.rows);
 
   } catch (err) {
-    console.error(err);
+    console.error("GET PENDING ERROR:", err);
     res.status(500).json({ error: "Error obteniendo pendientes" });
   }
 };
@@ -218,7 +231,7 @@ const approveKyc = async (req, res) => {
     res.json({ ok: true });
 
   } catch (err) {
-    console.error(err);
+    console.error("APPROVE ERROR:", err);
     res.status(500).json({ error: "Error aprobando KYC" });
   }
 };
@@ -249,14 +262,11 @@ const rejectKyc = async (req, res) => {
     res.json({ ok: true });
 
   } catch (err) {
-    console.error(err);
+    console.error("REJECT ERROR:", err);
     res.status(500).json({ error: "Error rechazando KYC" });
   }
 };
 
-//
-// 🔥 EXPORT FINAL (CLAVE)
-//
 module.exports = {
   getMyKyc,
   updateKyc,
