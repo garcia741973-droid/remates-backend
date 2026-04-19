@@ -5,9 +5,18 @@ exports.placeBid = async (req, res) => {
     const user = req.user;
     const { auction_id, lot_id, amount } = req.body;
 
-    // 🔒 VALIDACIÓN KYC
-    if (user.kyc_status !== 'approved') {
-      return res.status(403).json({ error: 'Debes completar verificación para pujar' });
+    // 🔒 VALIDACIÓN KYC REAL (DESDE DB)
+    const userResult = await pool.query(
+    `SELECT kyc_status FROM users WHERE id = $1`,
+    [user.user_id]
+    );
+
+    const dbUser = userResult.rows[0];
+
+    if (!dbUser || dbUser.kyc_status !== 'approved') {
+    return res.status(403).json({
+        error: 'Debes completar y aprobar tu verificación para pujar'
+    });
     }
 
     // 🔍 obtener lote
