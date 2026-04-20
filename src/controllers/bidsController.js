@@ -17,11 +17,14 @@ exports.placeBid = async (req, res) => {
 
     const dbUser = userResult.rows[0];
 
-    if (!dbUser || dbUser.kyc_status !== 'approved') {
-      await client.query('ROLLBACK');
-      return res.status(403).json({
-        error: 'Debes completar y aprobar tu verificación para pujar'
-      });
+    // 🔒 1. VALIDACIÓN KYC (SOLO CLIENTES)
+    if (user.role === 'client') {
+      if (!dbUser || dbUser.kyc_status !== 'approved') {
+        await client.query('ROLLBACK');
+        return res.status(403).json({
+          error: 'Debes completar y aprobar tu verificación para pujar'
+        });
+      }
     }
 
     // 🔒 2. VALIDAR REMATE ACTIVO
