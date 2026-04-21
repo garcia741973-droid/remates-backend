@@ -6,7 +6,6 @@ exports.createUser = async (req, res) => {
     const { name, email, password, role } = req.body;
     const { company_id } = req.user;
 
-    // 🔒 validar rol permitido
     const allowedRoles = [
       'operator_sala',
       'streaming',
@@ -19,10 +18,8 @@ exports.createUser = async (req, res) => {
       return res.status(400).json({ error: 'Rol inválido' });
     }
 
-    // 🔒 hash password
     const hash = await bcrypt.hash(password, 10);
 
-    // 🔥 crear usuario
     const userResult = await pool.query(
       `
       INSERT INTO users (company_id, name, email, password, kyc_status)
@@ -34,7 +31,6 @@ exports.createUser = async (req, res) => {
 
     const userId = userResult.rows[0].id;
 
-    // 🔥 vincular a empresa con rol
     await pool.query(
       `
       INSERT INTO user_companies (user_id, company_id, role)
@@ -43,26 +39,21 @@ exports.createUser = async (req, res) => {
       [userId, company_id, role]
     );
 
-    res.json({ message: 'Usuario creado correctamente' });
+    res.json({ message: 'Usuario creado' });
 
   } catch (error) {
-    console.error('ERROR CREATE USER:', error);
+    console.error(error);
     res.status(500).json({ error: 'Error creando usuario' });
   }
 };
 
-exports.getUsersByCompany = async (req, res) => {
+exports.getUsers = async (req, res) => {
   try {
     const { company_id } = req.user;
 
     const result = await pool.query(
       `
-      SELECT 
-        u.id,
-        u.name,
-        u.email,
-        uc.role,
-        u.kyc_status
+      SELECT u.id, u.name, u.email, uc.role, u.kyc_status
       FROM users u
       JOIN user_companies uc ON uc.user_id = u.id
       WHERE uc.company_id = $1
@@ -74,7 +65,6 @@ exports.getUsersByCompany = async (req, res) => {
     res.json(result.rows);
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Error obteniendo usuarios' });
+    res.status(500).json({ error: 'Error' });
   }
 };
