@@ -208,43 +208,41 @@ const getPendingKyc = async (req, res) => {
 //
 // 🧠 ADMIN: APPROVE
 //
-  const approveKyc = async (req, res) => {
-    try {
-      const userId = req.params.userId;
+const approveKyc = async (req, res) => {
+  try {
+    const userId = req.params.userId;
 
-      console.log("🔎 KYC ID:", kycId);
+    console.log("✅ APROBANDO USER:", userId);
 
-      console.log("✅ USER ID REAL:", userId);
+    // 🔥 UPDATE USERS
+    const updateUser = await pool.query(
+      `UPDATE users
+       SET kyc_level = 2,
+           kyc_status = 'approved',
+           kyc_verified_at = now()
+       WHERE id = $1`,
+      [userId]
+    );
 
-      // 🔥 2. ACTUALIZAR USERS
-      const updateUser = await pool.query(
-        `UPDATE users
-        SET kyc_level = 2,
-            kyc_status = 'approved',
-            kyc_verified_at = now()
-        WHERE id = $1`,
-        [userId]
-      );
+    console.log("🟢 UPDATE USERS:", updateUser.rowCount);
 
-      console.log("🟢 UPDATE USERS:", updateUser.rowCount);
+    // 🔥 UPDATE KYC
+    const updateKyc = await pool.query(
+      `UPDATE user_kyc
+       SET reviewed_at = now()
+       WHERE user_id = $1`,
+      [userId]
+    );
 
-      // 🔥 3. ACTUALIZAR KYC
-      const updateKyc = await pool.query(
-        `UPDATE user_kyc
-        SET reviewed_at = now()
-        WHERE user_id = $1`,
-        [userId]
-      );
+    console.log("🟢 UPDATE KYC:", updateKyc.rowCount);
 
-      console.log("🟢 UPDATE KYC:", updateKyc.rowCount);
+    res.json({ ok: true });
 
-      res.json({ ok: true });
-
-    } catch (err) {
-      console.error("APPROVE ERROR:", err);
-      res.status(500).json({ error: "Error aprobando KYC" });
-    }
-  };
+  } catch (err) {
+    console.error("APPROVE ERROR:", err);
+    res.status(500).json({ error: "Error aprobando KYC" });
+  }
+};
 
 //
 // 🧠 ADMIN: REJECT
