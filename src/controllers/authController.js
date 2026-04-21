@@ -8,6 +8,7 @@ exports.login = async (req, res) => {
   try {
     const { email, password, company_id } = req.body;
 
+    // 🔍 Buscar usuario
     const { rows } = await pool.query(
       'SELECT * FROM users WHERE email = $1',
       [email]
@@ -19,8 +20,18 @@ exports.login = async (req, res) => {
       return res.status(400).json({ error: 'Usuario no existe' });
     }
 
-    // ⚠️ TEMPORAL (luego bcrypt.compare)
-    if (user.password !== password) {
+    // 🔐 VALIDACIÓN PASSWORD (bcrypt + compatibilidad)
+    let validPassword = false;
+
+    if (user.password && user.password.startsWith('$2b$')) {
+      // 🔒 bcrypt (nuevo)
+      validPassword = await bcrypt.compare(password, user.password);
+    } else {
+      // ⚠️ texto plano (compatibilidad temporal)
+      validPassword = user.password === password;
+    }
+
+    if (!validPassword) {
       return res.status(400).json({ error: 'Password incorrecto' });
     }
 
@@ -39,25 +50,25 @@ exports.login = async (req, res) => {
 
     const role = companyCheck.rows[0].role;
 
-    // 🔥 TOKEN FINAL CON EMPRESA SELECCIONADA
+    // 🔐 GENERAR TOKEN
     const token = jwt.sign(
       {
         user_id: user.id,
-        company_id: company_id,
-        role: role,
+        company_id,
+        role,
       },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
 
-      res.json({
-        token,
-        company_id,
-        role
-      });
+    res.json({
+      token,
+      company_id,
+      role,
+    });
 
   } catch (error) {
-    console.error(error);
+    console.error('LOGIN ERROR:', error);
     res.status(500).json({ error: 'Error login' });
   }
 };
@@ -80,8 +91,16 @@ exports.getUser = async (req, res) => {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    // ⚠️ VALIDAR PASSWORD (MISMA LÓGICA)
-    if (user.password !== password) {
+    // 🔐 VALIDACIÓN PASSWORD (bcrypt + compatibilidad)
+    let validPassword = false;
+
+    if (user.password && user.password.startsWith('$2b$')) {
+      validPassword = await bcrypt.compare(password, user.password);
+    } else {
+      validPassword = user.password === password;
+    }
+
+    if (!validPassword) {
       return res.status(400).json({ error: 'Password incorrecto' });
     }
 
@@ -98,11 +117,11 @@ exports.getUser = async (req, res) => {
 
     res.json({
       user_id: user.id,
-      companies: companiesResult.rows
+      companies: companiesResult.rows,
     });
 
   } catch (error) {
-    console.error(error);
+    console.error('GET USER ERROR:', error);
     res.status(500).json({ error: 'Error obteniendo empresas' });
   }
 };
