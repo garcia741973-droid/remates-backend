@@ -93,6 +93,18 @@ const updateKyc = async (req, res) => {
       console.error("⚠️ WARNING updating users.kyc_status:", e.message);
     }
 
+    // 🔥 LIMPIAR RECHAZO CUANDO USUARIO CORRIGE
+    try {
+      await pool.query(
+        `UPDATE user_kyc
+        SET rejection_reason = null
+        WHERE user_id = $1`,
+        [userId]
+      );
+    } catch (e) {
+      console.error("⚠️ WARNING limpiando rejection_reason:", e.message);
+    }
+
     res.json(result.rows[0]);
 
   } catch (err) {
