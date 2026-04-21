@@ -210,7 +210,7 @@ const getPendingKyc = async (req, res) => {
 //
 const approveKyc = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const userId = req.params.id;
 
     await pool.query(
       `UPDATE users
