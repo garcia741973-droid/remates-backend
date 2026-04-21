@@ -35,27 +35,50 @@ exports.createUser = async (req, res) => {
       return res.status(400).json({ error: 'Rol inválido' });
     }
 
+    // 🔥 VALIDAR EMAIL DUPLICADO
+    const exists = await pool.query(
+      `SELECT id FROM users WHERE email = $1`,
+      [email]
+    );
+
+    if (exists.rows.length > 0) {
+      return res.status(400).json({ error: 'Email ya registrado' });
+    }
+
     const hash = await bcrypt.hash(password, 10);
 
-    // 🔥 SI ES CLIENTE → APROBADO AUTOMÁTICO
+    // 🔥 AUTO KYC SI ES CLIENTE
     const kycStatus = role === 'client' ? 'approved' : 'not_started';
     const kycLevel = role === 'client' ? 2 : 0;
 
     const userResult = await pool.query(
       `
       INSERT INTO users (
-        company_id, name, email, password, 
+        company_id, name, email, password,
+        full_name, phone, document_number, document_type,
         kyc_status, kyc_level, kyc_verified_at
       )
-      VALUES ($1,$2,$3,$4,$5,$6,${role === 'client' ? 'now()' : 'NULL'})
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
       RETURNING id
       `,
-      [company_id, name, email, hash, kycStatus, kycLevel]
+      [
+        company_id,
+        name,
+        email,
+        hash,
+        full_name || null,
+        phone || null,
+        document_number || null,
+        document_type || null,
+        kycStatus,
+        kycLevel,
+        role === 'client' ? new Date() : null
+      ]
     );
 
     const userId = userResult.rows[0].id;
 
-    // 🔗 RELACIÓN EMPRESA (YA LO TENÍAS BIEN)
+    // 🔗 RELACIÓN EMPRESA
     await pool.query(
       `
       INSERT INTO user_companies (user_id, company_id, role)
@@ -64,7 +87,7 @@ exports.createUser = async (req, res) => {
       [userId, company_id, role]
     );
 
-    // 🔥 SI ES CLIENTE → CREAR KYC COMPLETO
+    // 🔥 CREAR / ACTUALIZAR KYC SI ES CLIENTE
     if (role === 'client') {
       await pool.query(
         `
@@ -74,17 +97,29 @@ exports.createUser = async (req, res) => {
           submitted_at, reviewed_at
         )
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now(), now())
+        ON CONFLICT (user_id) DO UPDATE SET
+          full_name = EXCLUDED.full_name,
+          document_number = EXCLUDED.document_number,
+          document_type = EXCLUDED.document_type,
+          phone = EXCLUDED.phone,
+          country = EXCLUDED.country,
+          city = EXCLUDED.city,
+          address = EXCLUDED.address,
+          nit = EXCLUDED.nit,
+          client_type = EXCLUDED.client_type,
+          submitted_at = now(),
+          reviewed_at = now()
         `,
         [
           userId,
-          full_name || '',
-          document_number || '',
-          document_type || '',
-          phone || '',
-          country || '',
-          city || '',
-          address || '',
-          nit || '',
+          full_name || null,
+          document_number || null,
+          document_type || null,
+          phone || null,
+          country || null,
+          city || null,
+          address || null,
+          nit || null,
           client_type || 'ganadero'
         ]
       );
@@ -132,7 +167,6 @@ exports.getUsers = async (req, res) => {
 };
 
 // ✏️ EDITAR USUARIO
-
 exports.updateUser = async (req, res) => {
   try {
     const { id } = req.params;
@@ -148,7 +182,6 @@ exports.updateUser = async (req, res) => {
 
     const { company_id } = req.user;
 
-    // 🔒 validar pertenencia a la empresa
     const check = await pool.query(
       `SELECT 1 FROM user_companies WHERE user_id = $1 AND company_id = $2`,
       [id, company_id]
@@ -158,7 +191,6 @@ exports.updateUser = async (req, res) => {
       return res.status(403).json({ error: 'No autorizado' });
     }
 
-    // ✏️ actualizar datos base
     await pool.query(
       `
       UPDATE users
@@ -182,7 +214,6 @@ exports.updateUser = async (req, res) => {
       ]
     );
 
-    // 🔐 password opcional
     if (password && password.trim() !== '') {
       const hash = await bcrypt.hash(password, 10);
 
@@ -200,14 +231,12 @@ exports.updateUser = async (req, res) => {
   }
 };
 
-
 // 🗑 ELIMINAR USUARIO
 exports.deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
     const { company_id } = req.user;
 
-    // validar pertenencia
     const check = await pool.query(
       `SELECT * FROM user_companies WHERE user_id = $1 AND company_id = $2`,
       [id, company_id]
@@ -217,7 +246,6 @@ exports.deleteUser = async (req, res) => {
       return res.status(403).json({ error: 'No autorizado' });
     }
 
-    // borrar relación
     await pool.query(
       `DELETE FROM user_companies WHERE user_id = $1 AND company_id = $2`,
       [id, company_id]
