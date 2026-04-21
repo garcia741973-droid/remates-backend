@@ -53,7 +53,17 @@ exports.getUsers = async (req, res) => {
 
     const result = await pool.query(
       `
-      SELECT u.id, u.name, u.email, uc.role, u.kyc_status
+      SELECT 
+        u.id,
+        u.name,
+        u.full_name,
+        u.email,
+        u.phone,
+        u.document_number,
+        u.document_type,
+        u.kyc_status,
+        u.kyc_level,
+        uc.role
       FROM users u
       JOIN user_companies uc ON uc.user_id = u.id
       WHERE uc.company_id = $1
@@ -65,20 +75,31 @@ exports.getUsers = async (req, res) => {
     res.json(result.rows);
 
   } catch (error) {
-    res.status(500).json({ error: 'Error' });
+    console.error('ERROR GET USERS:', error);
+    res.status(500).json({ error: 'Error obteniendo usuarios' });
   }
 };
 
 // ✏️ EDITAR USUARIO
+
 exports.updateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, role } = req.body;
+    const {
+      name,
+      full_name,
+      email,
+      phone,
+      document_number,
+      document_type,
+      password,
+    } = req.body;
+
     const { company_id } = req.user;
 
-    // validar pertenencia
+    // 🔒 validar pertenencia a la empresa
     const check = await pool.query(
-      `SELECT * FROM user_companies WHERE user_id = $1 AND company_id = $2`,
+      `SELECT 1 FROM user_companies WHERE user_id = $1 AND company_id = $2`,
       [id, company_id]
     );
 
@@ -86,22 +107,44 @@ exports.updateUser = async (req, res) => {
       return res.status(403).json({ error: 'No autorizado' });
     }
 
-    // actualizar datos
+    // ✏️ actualizar datos base
     await pool.query(
-      `UPDATE users SET name = $1, email = $2 WHERE id = $3`,
-      [name, email, id]
+      `
+      UPDATE users
+      SET 
+        name = $1,
+        full_name = $2,
+        email = $3,
+        phone = $4,
+        document_number = $5,
+        document_type = $6
+      WHERE id = $7
+      `,
+      [
+        name,
+        full_name,
+        email,
+        phone,
+        document_number,
+        document_type,
+        id,
+      ]
     );
 
-    // actualizar rol
-    await pool.query(
-      `UPDATE user_companies SET role = $1 WHERE user_id = $2 AND company_id = $3`,
-      [role, id, company_id]
-    );
+    // 🔐 password opcional
+    if (password && password.trim() !== '') {
+      const hash = await bcrypt.hash(password, 10);
 
-    res.json({ message: 'Usuario actualizado' });
+      await pool.query(
+        `UPDATE users SET password = $1 WHERE id = $2`,
+        [hash, id]
+      );
+    }
+
+    res.json({ message: 'Usuario actualizado correctamente' });
 
   } catch (error) {
-    console.error(error);
+    console.error('ERROR UPDATE USER:', error);
     res.status(500).json({ error: 'Error actualizando usuario' });
   }
 };
