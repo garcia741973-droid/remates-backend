@@ -68,3 +68,71 @@ exports.getUsers = async (req, res) => {
     res.status(500).json({ error: 'Error' });
   }
 };
+
+// ✏️ EDITAR USUARIO
+exports.updateUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, email, role } = req.body;
+    const { company_id } = req.user;
+
+    // validar pertenencia
+    const check = await pool.query(
+      `SELECT * FROM user_companies WHERE user_id = $1 AND company_id = $2`,
+      [id, company_id]
+    );
+
+    if (check.rows.length === 0) {
+      return res.status(403).json({ error: 'No autorizado' });
+    }
+
+    // actualizar datos
+    await pool.query(
+      `UPDATE users SET name = $1, email = $2 WHERE id = $3`,
+      [name, email, id]
+    );
+
+    // actualizar rol
+    await pool.query(
+      `UPDATE user_companies SET role = $1 WHERE user_id = $2 AND company_id = $3`,
+      [role, id, company_id]
+    );
+
+    res.json({ message: 'Usuario actualizado' });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error actualizando usuario' });
+  }
+};
+
+
+// 🗑 ELIMINAR USUARIO
+exports.deleteUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { company_id } = req.user;
+
+    // validar pertenencia
+    const check = await pool.query(
+      `SELECT * FROM user_companies WHERE user_id = $1 AND company_id = $2`,
+      [id, company_id]
+    );
+
+    if (check.rows.length === 0) {
+      return res.status(403).json({ error: 'No autorizado' });
+    }
+
+    // borrar relación
+    await pool.query(
+      `DELETE FROM user_companies WHERE user_id = $1 AND company_id = $2`,
+      [id, company_id]
+    );
+
+    res.json({ message: 'Usuario eliminado de la empresa' });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error eliminando usuario' });
+  }
+};
