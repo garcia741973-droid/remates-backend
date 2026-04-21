@@ -3,7 +3,24 @@ const { pool } = require('../config/db');
 
 exports.createUser = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const {
+      name,
+      email,
+      password,
+      role,
+
+      // 🔥 CAMPOS KYC (solo si es cliente)
+      full_name,
+      document_number,
+      document_type,
+      phone,
+      country,
+      city,
+      address,
+      nit,
+      client_type
+    } = req.body;
+
     const { company_id } = req.user;
 
     const allowedRoles = [
@@ -20,17 +37,25 @@ exports.createUser = async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10);
 
+    // 🔥 SI ES CLIENTE → APROBADO AUTOMÁTICO
+    const kycStatus = role === 'client' ? 'approved' : 'not_started';
+    const kycLevel = role === 'client' ? 2 : 0;
+
     const userResult = await pool.query(
       `
-      INSERT INTO users (company_id, name, email, password, kyc_status)
-      VALUES ($1,$2,$3,$4,'not_started')
+      INSERT INTO users (
+        company_id, name, email, password, 
+        kyc_status, kyc_level, kyc_verified_at
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,${role === 'client' ? 'now()' : 'NULL'})
       RETURNING id
       `,
-      [company_id, name, email, hash]
+      [company_id, name, email, hash, kycStatus, kycLevel]
     );
 
     const userId = userResult.rows[0].id;
 
+    // 🔗 RELACIÓN EMPRESA (YA LO TENÍAS BIEN)
     await pool.query(
       `
       INSERT INTO user_companies (user_id, company_id, role)
@@ -39,7 +64,33 @@ exports.createUser = async (req, res) => {
       [userId, company_id, role]
     );
 
-    res.json({ message: 'Usuario creado' });
+    // 🔥 SI ES CLIENTE → CREAR KYC COMPLETO
+    if (role === 'client') {
+      await pool.query(
+        `
+        INSERT INTO user_kyc (
+          user_id, full_name, document_number, document_type,
+          phone, country, city, address, nit, client_type,
+          submitted_at, reviewed_at
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now(), now())
+        `,
+        [
+          userId,
+          full_name || '',
+          document_number || '',
+          document_type || '',
+          phone || '',
+          country || '',
+          city || '',
+          address || '',
+          nit || '',
+          client_type || 'ganadero'
+        ]
+      );
+    }
+
+    res.json({ message: 'Usuario creado correctamente' });
 
   } catch (error) {
     console.error(error);
