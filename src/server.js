@@ -88,3 +88,6 @@ app.use('/operator', operatorRoutes);
 app.use('/company', companyRoutes);
 
 app.use('/kyc', kycRoutes);
+
+const adminRoutes = require('./routes/adminRoutes');
+app.use('/admin', adminRoutes);
