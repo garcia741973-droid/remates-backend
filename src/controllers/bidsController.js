@@ -9,20 +9,21 @@ exports.placeBid = async (req, res) => {
 
     await client.query('BEGIN');
 
-    // 🔒 1. VALIDACIÓN KYC
-    const userResult = await client.query(
-      `SELECT kyc_status FROM users WHERE id = $1`,
-      [user.user_id]
-    );
-
-    const dbUser = userResult.rows[0];
-
-    // 🔒 1. VALIDACIÓN KYC (SOLO CLIENTES)
+    // 🔒 1. VALIDACIÓN KYC POR EMPRESA
     if (user.role === 'client') {
-      if (!dbUser || dbUser.kyc_status !== 'approved') {
+
+      const kycResult = await client.query(
+        `SELECT kyc_status FROM user_companies
+        WHERE user_id = $1 AND company_id = $2`,
+        [user.user_id, user.company_id]
+      );
+
+      const kyc = kycResult.rows[0];
+
+      if (!kyc || kyc.kyc_status !== 'approved') {
         await client.query('ROLLBACK');
         return res.status(403).json({
-          error: 'Debes completar y aprobar tu verificación para pujar'
+          error: 'Debes estar aprobado en esta empresa para pujar'
         });
       }
     }

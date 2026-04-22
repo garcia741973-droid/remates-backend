@@ -12,7 +12,6 @@ const getMyKyc = async (req, res) => {
       [userId]
     );
 
-    // 🔥 SI NO EXISTE → CREAR BASE
     if (result.rows.length === 0) {
       const insert = await pool.query(
         `INSERT INTO user_kyc (user_id, created_at)
@@ -40,9 +39,6 @@ const getMyKyc = async (req, res) => {
 const updateKyc = async (req, res) => {
   try {
     const userId = req.user.user_id;
-
-    console.log("🟡 UPDATE KYC USER:", userId);
-    console.log("🟡 UPDATE KYC BODY:", req.body);
 
     const {
       full_name,
@@ -81,29 +77,29 @@ const updateKyc = async (req, res) => {
       ]
     );
 
-    // 🔥 UPDATE USERS (PROTEGIDO)
-    try {
-      await pool.query(
-        `UPDATE users 
-         SET kyc_status = 'incomplete'
-         WHERE id = $1`,
-        [userId]
-      );
-    } catch (e) {
-      console.error("⚠️ WARNING updating users.kyc_status:", e.message);
-    }
+    // 🔥 GLOBAL
+    await pool.query(
+      `UPDATE users 
+       SET kyc_status = 'incomplete'
+       WHERE id = $1`,
+      [userId]
+    );
 
-    // 🔥 LIMPIAR RECHAZO CUANDO USUARIO CORRIGE
-    try {
-      await pool.query(
-        `UPDATE user_kyc
-        SET rejection_reason = null
-        WHERE user_id = $1`,
-        [userId]
-      );
-    } catch (e) {
-      console.error("⚠️ WARNING limpiando rejection_reason:", e.message);
-    }
+    // 🔥 EMPRESA (FIX)
+    await pool.query(
+      `UPDATE user_companies
+       SET kyc_status = 'incomplete'
+       WHERE user_id = $1 AND company_id = $2`,
+      [userId, req.user.company_id]
+    );
+
+    // 🔥 LIMPIAR RECHAZO
+    await pool.query(
+      `UPDATE user_kyc
+       SET rejection_reason = null
+       WHERE user_id = $1`,
+      [userId]
+    );
 
     res.json(result.rows[0]);
 
@@ -181,11 +177,20 @@ const submitKyc = async (req, res) => {
       [userId]
     );
 
+    // 🔥 GLOBAL
     await pool.query(
       `UPDATE users
        SET kyc_status = 'submitted'
        WHERE id = $1`,
       [userId]
+    );
+
+    // 🔥 EMPRESA (FIX)
+    await pool.query(
+      `UPDATE user_companies
+       SET kyc_status = 'submitted'
+       WHERE user_id = $1 AND company_id = $2`,
+      [userId, req.user.company_id]
     );
 
     res.json({ ok: true });
@@ -201,7 +206,7 @@ const submitKyc = async (req, res) => {
 //
 const getPendingKyc = async (req, res) => {
   try {
-const result = await pool.query(
+    const result = await pool.query(
       `
       SELECT 
         u.id,
@@ -212,7 +217,9 @@ const result = await pool.query(
       JOIN users u ON u.id = uc.user_id
       JOIN user_kyc k ON k.user_id = u.id
       WHERE uc.company_id = $1
-        AND uc.kyc_status = 'not_started'
+        AND u.role = 'client'
+        AND k.submitted_at IS NOT NULL
+        AND (uc.kyc_status IS NULL OR uc.kyc_status != 'approved')
       ORDER BY k.submitted_at DESC
       `,
       [req.user.company_id]
@@ -233,29 +240,21 @@ const approveKyc = async (req, res) => {
   try {
     const userId = req.params.userId;
 
-    console.log("✅ APROBANDO USER:", userId);
-
-    // 🔥 UPDATE USERS
-    const updateUser = await pool.query(
+    await pool.query(
       `UPDATE user_companies
-      SET kyc_status = 'approved',
-          kyc_level = 2,
-          kyc_verified_at = now()
-      WHERE user_id = $1 AND company_id = $2`,
+       SET kyc_status = 'approved',
+           kyc_level = 2,
+           kyc_verified_at = now()
+       WHERE user_id = $1 AND company_id = $2`,
       [userId, req.user.company_id]
     );
 
-    console.log("🟢 UPDATE USERS:", updateUser.rowCount);
-
-    // 🔥 UPDATE KYC
-    const updateKyc = await pool.query(
+    await pool.query(
       `UPDATE user_kyc
        SET reviewed_at = now()
        WHERE user_id = $1`,
       [userId]
     );
-
-    console.log("🟢 UPDATE KYC:", updateKyc.rowCount);
 
     res.json({ ok: true });
 
@@ -289,7 +288,6 @@ const getKycByUser = async (req, res) => {
   }
 };
 
-
 //
 // 🧠 ADMIN: REJECT
 //
@@ -300,8 +298,8 @@ const rejectKyc = async (req, res) => {
 
     await pool.query(
       `UPDATE user_companies
-      SET kyc_status = 'rejected'
-      WHERE user_id = $1 AND company_id = $2`,
+       SET kyc_status = 'rejected'
+       WHERE user_id = $1 AND company_id = $2`,
       [userId, req.user.company_id]
     );
 
