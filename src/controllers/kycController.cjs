@@ -201,12 +201,21 @@ const submitKyc = async (req, res) => {
 //
 const getPendingKyc = async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT u.id, u.email, u.kyc_status, k.*
-       FROM users u
-       JOIN user_kyc k ON u.id = k.user_id
-       WHERE u.kyc_status = 'submitted'
-       ORDER BY k.submitted_at DESC`
+const result = await pool.query(
+      `
+      SELECT 
+        u.id,
+        u.email,
+        uc.kyc_status,
+        k.*
+      FROM user_companies uc
+      JOIN users u ON u.id = uc.user_id
+      JOIN user_kyc k ON k.user_id = u.id
+      WHERE uc.company_id = $1
+        AND uc.kyc_status = 'not_started'
+      ORDER BY k.submitted_at DESC
+      `,
+      [req.user.company_id]
     );
 
     res.json(result.rows);
@@ -228,12 +237,12 @@ const approveKyc = async (req, res) => {
 
     // 🔥 UPDATE USERS
     const updateUser = await pool.query(
-      `UPDATE users
-       SET kyc_level = 2,
-           kyc_status = 'approved',
-           kyc_verified_at = now()
-       WHERE id = $1`,
-      [userId]
+      `UPDATE user_companies
+      SET kyc_status = 'approved',
+          kyc_level = 2,
+          kyc_verified_at = now()
+      WHERE user_id = $1 AND company_id = $2`,
+      [userId, req.user.company_id]
     );
 
     console.log("🟢 UPDATE USERS:", updateUser.rowCount);
@@ -290,10 +299,10 @@ const rejectKyc = async (req, res) => {
     const { reason } = req.body;
 
     await pool.query(
-      `UPDATE users
-       SET kyc_status = 'rejected'
-       WHERE id = $1`,
-      [userId]
+      `UPDATE user_companies
+      SET kyc_status = 'rejected'
+      WHERE user_id = $1 AND company_id = $2`,
+      [userId, req.user.company_id]
     );
 
     await pool.query(

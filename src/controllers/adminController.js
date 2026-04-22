@@ -9,7 +9,6 @@ exports.createUser = async (req, res) => {
       password,
       role,
 
-      // 🔥 CAMPOS KYC (solo si es cliente)
       full_name,
       document_number,
       document_type,
@@ -35,19 +34,51 @@ exports.createUser = async (req, res) => {
       return res.status(400).json({ error: 'Rol inválido' });
     }
 
-    // 🔥 VALIDAR EMAIL DUPLICADO
-    const exists = await pool.query(
-      `SELECT id FROM users WHERE email = $1`,
+    // 🔍 BUSCAR USUARIO EXISTENTE
+    const existingUser = await pool.query(
+      `SELECT * FROM users WHERE email = $1`,
       [email]
     );
 
-    if (exists.rows.length > 0) {
-      return res.status(400).json({ error: 'Email ya registrado' });
+    if (existingUser.rows.length > 0) {
+      const user = existingUser.rows[0];
+
+      // 🔍 verificar si ya pertenece a la empresa
+      const checkRelation = await pool.query(
+        `SELECT * FROM user_companies 
+         WHERE user_id = $1 AND company_id = $2`,
+        [user.id, company_id]
+      );
+
+      if (checkRelation.rows.length === 0) {
+        // 🔥 CREAR RELACIÓN + KYC EMPRESA
+        await pool.query(
+          `INSERT INTO user_companies (
+            user_id, company_id, role,
+            kyc_status, kyc_level, kyc_verified_at
+          )
+          VALUES ($1,$2,$3,$4,$5,$6)`,
+          [
+            user.id,
+            company_id,
+            role,
+            role === 'client' ? 'approved' : 'not_started',
+            role === 'client' ? 2 : 0,
+            role === 'client' ? new Date() : null
+          ]
+        );
+      }
+
+      return res.json({
+        message: 'Usuario existente vinculado a la empresa',
+        user_id: user.id
+      });
     }
 
+    // 🔐 HASH PASSWORD
     const hash = await bcrypt.hash(password, 10);
 
-    // 🔥 AUTO KYC SI ES CLIENTE
+    // 🔥 AUTO KYC GLOBAL
     const kycStatus = role === 'client' ? 'approved' : 'not_started';
     const kycLevel = role === 'client' ? 2 : 0;
 
@@ -78,16 +109,26 @@ exports.createUser = async (req, res) => {
 
     const userId = userResult.rows[0].id;
 
-    // 🔗 RELACIÓN EMPRESA
+    // 🔗 RELACIÓN EMPRESA + KYC EMPRESA
     await pool.query(
       `
-      INSERT INTO user_companies (user_id, company_id, role)
-      VALUES ($1,$2,$3)
+      INSERT INTO user_companies (
+        user_id, company_id, role,
+        kyc_status, kyc_level, kyc_verified_at
+      )
+      VALUES ($1,$2,$3,$4,$5,$6)
       `,
-      [userId, company_id, role]
+      [
+        userId,
+        company_id,
+        role,
+        role === 'client' ? 'approved' : 'not_started',
+        role === 'client' ? 2 : 0,
+        role === 'client' ? new Date() : null
+      ]
     );
 
-    // 🔥 CREAR / ACTUALIZAR KYC SI ES CLIENTE
+    // 🔥 CREAR KYC GLOBAL
     if (role === 'client') {
       await pool.query(
         `
