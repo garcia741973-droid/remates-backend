@@ -91,3 +91,6 @@ app.use('/kyc', kycRoutes);
 
 const adminRoutes = require('./routes/adminRoutes');
 app.use('/admin', adminRoutes);
+
+const sellerRoutes = require('./routes/sellerRoutes.cjs');
+app.use('/seller', sellerRoutes);
