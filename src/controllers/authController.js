@@ -35,6 +35,24 @@ exports.login = async (req, res) => {
       return res.status(400).json({ error: 'Password incorrecto' });
     }
 
+    /// 🔴 SUPER ADMIN (SIN EMPRESA)
+    if (user.role === 'super_admin') {
+
+      const token = jwt.sign(
+        {
+          user_id: user.id,
+          role: user.role,
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      return res.json({
+        token,
+        role: user.role,
+      });
+    }    
+
     // 🔥 VALIDAR QUE EL USUARIO PERTENECE A ESA EMPRESA
     const companyCheck = await pool.query(
       `
