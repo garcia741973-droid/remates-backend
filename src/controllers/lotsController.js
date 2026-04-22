@@ -62,16 +62,7 @@ exports.createLot = async (req, res) => {
 
     const count = parseInt(countResult.rows[0].count) + 1;
 
-    const companyResult = await pool.query(
-      `SELECT name FROM companies WHERE id = $1`,
-      [company_id]
-    );
-
-    const prefix = (companyResult.rows[0]?.name || 'LOT')
-      .substring(0, 3)
-      .toUpperCase();
-
-    const lot_number = `${prefix}-${count.toString().padStart(4, '0')}`;
+    const lot_number = count;
 
     /// 🔥 INSERT FINAL
     const { rows } = await pool.query(
