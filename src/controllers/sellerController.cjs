@@ -1,10 +1,7 @@
-const express = require("express");
-const router = express.Router();
-const { requireAuth } = require("../middlewares/authMiddleware");
 const { pool } = require("../config/db");
 
 /// 🟢 SOLICITAR SER VENDEDOR
-router.post("/request", requireAuth, async (req, res) => {
+exports.requestSeller = async (req, res) => {
   try {
     const userId = req.user.id;
 
@@ -25,6 +22,4 @@ router.post("/request", requireAuth, async (req, res) => {
     console.error(error);
     res.status(500).json({ error: "Error al solicitar vendedor" });
   }
-});
-
-module.exports = router;
+};
