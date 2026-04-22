@@ -10,4 +10,12 @@ const { approveSeller } = require("../controllers/sellerController.cjs");
 
 router.post("/approve/:userId", requireAuth, approveSeller);
 
+const {
+  getPendingSellers,
+  approveSeller
+} = require("../controllers/sellerController.cjs");
+
+router.get("/pending", requireAuth, getPendingSellers);
+router.post("/approve/:id", requireAuth, approveSeller);
+
 module.exports = router;
