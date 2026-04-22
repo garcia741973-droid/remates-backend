@@ -29,8 +29,6 @@ exports.createLot = async (req, res) => {
       weight,
       sale_type,
       base_price,
-
-      /// 🆕 UBICACIÓN
       department,
       province,
       municipality
@@ -43,11 +41,21 @@ exports.createLot = async (req, res) => {
       });
     }
 
+    /// 🔴 VALIDACIONES BÁSICAS
+    if (!quantity || Number(quantity) <= 0) {
+      return res.status(400).json({ error: 'Cantidad inválida' });
+    }
+
+    if (!base_price || Number(base_price) <= 0) {
+      return res.status(400).json({ error: 'Precio base inválido' });
+    }
+
     const { rows } = await pool.query(
       `
       INSERT INTO lots 
       (
         company_id,
+        seller_user_id,
         lot_number,
         quantity,
         class,
@@ -60,11 +68,12 @@ exports.createLot = async (req, res) => {
         province,
         municipality
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
       RETURNING *
       `,
       [
         company_id,
+        user_id,
         lot_number,
         quantity,
         lot_class,
@@ -73,9 +82,9 @@ exports.createLot = async (req, res) => {
         sale_type,
         base_price,
         base_price,
-        department,
-        province,
-        municipality
+        department.trim(),
+        province.trim(),
+        municipality.trim()
       ]
     );
 
@@ -93,9 +102,38 @@ exports.getLots = async (req, res) => {
 
     const { rows } = await pool.query(
       `
-      SELECT * FROM lots
-      WHERE company_id = $1
-      ORDER BY created_at DESC
+      SELECT 
+        l.*,
+        u.name as seller_name
+      FROM lots l
+      JOIN users u ON u.id = l.seller_user_id
+      WHERE l.company_id = $1
+      ORDER BY l.created_at DESC
+      `,
+      [company_id]
+    );
+
+    res.json(rows);
+
+  } catch (error) {
+    console.error('ERROR GET LOTS:', error);
+    res.status(500).json({ error: 'Error obteniendo lotes' });
+  }
+};
+
+exports.getLots = async (req, res) => {
+  try {
+    const company_id = req.user.company_id;
+
+    const { rows } = await pool.query(
+      `
+      SELECT 
+        l.*,
+        u.name as seller_name
+      FROM lots l
+      JOIN users u ON u.id = l.seller_user_id
+      WHERE l.company_id = $1
+      ORDER BY l.created_at DESC
       `,
       [company_id]
     );
