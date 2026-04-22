@@ -1,5 +1,3 @@
-const { Pool } = require('pg');
-
 const { pool } = require('../config/db');
 
 exports.createLot = async (req, res) => {
@@ -7,7 +5,7 @@ exports.createLot = async (req, res) => {
     const company_id = req.user.company_id;
     const user_id = req.user.user_id;
 
-    /// 🔴 VALIDAR VENDEDOR APROBADO
+    /// 🔴 VALIDAR VENDEDOR
     const userResult = await pool.query(
       `SELECT seller_status FROM users WHERE id = $1`,
       [user_id]
@@ -22,7 +20,6 @@ exports.createLot = async (req, res) => {
     }
 
     const {
-      lot_number,
       quantity,
       class: lot_class,
       breed,
@@ -31,17 +28,21 @@ exports.createLot = async (req, res) => {
       base_price,
       department,
       province,
-      municipality
+      municipality,
+
+      /// 🔥 NUEVO
+      images,
+      video
     } = req.body;
 
-    /// 🔴 VALIDAR UBICACIÓN
+    /// 🔴 VALIDACIÓN UBICACIÓN
     if (!department || !province || !municipality) {
       return res.status(400).json({
         error: 'Debes seleccionar departamento, provincia y municipio'
       });
     }
 
-    /// 🔴 VALIDACIONES BÁSICAS
+    /// 🔴 VALIDACIONES NUMÉRICAS
     if (!quantity || Number(quantity) <= 0) {
       return res.status(400).json({ error: 'Cantidad inválida' });
     }
@@ -50,6 +51,29 @@ exports.createLot = async (req, res) => {
       return res.status(400).json({ error: 'Precio base inválido' });
     }
 
+    /// 🔥 GENERAR NÚMERO DE LOTE AUTOMÁTICO
+    const countResult = await pool.query(
+      `
+      SELECT COUNT(*) FROM lots
+      WHERE company_id = $1 AND seller_user_id = $2
+      `,
+      [company_id, user_id]
+    );
+
+    const count = parseInt(countResult.rows[0].count) + 1;
+
+    const companyResult = await pool.query(
+      `SELECT name FROM companies WHERE id = $1`,
+      [company_id]
+    );
+
+    const prefix = (companyResult.rows[0]?.name || 'LOT')
+      .substring(0, 3)
+      .toUpperCase();
+
+    const lot_number = `${prefix}-${count.toString().padStart(4, '0')}`;
+
+    /// 🔥 INSERT FINAL
     const { rows } = await pool.query(
       `
       INSERT INTO lots 
@@ -66,9 +90,11 @@ exports.createLot = async (req, res) => {
         current_price,
         department,
         province,
-        municipality
+        municipality,
+        images,
+        video_url
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
       RETURNING *
       `,
       [
@@ -84,43 +110,21 @@ exports.createLot = async (req, res) => {
         base_price,
         department.trim(),
         province.trim(),
-        municipality.trim()
+        municipality.trim(),
+        images || [],
+        video || null
       ]
     );
 
     res.json(rows[0]);
 
   } catch (error) {
-    console.error(error);
+    console.error("ERROR CREATE LOT:", error);
     res.status(500).json({ error: 'Error creando lote' });
   }
 };
 
-exports.getLots = async (req, res) => {
-  try {
-    const company_id = req.user.company_id;
-
-    const { rows } = await pool.query(
-      `
-      SELECT 
-        l.*,
-        u.name as seller_name
-      FROM lots l
-      JOIN users u ON u.id = l.seller_user_id
-      WHERE l.company_id = $1
-      ORDER BY l.created_at DESC
-      `,
-      [company_id]
-    );
-
-    res.json(rows);
-
-  } catch (error) {
-    console.error('ERROR GET LOTS:', error);
-    res.status(500).json({ error: 'Error obteniendo lotes' });
-  }
-};
-
+/// 🔥 SOLO UNA VEZ
 exports.getLots = async (req, res) => {
   try {
     const company_id = req.user.company_id;
