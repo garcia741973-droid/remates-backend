@@ -9,7 +9,8 @@ const {
   submitKyc,
   getPendingKyc,
   approveKyc,
-  rejectKyc
+  rejectKyc,
+  getKycByUser // 🔥 ESTE FALTABA
 } = require("../controllers/kycController.cjs");
 
 const { requireAuth, requireAdmin } = require("../middleware/authMiddleware");
