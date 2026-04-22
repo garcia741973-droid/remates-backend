@@ -56,10 +56,27 @@ exports.getPendingSellers = async (req, res) => {
 
     const result = await pool.query(
       `
-      SELECT id, name, email, phone, created_at
-      FROM users
-      WHERE seller_status = 'pending'
-      ORDER BY created_at DESC
+      SELECT 
+        u.id,
+        u.name,
+        u.email,
+        u.phone,
+        u.kyc_status,
+        u.created_at,
+
+        k.full_name,
+        k.document_number,
+        k.document_type,
+        k.city,
+        k.country,
+        k.address,
+        k.client_type
+
+      FROM users u
+      LEFT JOIN user_kyc k ON k.user_id = u.id
+
+      WHERE u.seller_status = 'pending'
+      ORDER BY u.created_at DESC
       `
     );
 

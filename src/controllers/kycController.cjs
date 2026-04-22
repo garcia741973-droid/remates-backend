@@ -257,6 +257,31 @@ const approveKyc = async (req, res) => {
 };
 
 //
+// 🧠 ADMIN: GET KYC POR USER
+//
+const getKycByUser = async (req, res) => {
+  try {
+    if (req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: "No autorizado" });
+    }
+
+    const { userId } = req.params;
+
+    const result = await pool.query(
+      `SELECT * FROM user_kyc WHERE user_id = $1`,
+      [userId]
+    );
+
+    res.json(result.rows[0] || null);
+
+  } catch (err) {
+    console.error("GET KYC BY USER ERROR:", err);
+    res.status(500).json({ error: "Error obteniendo KYC" });
+  }
+};
+
+
+//
 // 🧠 ADMIN: REJECT
 //
 const rejectKyc = async (req, res) => {
@@ -295,5 +320,6 @@ module.exports = {
   submitKyc,
   getPendingKyc,
   approveKyc,
-  rejectKyc
+  rejectKyc,
+  getKycByUser
 };

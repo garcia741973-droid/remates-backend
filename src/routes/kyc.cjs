@@ -26,4 +26,6 @@ router.get("/pending", requireAuth, requireAdmin, getPendingKyc);
 router.post("/:userId/approve", requireAuth, requireAdmin, approveKyc);
 router.post("/:userId/reject", requireAuth, requireAdmin, rejectKyc);
 
+router.get('/admin/:userId', requireAuth, getKycByUser);
+
 module.exports = router;
