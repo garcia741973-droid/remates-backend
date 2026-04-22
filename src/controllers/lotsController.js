@@ -55,7 +55,7 @@ exports.createLot = async (req, res) => {
     const countResult = await pool.query(
       `
       SELECT COUNT(*) FROM lots
-      WHERE company_id = $1 AND seller_user_id = $2
+      WHERE company_id = $1 AND seller_id = $2
       `,
       [company_id, user_id]
     );
@@ -79,7 +79,7 @@ exports.createLot = async (req, res) => {
       INSERT INTO lots 
       (
         company_id,
-        seller_user_id,
+        seller_id,
         lot_number,
         quantity,
         class,
@@ -135,7 +135,7 @@ exports.getLots = async (req, res) => {
         l.*,
         u.name as seller_name
       FROM lots l
-      JOIN users u ON u.id = l.seller_user_id
+      JOIN users u ON u.id = l.seller_id
       WHERE l.company_id = $1
       ORDER BY l.created_at DESC
       `,
