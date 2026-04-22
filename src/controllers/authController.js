@@ -56,7 +56,7 @@ exports.login = async (req, res) => {
     // 🔥 VALIDAR QUE EL USUARIO PERTENECE A ESA EMPRESA
     const companyCheck = await pool.query(
       `
-      SELECT role, kyc_status FROM user_companies
+      SELECT role FROM user_companies
       WHERE user_id = $1 AND company_id = $2
       `,
       [user.id, company_id]
@@ -67,7 +67,7 @@ exports.login = async (req, res) => {
     }
 
     const role = companyCheck.rows[0].role;
-    const seller_status = user.seller_status; // 🔥 desde users
+    const seller_status = user.seller_status || 'none';
 
     // 🔐 GENERAR TOKEN
     const token = jwt.sign(
