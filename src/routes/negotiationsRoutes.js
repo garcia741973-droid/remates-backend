@@ -8,7 +8,7 @@ const {
   closeNegotiation
 } = require('../controllers/negotiationsController');
 
-const { requireAuth } = require('../middlewares/authMiddleware');
+const { requireAuth } = require('../middleware/authMiddleware');
 
 router.post('/', requireAuth, createNegotiation);
 router.post('/message', requireAuth, sendMessage);
