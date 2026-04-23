@@ -88,10 +88,25 @@ exports.getMessages = async (req, res) => {
 
     const { rows } = await pool.query(
       `
-      SELECT *
-      FROM negotiation_messages
-      WHERE negotiation_id = $1
-      ORDER BY created_at ASC
+      SELECT 
+        nm.*,
+
+        l.id as lot_id,
+        l.class,
+        l.breed,
+        l.weight,
+        l.sale_type,
+        l.base_price,
+        l.quantity as lot_quantity,
+        l.images
+
+      FROM negotiation_messages nm
+
+      JOIN negotiations n ON n.id = nm.negotiation_id
+      JOIN lots l ON l.id = n.lot_id
+
+      WHERE nm.negotiation_id = $1
+      ORDER BY nm.created_at ASC
       `,
       [id]
     );
