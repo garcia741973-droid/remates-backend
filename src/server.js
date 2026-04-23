@@ -97,3 +97,6 @@ app.use('/seller', sellerRoutes);
 
 const superAdminRoutes = require('./routes/superAdminRoutes.cjs');
 app.use('/superadmin', superAdminRoutes);
+
+const negotiationsRoutes = require('./routes/negotiationsRoutes');
+app.use('/negotiations', negotiationsRoutes);
