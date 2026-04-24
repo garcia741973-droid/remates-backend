@@ -1,5 +1,7 @@
 const { pool } = require('../config/db');
 
+const admin = require('firebase-admin');
+
 /// 🔥 CREAR NEGOCIACIÓN
 exports.createNegotiation = async (req, res) => {
   try {
