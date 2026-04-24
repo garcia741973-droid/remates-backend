@@ -161,8 +161,12 @@ exports.saveFcmToken = async (req, res) => {
     }
 
     await pool.query(
-      `UPDATE users SET fcm_token = $1 WHERE id = $2`,
-      [fcm_token, user_id]
+      `
+      INSERT INTO devices (user_id, fcm_token)
+      VALUES ($1, $2)
+      ON CONFLICT (fcm_token) DO NOTHING
+      `,
+      [user_id, fcm_token]
     );
 
     res.json({ message: 'Token guardado' });
