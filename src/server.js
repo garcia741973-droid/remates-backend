@@ -1,3 +1,6 @@
+
+console.log("ENV:", process.env.FIREBASE_SERVICE_ACCOUNT ? "OK" : "NO EXISTE");
+
 require('dotenv').config();
 
 /// 🔥 FIREBASE ADMIN
