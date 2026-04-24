@@ -91,21 +91,25 @@ exports.sendMessage = async (req, res) => {
         ? negotiation.seller_id
         : negotiation.buyer_id;
 
-    /// 🔥 4. OBTENER TOKEN
-    const userRes = await pool.query(
-      `SELECT fcm_token FROM users WHERE id = $1`,
+    /// 🔥 4. OBTENER TOKENS (MULTI DISPOSITIVO)
+    const tokensRes = await pool.query(
+      `
+      SELECT fcm_token 
+      FROM devices 
+      WHERE user_id = $1 AND fcm_token IS NOT NULL
+      `,
       [receiver_id]
     );
 
-    const fcm_token = userRes.rows[0]?.fcm_token;
+    const tokens = tokensRes.rows.map(r => r.fcm_token);
 
     console.log("📲 RECEPTOR:", receiver_id);
-    console.log("📲 TOKEN:", fcm_token);
+    console.log("📲 TOKENS:", tokens);
 
     /// 🔥 5. ENVIAR NOTIFICACIÓN
-    if (fcm_token) {
-      await admin.messaging().send({
-        token: fcm_token,
+    if (tokens.length > 0) {
+      await admin.messaging().sendEachForMulticast({
+        tokens,
 
         notification: {
           title: "Nueva oferta 💰",
@@ -130,9 +134,9 @@ exports.sendMessage = async (req, res) => {
         },
       });
 
-      console.log("🔥 NOTIFICACIÓN ENVIADA");
+      console.log("🔥 NOTIFICACIONES ENVIADAS");
     } else {
-      console.log("⚠️ Usuario sin token");
+      console.log("⚠️ Usuario sin tokens");
     }
 
     /// 🔥 6. RESPUESTA
