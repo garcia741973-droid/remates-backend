@@ -145,3 +145,30 @@ exports.getUser = async (req, res) => {
     res.status(500).json({ error: 'Error obteniendo empresas' });
   }
 };
+
+// 🔥 GUARDAR FCM TOKEN
+exports.saveFcmToken = async (req, res) => {
+  try {
+    const user_id = req.user.user_id;
+    const { fcm_token } = req.body;
+
+    console.log("🔥 GUARDANDO TOKEN...");
+    console.log("👤 USER ID 👉", user_id);
+    console.log("📲 TOKEN 👉", fcm_token);    
+
+    if (!fcm_token) {
+      return res.status(400).json({ error: 'Token requerido' });
+    }
+
+    await pool.query(
+      `UPDATE users SET fcm_token = $1 WHERE id = $2`,
+      [fcm_token, user_id]
+    );
+
+    res.json({ message: 'Token guardado' });
+
+  } catch (error) {
+    console.error('SAVE FCM ERROR:', error);
+    res.status(500).json({ error: 'Error guardando token' });
+  }
+};
