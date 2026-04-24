@@ -62,6 +62,7 @@ exports.sendMessage = async (req, res) => {
       message
     } = req.body;
 
+    /// 🔥 1. GUARDAR MENSAJE
     const { rows } = await pool.query(
       `
       INSERT INTO negotiation_messages
@@ -72,10 +73,71 @@ exports.sendMessage = async (req, res) => {
       [negotiation_id, sender_id, price, quantity, message || null]
     );
 
-    res.json(rows[0]);
+    const newMessage = rows[0];
+
+    /// 🔥 2. OBTENER NEGOCIACIÓN
+    const negRes = await pool.query(
+      `SELECT buyer_id, seller_id FROM negotiations WHERE id = $1`,
+      [negotiation_id]
+    );
+
+    const negotiation = negRes.rows[0];
+
+    /// 🔥 3. DEFINIR RECEPTOR
+    const receiver_id =
+      sender_id === negotiation.buyer_id
+        ? negotiation.seller_id
+        : negotiation.buyer_id;
+
+    /// 🔥 4. OBTENER TOKEN
+    const userRes = await pool.query(
+      `SELECT fcm_token FROM users WHERE id = $1`,
+      [receiver_id]
+    );
+
+    const fcm_token = userRes.rows[0]?.fcm_token;
+
+    console.log("📲 RECEPTOR:", receiver_id);
+    console.log("📲 TOKEN:", fcm_token);
+
+    /// 🔥 5. ENVIAR NOTIFICACIÓN
+    if (fcm_token) {
+      await admin.messaging().send({
+        token: fcm_token,
+
+        notification: {
+          title: "Nueva oferta 💰",
+          body: message || "Tienes una nueva propuesta",
+        },
+
+        data: {
+          type: "negotiation",
+          negotiationId: negotiation_id.toString(),
+        },
+
+        android: {
+          priority: "high",
+        },
+
+        apns: {
+          payload: {
+            aps: {
+              sound: "default",
+            },
+          },
+        },
+      });
+
+      console.log("🔥 NOTIFICACIÓN ENVIADA");
+    } else {
+      console.log("⚠️ Usuario sin token");
+    }
+
+    /// 🔥 6. RESPUESTA
+    res.json(newMessage);
 
   } catch (error) {
-    console.error(error);
+    console.error("❌ ERROR sendMessage:", error);
     res.status(500).json({ error: 'Error enviando mensaje' });
   }
 };
