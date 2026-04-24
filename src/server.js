@@ -1,7 +1,6 @@
+require('dotenv').config();
 
 console.log("ENV:", process.env.FIREBASE_SERVICE_ACCOUNT ? "OK" : "NO EXISTE");
-
-require('dotenv').config();
 
 /// 🔥 FIREBASE ADMIN
 const admin = require('firebase-admin');
@@ -12,6 +11,8 @@ if (!admin.apps.length) {
       JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
     ),
   });
+
+  console.log("🔥 Firebase Admin inicializado");
 }
 
 const express = require('express');
