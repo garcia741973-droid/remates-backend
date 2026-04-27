@@ -145,6 +145,10 @@ exports.sendMessage = async (req, res) => {
 
         android: {
           priority: "high",
+          notification: {
+            channelId: "default",
+            sound: "default",
+          },
         },
 
         apns: {
@@ -229,5 +233,64 @@ exports.closeNegotiation = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error cerrando negociación' });
+  }
+};
+
+/// 🔥 OBTENER NEGOCIACIÓN POR LOTE (PARA ENTRAR)
+exports.getOrCreateNegotiation = async (req, res) => {
+  try {
+    const user_id = req.user.user_id;
+    const { lot_id } = req.body;
+
+    // 🔍 buscar lote
+    const lotRes = await pool.query(
+      `SELECT seller_id FROM lots WHERE id = $1`,
+      [lot_id]
+    );
+
+    if (lotRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Lote no encontrado' });
+    }
+
+    const seller_id = lotRes.rows[0].seller_id;
+
+    // 🔥 buscar negociación existente (buyer o seller)
+    const existing = await pool.query(
+      `
+      SELECT * FROM negotiations
+      WHERE lot_id = $1 
+      AND (buyer_id = $2 OR seller_id = $2)
+      AND status = 'open'
+      `,
+      [lot_id, user_id]
+    );
+
+    if (existing.rows.length > 0) {
+      console.log("♻️ NEGOCIACIÓN EXISTENTE");
+      return res.json(existing.rows[0]);
+    }
+
+    // 🔥 si es vendedor, NO crear
+    if (user_id === seller_id) {
+      return res.status(400).json({
+        error: 'El vendedor no puede crear negociación, solo responder'
+      });
+    }
+
+    // 🔥 crear si es comprador
+    const { rows } = await pool.query(
+      `
+      INSERT INTO negotiations (lot_id, buyer_id, seller_id)
+      VALUES ($1,$2,$3)
+      RETURNING *
+      `,
+      [lot_id, user_id, seller_id]
+    );
+
+    res.json(rows[0]);
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error obteniendo negociación' });
   }
 };

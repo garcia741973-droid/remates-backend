@@ -15,4 +15,6 @@ router.post('/message', requireAuth, sendMessage);
 router.get('/:id/messages', requireAuth, getMessages);
 router.put('/:id/close', requireAuth, closeNegotiation);
 
+router.post('/get-or-create', requireAuth, negotiationsController.getOrCreateNegotiation);
+
 module.exports = router;
