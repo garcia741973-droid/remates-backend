@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 
+const negotiationsController = require('../controllers/negotiationsController');
+
 const {
   createNegotiation,
   sendMessage,
