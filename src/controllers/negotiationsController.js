@@ -20,6 +20,13 @@ exports.createNegotiation = async (req, res) => {
 
     const seller_id = lotRes.rows[0].seller_id;
 
+    // 🔥 EVITAR NEGOCIAR CONSIGO MISMO
+    if (buyer_id === seller_id) {
+      return res.status(400).json({
+        error: 'No puedes negociar contigo mismo'
+      });
+    }    
+
     /// 🔍 VER SI YA EXISTE NEGOCIACIÓN
     const existing = await pool.query(
       `
