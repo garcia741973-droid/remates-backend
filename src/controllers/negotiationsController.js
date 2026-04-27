@@ -85,11 +85,26 @@ exports.sendMessage = async (req, res) => {
 
     const negotiation = negRes.rows[0];
 
+    if (!negotiation) {
+      return res.status(404).json({ error: 'Negociación no encontrada' });
+    }
+
+    console.log("🧠 NEGOTIATION:", negotiation);
+    console.log("🧠 SENDER:", sender_id);
+
     /// 🔥 3. DEFINIR RECEPTOR
-    const receiver_id =
-      sender_id === negotiation.buyer_id
-        ? negotiation.seller_id
-        : negotiation.buyer_id;
+    let receiver_id;
+
+    if (sender_id === negotiation.buyer_id) {
+      receiver_id = negotiation.seller_id;
+    } else if (sender_id === negotiation.seller_id) {
+      receiver_id = negotiation.buyer_id;
+    } else {
+      console.log("❌ ERROR: sender no pertenece a la negociación");
+      return res.status(400).json({ error: 'Usuario inválido en negociación' });
+    }
+
+    console.log("📲 RECEPTOR FINAL:", receiver_id);
 
     /// 🔥 4. OBTENER TOKENS (MULTI DISPOSITIVO)
     const tokensRes = await pool.query(
