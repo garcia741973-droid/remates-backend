@@ -139,55 +139,59 @@ exports.sendMessage = async (req, res) => {
     console.log("📲 RECEPTOR:", receiver_id);
     console.log("📲 TOKENS:", tokens);
 
-    /// 🔥 5. ENVIAR NOTIFICACIÓN
+    // 🔥 5. ENVIAR NOTIFICACIÓN (FIX iOS)
     if (tokens.length > 0) {
-    await admin.messaging().sendEachForMulticast({
-      tokens,
 
-      notification: {
-        title: "Nueva oferta 💰",
-        body: message || "Tienes una nueva propuesta",
-      },
+      for (const token of tokens) {
 
-      data: {
-        type: "negotiation",
-        negotiationId: negotiation_id.toString(),
-        route: "negotiation",
+        console.log("📤 ENVIANDO A TOKEN 👉", token);
 
-        // 🔥 AGREGA ESTO (CLAVE)
-        title: "Nueva oferta 💰",
-        body: message || "Tienes una nueva propuesta",
-      },
+        try {
+          await admin.messaging().send({
+            token: token,
 
-      android: {
-        priority: "high",
-        notification: {
-          channelId: "default",
-          sound: "default",
-          clickAction: "FLUTTER_NOTIFICATION_CLICK"
-        },
-      },
-
-      apns: {
-        headers: {
-          "apns-priority": "10",
-          "apns-push-type": "alert"
-        },
-        payload: {
-          aps: {
-            alert: {
+            notification: {
               title: "Nueva oferta 💰",
               body: message || "Tienes una nueva propuesta",
             },
-            sound: "default",
-            badge: 1,
-            contentAvailable: true
-          },
-        },
-      },
-    });
 
-      console.log("🔥 NOTIFICACIONES ENVIADAS");
+            data: {
+              type: "negotiation",
+              negotiationId: negotiation_id.toString(),
+            },
+
+            android: {
+              priority: "high",
+              notification: {
+                channelId: "default",
+                sound: "default",
+              },
+            },
+
+            apns: {
+              headers: {
+                "apns-priority": "10",
+              },
+              payload: {
+                aps: {
+                  alert: {
+                    title: "Nueva oferta 💰",
+                    body: message || "Tienes una nueva propuesta",
+                  },
+                  sound: "default",
+                  badge: 1,
+                },
+              },
+            },
+          });
+
+          console.log("✅ NOTIFICACIÓN ENVIADA A:", token);
+
+        } catch (err) {
+          console.log("❌ ERROR ENVIANDO A:", token, err);
+        }
+      }
+
     } else {
       console.log("⚠️ Usuario sin tokens");
     }
