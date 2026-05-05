@@ -1,13 +1,19 @@
 require('dotenv').config();
 
-console.log("ENV:", process.env.FIREBASE_SERVICE_ACCOUNT ? "OK" : "NO EXISTE");
+console.log(
+  "ENV FIREBASE:",
+  process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 ? "OK" : "NO EXISTE"
+);
 
 /// 🔥 FIREBASE ADMIN
 const admin = require('firebase-admin');
 
 if (!admin.apps.length) {
   const serviceAccount = JSON.parse(
-    process.env.FIREBASE_SERVICE_ACCOUNT.replace(/\\n/g, '\n')
+    Buffer.from(
+      process.env.FIREBASE_SERVICE_ACCOUNT_BASE64,
+      'base64'
+    ).toString('utf8')
   );
 
   admin.initializeApp({
