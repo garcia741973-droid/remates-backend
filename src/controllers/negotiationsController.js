@@ -300,3 +300,29 @@ exports.getOrCreateNegotiation = async (req, res) => {
     res.status(500).json({ error: 'Error obteniendo negociación' });
   }
 };
+
+/// 🔥 OBTENER MIS NEGOCIACIONES
+exports.getMyNegotiations = async (req, res) => {
+  try {
+    const user_id = req.user.user_id;
+
+    const { rows } = await pool.query(`
+      SELECT 
+        n.*,
+        l.lot_number,
+        l.class,
+        l.breed,
+        l.images
+      FROM negotiations n
+      JOIN lots l ON l.id = n.lot_id
+      WHERE n.buyer_id = $1 OR n.seller_id = $1
+      ORDER BY n.created_at DESC
+    `, [user_id]);
+
+    res.json(rows);
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error obteniendo negociaciones' });
+  }
+};
