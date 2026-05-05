@@ -1,5 +1,4 @@
 const { pool } = require('../config/db');
-
 const admin = require('firebase-admin');
 
 /// 🔥 CREAR NEGOCIACIÓN
@@ -94,6 +93,12 @@ exports.sendMessage = async (req, res) => {
 
     if (!negotiation) {
       return res.status(404).json({ error: 'Negociación no encontrada' });
+    }
+
+    /// 🔥 VALIDACIÓN EXTRA (ANTI BUG)
+    if (negotiation.buyer_id === negotiation.seller_id) {
+      console.log("💥 ERROR: negociación corrupta");
+      return res.status(400).json({ error: 'Negociación inválida' });
     }
 
     console.log("🧠 NEGOTIATION:", negotiation);
@@ -236,6 +241,7 @@ exports.closeNegotiation = async (req, res) => {
   }
 };
 
+
 /// 🔥 OBTENER NEGOCIACIÓN POR LOTE (PARA ENTRAR)
 exports.getOrCreateNegotiation = async (req, res) => {
   try {
@@ -254,12 +260,12 @@ exports.getOrCreateNegotiation = async (req, res) => {
 
     const seller_id = lotRes.rows[0].seller_id;
 
-    // 🔥 buscar negociación existente (buyer o seller)
+    // 🔥 buscar negociación existente SOLO por buyer (FIX)
     const existing = await pool.query(
       `
       SELECT * FROM negotiations
       WHERE lot_id = $1 
-      AND (buyer_id = $2 OR seller_id = $2)
+      AND buyer_id = $2
       AND status = 'open'
       `,
       [lot_id, user_id]
