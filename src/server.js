@@ -16,6 +16,10 @@ if (!admin.apps.length) {
     ).toString('utf8')
   );
 
+  // 🔍 DEBUG CLAVE
+  console.log("🔥 PROJECT ID 👉", serviceAccount.project_id);
+  console.log("🔥 CLIENT EMAIL 👉", serviceAccount.client_email);
+
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
   });
