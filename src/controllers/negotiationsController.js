@@ -312,10 +312,26 @@ exports.getMyNegotiations = async (req, res) => {
         l.lot_number,
         l.class,
         l.breed,
-        l.images
+        l.images,
+
+        nm.message as last_message,
+        nm.price as last_price,
+        nm.created_at as last_message_at
+
       FROM negotiations n
+
       JOIN lots l ON l.id = n.lot_id
+
+      LEFT JOIN LATERAL (
+        SELECT *
+        FROM negotiation_messages
+        WHERE negotiation_id = n.id
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) nm ON true
+
       WHERE n.buyer_id = $1 OR n.seller_id = $1
+
       ORDER BY n.created_at DESC
     `, [user_id]);
 

@@ -3,22 +3,15 @@ const router = express.Router();
 
 const negotiationsController = require('../controllers/negotiationsController');
 
-const {
-  createNegotiation,
-  sendMessage,
-  getMessages,
-  closeNegotiation
-} = require('../controllers/negotiationsController');
-
 const { requireAuth } = require('../middleware/authMiddleware');
 
-router.post('/', requireAuth, createNegotiation);
-router.post('/message', requireAuth, sendMessage);
-router.get('/:id/messages', requireAuth, getMessages);
-router.put('/:id/close', requireAuth, closeNegotiation);
+router.post('/', requireAuth, negotiationsController.createNegotiation);
+router.post('/message', requireAuth, negotiationsController.sendMessage);
+router.get('/:id/messages', requireAuth, negotiationsController.getMessages);
+router.put('/:id/close', requireAuth, negotiationsController.closeNegotiation);
 
 router.post('/get-or-create', requireAuth, negotiationsController.getOrCreateNegotiation);
 
-router.get('/my-negotiations', requireAuth, negotiationController.getMyNegotiations);
+router.get('/my-negotiations', requireAuth, negotiationsController.getMyNegotiations);
 
 module.exports = router;
