@@ -26,6 +26,25 @@ if (!admin.apps.length) {
   });
 
   console.log("🔥 Firebase Admin inicializado");
+
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    projectId: serviceAccount.project_id,
+  });
+
+  console.log("🔥 Firebase Admin inicializado");
+
+  // 🔥 DEBUG REAL FIREBASE AUTH
+  admin.credential
+    .cert(serviceAccount)
+    .getAccessToken()
+    .then(token => {
+      console.log("🔐 ACCESS TOKEN STATUS 👉", token?.access_token ? "OK" : "VACÍO");
+    })
+    .catch(err => {
+      console.log("❌ ERROR ACCESS TOKEN 👉", err);
+    });
+
 }
 
 const express = require('express');
