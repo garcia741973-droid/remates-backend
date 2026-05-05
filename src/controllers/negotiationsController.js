@@ -152,7 +152,7 @@ exports.sendMessage = async (req, res) => {
       data: {
         type: "negotiation",
         negotiationId: negotiation_id.toString(),
-        click_action: "FLUTTER_NOTIFICATION_CLICK"
+        route: "negotiation"
       },
 
       android: {
@@ -160,12 +160,14 @@ exports.sendMessage = async (req, res) => {
         notification: {
           channelId: "default",
           sound: "default",
+          clickAction: "FLUTTER_NOTIFICATION_CLICK"
         },
       },
 
       apns: {
         headers: {
           "apns-priority": "10",
+          "apns-push-type": "alert"
         },
         payload: {
           aps: {
@@ -175,7 +177,7 @@ exports.sendMessage = async (req, res) => {
             },
             sound: "default",
             badge: 1,
-            contentAvailable: true,
+            contentAvailable: true
           },
         },
       },
