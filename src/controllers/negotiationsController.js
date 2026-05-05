@@ -152,7 +152,11 @@ exports.sendMessage = async (req, res) => {
       data: {
         type: "negotiation",
         negotiationId: negotiation_id.toString(),
-        route: "negotiation"
+        route: "negotiation",
+
+        // 🔥 AGREGA ESTO (CLAVE)
+        title: "Nueva oferta 💰",
+        body: message || "Tienes una nueva propuesta",
       },
 
       android: {
