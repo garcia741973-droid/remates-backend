@@ -141,35 +141,45 @@ exports.sendMessage = async (req, res) => {
 
     /// 🔥 5. ENVIAR NOTIFICACIÓN
     if (tokens.length > 0) {
-      await admin.messaging().sendEachForMulticast({
-        tokens,
+    await admin.messaging().sendEachForMulticast({
+      tokens,
 
+      notification: {
+        title: "Nueva oferta 💰",
+        body: message || "Tienes una nueva propuesta",
+      },
+
+      data: {
+        type: "negotiation",
+        negotiationId: negotiation_id.toString(),
+        click_action: "FLUTTER_NOTIFICATION_CLICK"
+      },
+
+      android: {
+        priority: "high",
         notification: {
-          title: "Nueva oferta 💰",
-          body: message || "Tienes una nueva propuesta",
+          channelId: "default",
+          sound: "default",
         },
+      },
 
-        data: {
-          type: "negotiation",
-          negotiationId: negotiation_id.toString(),
+      apns: {
+        headers: {
+          "apns-priority": "10",
         },
-
-        android: {
-          priority: "high",
-          notification: {
-            channelId: "default",
-            sound: "default",
-          },
-        },
-
-        apns: {
-          payload: {
-            aps: {
-              sound: "default",
+        payload: {
+          aps: {
+            alert: {
+              title: "Nueva oferta 💰",
+              body: message || "Tienes una nueva propuesta",
             },
+            sound: "default",
+            badge: 1,
+            contentAvailable: true,
           },
         },
-      });
+      },
+    });
 
       console.log("🔥 NOTIFICACIONES ENVIADAS");
     } else {
