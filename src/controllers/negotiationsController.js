@@ -128,7 +128,13 @@ exports.sendMessage = async (req, res) => {
       [receiver_id]
     );
 
-    const tokens = tokensRes.rows.map(r => r.fcm_token);
+    const tokens = [
+      ...new Set(
+        tokensRes.rows
+          .map(r => r.fcm_token)
+          .filter(t => t && t.length > 0)
+      )
+    ];
 
     console.log("📲 RECEPTOR:", receiver_id);
     console.log("📲 TOKENS:", tokens);
