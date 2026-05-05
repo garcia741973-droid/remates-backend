@@ -22,6 +22,7 @@ if (!admin.apps.length) {
 
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
+    projectId: serviceAccount.project_id, // 🔥 IMPORTANTE
   });
 
   console.log("🔥 Firebase Admin inicializado");
