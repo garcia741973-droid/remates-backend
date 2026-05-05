@@ -171,6 +171,7 @@ exports.sendMessage = async (req, res) => {
             apns: {
               headers: {
                 "apns-priority": "10",
+                "apns-topic": "com.minicore.remates" // 🔥 CLAVE
               },
               payload: {
                 aps: {
