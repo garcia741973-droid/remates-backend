@@ -4,63 +4,156 @@ const admin = require('firebase-admin');
 /// 🔥 CREAR NEGOCIACIÓN
 exports.createNegotiation = async (req, res) => {
   try {
+
     const buyer_id = req.user.user_id;
+
     const { lot_id } = req.body;
 
     /// 🔍 OBTENER LOTE
     const lotRes = await pool.query(
-      `SELECT seller_id FROM lots WHERE id = $1`,
+      `
+      SELECT
+        id,
+        company_id,
+        seller_id,
+        lot_number,
+        class,
+        breed,
+        weight,
+        sale_type,
+        base_price,
+        quantity,
+        images
+      FROM lots
+      WHERE id = $1
+      `,
       [lot_id]
     );
 
     if (lotRes.rows.length === 0) {
-      return res.status(404).json({ error: 'Lote no encontrado' });
+      return res.status(404).json({
+        error: 'Lote no encontrado'
+      });
     }
 
-    const seller_id = lotRes.rows[0].seller_id;
+    const lot = lotRes.rows[0];
 
-    // 🔥 EVITAR NEGOCIAR CONSIGO MISMO
+    const seller_id = lot.seller_id;
+
+    /// 🔥 EVITAR NEGOCIAR CONSIGO MISMO
     if (buyer_id === seller_id) {
       return res.status(400).json({
         error: 'No puedes negociar contigo mismo'
       });
-    }    
+    }
 
     /// 🔍 VER SI YA EXISTE NEGOCIACIÓN
     const existing = await pool.query(
       `
-      SELECT * FROM negotiations
-      WHERE lot_id = $1 AND buyer_id = $2 AND status = 'open'
+      SELECT *
+      FROM negotiations
+      WHERE lot_id = $1
+      AND buyer_id = $2
+      AND status = 'open'
       `,
       [lot_id, buyer_id]
     );
 
     if (existing.rows.length > 0) {
+
+      console.log("♻️ NEGOCIACIÓN EXISTENTE");
+
       return res.json(existing.rows[0]);
     }
 
     /// 🔥 CREAR NUEVA
     const { rows } = await pool.query(
       `
-      INSERT INTO negotiations (lot_id, buyer_id, seller_id)
+      INSERT INTO negotiations (
+        lot_id,
+        buyer_id,
+        seller_id
+      )
       VALUES ($1,$2,$3)
       RETURNING *
       `,
       [lot_id, buyer_id, seller_id]
     );
 
-    res.json(rows[0]);
+    const negotiation = rows[0];
+
+    /// 🔥 CREAR FIRESTORE DOC DESDE EL INICIO
+    await admin.firestore()
+      .collection('companies')
+      .doc(lot.company_id.toString())
+      .collection('negotiations')
+      .doc(negotiation.id.toString())
+      .set({
+
+        negotiation_id: negotiation.id,
+
+        buyer_id: buyer_id,
+
+        seller_id: seller_id,
+
+        company_id: lot.company_id,
+
+        lot_id: lot.id,
+
+        /// 🔥 SNAPSHOT LOTE
+        lot: {
+
+          id: lot.id,
+
+          lot_number: lot.lot_number,
+
+          class: lot.class,
+
+          breed: lot.breed,
+
+          weight: lot.weight,
+
+          sale_type: lot.sale_type,
+
+          base_price: lot.base_price,
+
+          quantity: lot.quantity,
+
+          images: lot.images,
+        },
+
+        participants: [
+          buyer_id,
+          seller_id,
+        ],
+
+        created_at:
+          admin.firestore.FieldValue.serverTimestamp(),
+
+        updated_at:
+          admin.firestore.FieldValue.serverTimestamp(),
+
+      }, { merge: true });
+
+    console.log("🔥 NEGOCIACIÓN CREADA FIRESTORE");
+
+    res.json(negotiation);
 
   } catch (error) {
+
     console.error(error);
-    res.status(500).json({ error: 'Error creando negociación' });
+
+    res.status(500).json({
+      error: 'Error creando negociación'
+    });
   }
 };
 
 
-/// 🔥 ENVIAR MENSAJE (OFERTA / CONTRAOFERTA)
+/// 🔥 ENVIAR MENSAJE
 exports.sendMessage = async (req, res) => {
   try {
+
     const sender_id = req.user.user_id;
 
     const {
@@ -70,35 +163,124 @@ exports.sendMessage = async (req, res) => {
       message
     } = req.body;
 
-    /// 🔥 1. GUARDAR MENSAJE
+    /// 🔥 1. GUARDAR MENSAJE SQL
     const { rows } = await pool.query(
       `
       INSERT INTO negotiation_messages
-      (negotiation_id, sender_id, price, quantity, message)
+      (
+        negotiation_id,
+        sender_id,
+        price,
+        quantity,
+        message
+      )
       VALUES ($1,$2,$3,$4,$5)
       RETURNING *
       `,
-      [negotiation_id, sender_id, price, quantity, message || null]
+      [
+        negotiation_id,
+        sender_id,
+        price,
+        quantity,
+        message || null
+      ]
     );
 
     const newMessage = rows[0];
 
     /// 🔥 2. OBTENER NEGOCIACIÓN
     const negRes = await pool.query(
-      `SELECT buyer_id, seller_id FROM negotiations WHERE id = $1`,
+      `
+      SELECT
+        buyer_id,
+        seller_id
+      FROM negotiations
+      WHERE id = $1
+      `,
       [negotiation_id]
     );
 
     const negotiation = negRes.rows[0];
 
     if (!negotiation) {
-      return res.status(404).json({ error: 'Negociación no encontrada' });
+      return res.status(404).json({
+        error: 'Negociación no encontrada'
+      });
     }
 
-    // 🔥 OBTENER company_id
-    const companyRes = await pool.query(
+    /// 🔥 VALIDACIÓN EXTRA
+    if (
+      negotiation.buyer_id ===
+      negotiation.seller_id
+    ) {
+
+      console.log(
+        "💥 ERROR: negociación corrupta"
+      );
+
+      return res.status(400).json({
+        error: 'Negociación inválida'
+      });
+    }
+
+    console.log(
+      "🧠 NEGOTIATION:",
+      negotiation
+    );
+
+    console.log(
+      "🧠 SENDER:",
+      sender_id
+    );
+
+    /// 🔥 DEFINIR RECEPTOR
+    let receiver_id;
+
+    if (
+      sender_id === negotiation.buyer_id
+    ) {
+
+      receiver_id =
+          negotiation.seller_id;
+
+    } else if (
+      sender_id === negotiation.seller_id
+    ) {
+
+      receiver_id =
+          negotiation.buyer_id;
+
+    } else {
+
+      console.log(
+        "❌ ERROR: sender no pertenece"
+      );
+
+      return res.status(400).json({
+        error:
+          'Usuario inválido en negociación'
+      });
+    }
+
+    console.log(
+      "📲 RECEPTOR FINAL:",
+      receiver_id
+    );
+
+    /// 🔥 OBTENER DATOS COMPLETOS DEL LOTE
+    const lotDataRes = await pool.query(
       `
-      SELECT company_id
+      SELECT
+        id,
+        company_id,
+        lot_number,
+        class,
+        breed,
+        weight,
+        sale_type,
+        base_price,
+        quantity,
+        images
       FROM lots
       WHERE id = (
         SELECT lot_id
@@ -109,51 +291,74 @@ exports.sendMessage = async (req, res) => {
       [negotiation_id]
     );
 
-    const company_id = companyRes.rows[0]?.company_id;
+    const lot = lotDataRes.rows[0];
+
+    const company_id = lot?.company_id;
 
     if (!company_id) {
       return res.status(400).json({
         error: 'Company no encontrada'
       });
-    }    
-
-    /// 🔥 VALIDACIÓN EXTRA (ANTI BUG)
-    if (negotiation.buyer_id === negotiation.seller_id) {
-      console.log("💥 ERROR: negociación corrupta");
-      return res.status(400).json({ error: 'Negociación inválida' });
     }
 
-    console.log("🧠 NEGOTIATION:", negotiation);
-    console.log("🧠 SENDER:", sender_id);
-
-    /// 🔥 3. DEFINIR RECEPTOR
-    let receiver_id;
-
-    if (sender_id === negotiation.buyer_id) {
-      receiver_id = negotiation.seller_id;
-    } else if (sender_id === negotiation.seller_id) {
-      receiver_id = negotiation.buyer_id;
-    } else {
-      console.log("❌ ERROR: sender no pertenece a la negociación");
-      return res.status(400).json({ error: 'Usuario inválido en negociación' });
-    }
-
-    console.log("📲 RECEPTOR FINAL:", receiver_id);
-
-    // 🔥 4. GUARDAR EN FIRESTORE (REALTIME)
-
+    /// 🔥 ACTUALIZAR NEGOCIACIÓN FIRESTORE
     await admin.firestore()
       .collection('companies')
       .doc(company_id.toString())
       .collection('negotiations')
       .doc(negotiation_id.toString())
       .set({
-        buyer_id: negotiation.buyer_id,
-        seller_id: negotiation.seller_id,
+
+        negotiation_id: negotiation_id,
+
+        buyer_id:
+          negotiation.buyer_id,
+
+        seller_id:
+          negotiation.seller_id,
+
         company_id: company_id,
-        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+
+        lot_id: lot?.id,
+
+        /// 🔥 SNAPSHOT LOTE
+        lot: lot ? {
+
+          id: lot.id,
+
+          lot_number:
+            lot.lot_number,
+
+          class: lot.class,
+
+          breed: lot.breed,
+
+          weight: lot.weight,
+
+          sale_type:
+            lot.sale_type,
+
+          base_price:
+            lot.base_price,
+
+          quantity:
+            lot.quantity,
+
+          images: lot.images,
+
+        } : null,
+
+        participants: [
+          negotiation.buyer_id,
+          negotiation.seller_id,
+        ],
+
+        updated_at:
+          admin.firestore.FieldValue.serverTimestamp(),
+
       }, { merge: true });
 
+    /// 🔥 GUARDAR MENSAJE FIRESTORE
     await admin.firestore()
       .collection('companies')
       .doc(company_id.toString())
@@ -162,36 +367,52 @@ exports.sendMessage = async (req, res) => {
       .collection('messages')
       .doc(newMessage.id.toString())
       .set({
+
         id: newMessage.id,
 
-        negotiation_id: negotiation_id,
+        negotiation_id:
+          negotiation_id,
 
         sender_id: sender_id,
+
         receiver_id: receiver_id,
 
         company_id: company_id,
 
+        lot_id: lot?.id,
+
         text: message || '',
 
         price: price || null,
-        quantity: quantity || null,
+
+        quantity:
+          quantity || null,
 
         message_type: 'offer',
 
         is_read: false,
 
-        created_at: admin.firestore.FieldValue.serverTimestamp(),
+        created_at:
+          admin.firestore.FieldValue.serverTimestamp(),
       });
 
-    console.log("🔥 MENSAJE GUARDADO EN FIRESTORE");
+    console.log(
+      "🔥 MENSAJE GUARDADO EN FIRESTORE"
+    );
 
-
-    /// 🔥 6. RESPUESTA
+    /// 🔥 RESPUESTA
     res.json(newMessage);
 
   } catch (error) {
-    console.error("❌ ERROR sendMessage:", error);
-    res.status(500).json({ error: 'Error enviando mensaje' });
+
+    console.error(
+      "❌ ERROR sendMessage:",
+      error
+    );
+
+    res.status(500).json({
+      error: 'Error enviando mensaje'
+    });
   }
 };
 
@@ -199,28 +420,43 @@ exports.sendMessage = async (req, res) => {
 /// 🔥 OBTENER MENSAJES
 exports.getMessages = async (req, res) => {
   try {
+
     const { id } = req.params;
 
     const { rows } = await pool.query(
       `
-      SELECT 
+      SELECT
+
         nm.*,
 
         l.id as lot_id,
+
+        l.lot_number,
+
         l.class,
+
         l.breed,
+
         l.weight,
+
         l.sale_type,
+
         l.base_price,
+
         l.quantity as lot_quantity,
+
         l.images
 
       FROM negotiation_messages nm
 
-      JOIN negotiations n ON n.id = nm.negotiation_id
-      JOIN lots l ON l.id = n.lot_id
+      JOIN negotiations n
+        ON n.id = nm.negotiation_id
+
+      JOIN lots l
+        ON l.id = n.lot_id
 
       WHERE nm.negotiation_id = $1
+
       ORDER BY nm.created_at ASC
       `,
       [id]
@@ -229,8 +465,12 @@ exports.getMessages = async (req, res) => {
     res.json(rows);
 
   } catch (error) {
+
     console.error(error);
-    res.status(500).json({ error: 'Error obteniendo mensajes' });
+
+    res.status(500).json({
+      error: 'Error obteniendo mensajes'
+    });
   }
 };
 
@@ -238,6 +478,7 @@ exports.getMessages = async (req, res) => {
 /// 🔥 CERRAR NEGOCIACIÓN
 exports.closeNegotiation = async (req, res) => {
   try {
+
     const { id } = req.params;
 
     await pool.query(
@@ -249,38 +490,56 @@ exports.closeNegotiation = async (req, res) => {
       [id]
     );
 
-    res.json({ message: 'Negociación cerrada' });
+    res.json({
+      message: 'Negociación cerrada'
+    });
 
   } catch (error) {
+
     console.error(error);
-    res.status(500).json({ error: 'Error cerrando negociación' });
+
+    res.status(500).json({
+      error: 'Error cerrando negociación'
+    });
   }
 };
 
 
-/// 🔥 OBTENER NEGOCIACIÓN POR LOTE (PARA ENTRAR)
+/// 🔥 OBTENER NEGOCIACIÓN POR LOTE
 exports.getOrCreateNegotiation = async (req, res) => {
   try {
-    const user_id = req.user.user_id;
+
+    const user_id =
+        req.user.user_id;
+
     const { lot_id } = req.body;
 
-    // 🔍 buscar lote
+    /// 🔍 BUSCAR LOTE
     const lotRes = await pool.query(
-      `SELECT seller_id FROM lots WHERE id = $1`,
+      `
+      SELECT seller_id
+      FROM lots
+      WHERE id = $1
+      `,
       [lot_id]
     );
 
     if (lotRes.rows.length === 0) {
-      return res.status(404).json({ error: 'Lote no encontrado' });
+
+      return res.status(404).json({
+        error: 'Lote no encontrado'
+      });
     }
 
-    const seller_id = lotRes.rows[0].seller_id;
+    const seller_id =
+        lotRes.rows[0].seller_id;
 
-    // 🔥 buscar negociación existente SOLO por buyer (FIX)
+    /// 🔥 BUSCAR NEGOCIACIÓN EXISTENTE
     const existing = await pool.query(
       `
-      SELECT * FROM negotiations
-      WHERE lot_id = $1 
+      SELECT *
+      FROM negotiations
+      WHERE lot_id = $1
       AND buyer_id = $2
       AND status = 'open'
       `,
@@ -288,21 +547,32 @@ exports.getOrCreateNegotiation = async (req, res) => {
     );
 
     if (existing.rows.length > 0) {
-      console.log("♻️ NEGOCIACIÓN EXISTENTE");
+
+      console.log(
+        "♻️ NEGOCIACIÓN EXISTENTE"
+      );
+
       return res.json(existing.rows[0]);
     }
 
-    // 🔥 si es vendedor, NO crear
+    /// 🔥 VENDEDOR NO CREA
     if (user_id === seller_id) {
+
       return res.status(400).json({
-        error: 'El vendedor no puede crear negociación, solo responder'
+        error:
+          'El vendedor no puede crear negociación'
       });
     }
 
-    // 🔥 crear si es comprador
+    /// 🔥 CREAR
     const { rows } = await pool.query(
       `
-      INSERT INTO negotiations (lot_id, buyer_id, seller_id)
+      INSERT INTO negotiations
+      (
+        lot_id,
+        buyer_id,
+        seller_id
+      )
       VALUES ($1,$2,$3)
       RETURNING *
       `,
@@ -312,49 +582,81 @@ exports.getOrCreateNegotiation = async (req, res) => {
     res.json(rows[0]);
 
   } catch (error) {
+
     console.error(error);
-    res.status(500).json({ error: 'Error obteniendo negociación' });
+
+    res.status(500).json({
+      error:
+        'Error obteniendo negociación'
+    });
   }
 };
+
 
 /// 🔥 OBTENER MIS NEGOCIACIONES
 exports.getMyNegotiations = async (req, res) => {
   try {
-    const user_id = req.user.user_id;
 
-    const { rows } = await pool.query(`
-      SELECT 
+    const user_id =
+        req.user.user_id;
+
+    const { rows } = await pool.query(
+      `
+      SELECT
+
         n.*,
+
         l.lot_number,
+
         l.class,
+
         l.breed,
+
         l.images,
 
         nm.message as last_message,
+
         nm.price as last_price,
+
         nm.created_at as last_message_at
 
       FROM negotiations n
 
-      JOIN lots l ON l.id = n.lot_id
+      JOIN lots l
+        ON l.id = n.lot_id
 
       LEFT JOIN LATERAL (
+
         SELECT *
+
         FROM negotiation_messages
+
         WHERE negotiation_id = n.id
+
         ORDER BY created_at DESC
+
         LIMIT 1
+
       ) nm ON true
 
-      WHERE n.buyer_id = $1 OR n.seller_id = $1
+      WHERE
+        n.buyer_id = $1
+        OR n.seller_id = $1
 
       ORDER BY n.created_at DESC
-    `, [user_id]);
+      `,
+      [user_id]
+    );
 
     res.json(rows);
 
   } catch (error) {
+
     console.error(error);
-    res.status(500).json({ error: 'Error obteniendo negociaciones' });
+
+    res.status(500).json({
+      error:
+        'Error obteniendo negociaciones'
+    });
   }
 };
