@@ -453,13 +453,40 @@ exports.sendMessage = async (req, res) => {
             priority: 'high',
           },
 
-          apns: {
+apns: {
+
+  headers: {
+
+    'apns-priority': '10',
+
+    'apns-push-type': 'alert',
+  },
 
             payload: {
 
               aps: {
 
+                alert: {
+
+                  title: "🐄 Nueva oferta",
+
+                  body:
+                    price
+                      ? `Bs ${price} ${
+                          lot?.sale_type === 'kilo'
+                            ? '/kg'
+                            : '/lote'
+                        }`
+                      : "Tienes un nuevo mensaje",
+                },
+
                 sound: 'default',
+
+                badge: 1,
+
+                contentAvailable: true,
+
+                mutableContent: true,
               },
             },
           },
