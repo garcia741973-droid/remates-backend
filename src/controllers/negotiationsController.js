@@ -416,29 +416,35 @@ exports.sendMessage = async (req, res) => {
 
     console.log("📲 TOKENS:", tokens);
 
+    
     /// 🔥 ENVIAR PUSH
     if (tokens.length > 0) {
 
       try {
 
-          const response =
-            await admin.messaging()
-              .sendEachForMulticast({
+        const notificationTitle =
+          "🐄 Nueva oferta";
 
-          tokens,
+        const notificationBody =
+          price
+            ? `Bs ${price} ${
+                lot?.sale_type === 'kilo'
+                  ? '/kg'
+                  : '/lote'
+              }`
+            : "Tienes un nuevo mensaje";
+
+        const response =
+          await admin.messaging()
+            .sendEachForMulticast({
+
+          tokens: tokens,
 
           notification: {
 
-            title: "🐄 Nueva oferta",
+            title: notificationTitle,
 
-            body:
-              price
-                ? `Bs ${price} ${
-                    lot?.sale_type === 'kilo'
-                      ? '/kg'
-                      : '/lote'
-                  }`
-                : "Tienes un nuevo mensaje",
+            body: notificationBody,
           },
 
           data: {
@@ -452,42 +458,29 @@ exports.sendMessage = async (req, res) => {
           android: {
 
             priority: 'high',
+
+            notification: {
+
+              sound: 'default',
+            },
           },
 
-apns: {
+          apns: {
 
-  headers: {
+            headers: {
 
-    'apns-priority': '10',
+              'apns-priority': '10',
 
-    'apns-push-type': 'alert',
-  },
+              'apns-push-type': 'alert',
+            },
 
             payload: {
 
               aps: {
 
-                alert: {
-
-                  title: "🐄 Nueva oferta",
-
-                  body:
-                    price
-                      ? `Bs ${price} ${
-                          lot?.sale_type === 'kilo'
-                            ? '/kg'
-                            : '/lote'
-                        }`
-                      : "Tienes un nuevo mensaje",
-                },
-
                 sound: 'default',
 
                 badge: 1,
-
-                contentAvailable: true,
-
-                mutableContent: true,
               },
             },
           },
