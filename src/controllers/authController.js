@@ -53,6 +53,29 @@ exports.login = async (req, res) => {
       });
     }    
 
+
+    /// 🔥 SI NO VIENE company_id
+    /// SOLO VALIDAR LOGIN
+    /// Y DEVOLVER EMPRESAS
+
+    if (!company_id) {
+
+      const companiesResult = await pool.query(
+        `
+        SELECT c.id, c.name
+        FROM user_companies uc
+        JOIN companies c ON c.id = uc.company_id
+        WHERE uc.user_id = $1
+        `,
+        [user.id]
+      );
+
+      return res.json({
+        companies: companiesResult.rows,
+      });
+    }
+
+
     // 🔥 VALIDAR QUE EL USUARIO PERTENECE A ESA EMPRESA
     const companyCheck = await pool.query(
       `
@@ -94,59 +117,6 @@ exports.login = async (req, res) => {
   }
 };
 
-
-
-// 🔥 OBTENER EMPRESAS DEL USUARIO (ANTES DEL LOGIN FINAL)
-exports.getUser = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    const userResult = await pool.query(
-      `SELECT * FROM users WHERE email = $1`,
-      [email]
-    );
-
-    const user = userResult.rows[0];
-
-    if (!user) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
-
-    // 🔐 VALIDACIÓN PASSWORD (bcrypt + compatibilidad)
-    let validPassword = false;
-
-    if (user.password && user.password.startsWith('$2b$')) {
-      validPassword = await bcrypt.compare(password, user.password);
-    } else {
-      validPassword = user.password === password;
-    }
-
-    if (!validPassword) {
-      return res.status(400).json({ error: 'Password incorrecto' });
-    }
-
-    // 🔥 TRAER EMPRESAS
-    const companiesResult = await pool.query(
-      `
-      SELECT c.id, c.name
-      FROM user_companies uc
-      JOIN companies c ON c.id = uc.company_id
-      WHERE uc.user_id = $1
-      `,
-      [user.id]
-    );
-
-    res.json({
-      user_id: user.id,
-      companies: companiesResult.rows,
-    });
-
-  } catch (error) {
-    console.error('GET USER ERROR:', error);
-    res.status(500).json({ error: 'Error obteniendo empresas' });
-  }
-};
-
 // 🔥 GUARDAR FCM TOKEN
 exports.saveFcmToken = async (req, res) => {
   try {
@@ -165,7 +135,12 @@ exports.saveFcmToken = async (req, res) => {
       `
       INSERT INTO devices (user_id, fcm_token)
       VALUES ($1, $2)
-      ON CONFLICT (fcm_token) DO NOTHING
+
+      ON CONFLICT (fcm_token)
+
+      DO UPDATE SET
+        user_id = EXCLUDED.user_id,
+        updated_at = NOW()
       `,
       [user_id, fcm_token]
     );
