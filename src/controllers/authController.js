@@ -82,9 +82,10 @@ exports.login = async (req, res) => {
 
     res.json({
       token,
+      user_id: user.id,
       company_id,
       role,
-      seller_status, // 🔥 NUEVO
+      seller_status,
     });
 
   } catch (error) {
