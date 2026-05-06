@@ -160,12 +160,25 @@ exports.sendMessage = async (req, res) => {
       .collection('negotiations')
       .doc(negotiation_id.toString())
       .collection('messages')
-      .add({
+      .doc(newMessage.id.toString())
+      .set({
+        id: newMessage.id,
+
+        negotiation_id: negotiation_id,
+
         sender_id: sender_id,
+        receiver_id: receiver_id,
+
+        company_id: company_id,
+
         text: message || '',
 
         price: price || null,
         quantity: quantity || null,
+
+        message_type: 'offer',
+
+        is_read: false,
 
         created_at: admin.firestore.FieldValue.serverTimestamp(),
       });
