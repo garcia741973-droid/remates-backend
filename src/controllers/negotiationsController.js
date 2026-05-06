@@ -95,6 +95,28 @@ exports.sendMessage = async (req, res) => {
       return res.status(404).json({ error: 'Negociación no encontrada' });
     }
 
+    // 🔥 OBTENER company_id
+    const companyRes = await pool.query(
+      `
+      SELECT company_id
+      FROM lots
+      WHERE id = (
+        SELECT lot_id
+        FROM negotiations
+        WHERE id = $1
+      )
+      `,
+      [negotiation_id]
+    );
+
+    const company_id = companyRes.rows[0]?.company_id;
+
+    if (!company_id) {
+      return res.status(400).json({
+        error: 'Company no encontrada'
+      });
+    }    
+
     /// 🔥 VALIDACIÓN EXTRA (ANTI BUG)
     if (negotiation.buyer_id === negotiation.seller_id) {
       console.log("💥 ERROR: negociación corrupta");
@@ -118,84 +140,38 @@ exports.sendMessage = async (req, res) => {
 
     console.log("📲 RECEPTOR FINAL:", receiver_id);
 
-    /// 🔥 4. OBTENER TOKENS (MULTI DISPOSITIVO)
-    const tokensRes = await pool.query(
-      `
-      SELECT fcm_token 
-      FROM devices 
-      WHERE user_id = $1 AND fcm_token IS NOT NULL
-      `,
-      [receiver_id]
-    );
+    // 🔥 4. GUARDAR EN FIRESTORE (REALTIME)
 
-    const tokens = [
-      ...new Set(
-        tokensRes.rows
-          .map(r => r.fcm_token)
-          .filter(t => t && t.length > 0)
-      )
-    ];
+    await admin.firestore()
+      .collection('companies')
+      .doc(company_id.toString())
+      .collection('negotiations')
+      .doc(negotiation_id.toString())
+      .set({
+        buyer_id: negotiation.buyer_id,
+        seller_id: negotiation.seller_id,
+        company_id: company_id,
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
 
-    console.log("📲 RECEPTOR:", receiver_id);
-    console.log("📲 TOKENS:", tokens);
+    await admin.firestore()
+      .collection('companies')
+      .doc(company_id.toString())
+      .collection('negotiations')
+      .doc(negotiation_id.toString())
+      .collection('messages')
+      .add({
+        sender_id: sender_id,
+        text: message || '',
 
-    // 🔥 5. ENVIAR NOTIFICACIÓN (FIX iOS)
-    if (tokens.length > 0) {
+        price: price || null,
+        quantity: quantity || null,
 
-      for (const token of tokens) {
+        created_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
 
-        console.log("📤 ENVIANDO A TOKEN 👉", token);
+    console.log("🔥 MENSAJE GUARDADO EN FIRESTORE");
 
-        try {
-          await admin.messaging().send({
-            token: token,
-
-            notification: {
-              title: "Nueva oferta 💰",
-              body: message || "Tienes una nueva propuesta",
-            },
-
-            data: {
-              type: "negotiation",
-              negotiationId: negotiation_id.toString(),
-            },
-
-            android: {
-              priority: "high",
-              notification: {
-                channelId: "default",
-                sound: "default",
-              },
-            },
-
-            apns: {
-              headers: {
-                "apns-priority": "10",
-                "apns-topic": "com.minicore.remates" // 🔥 CLAVE
-              },
-              payload: {
-                aps: {
-                  alert: {
-                    title: "Nueva oferta 💰",
-                    body: message || "Tienes una nueva propuesta",
-                  },
-                  sound: "default",
-                  badge: 1,
-                },
-              },
-            },
-          });
-
-          console.log("✅ NOTIFICACIÓN ENVIADA A:", token);
-
-        } catch (err) {
-          console.log("❌ ERROR ENVIANDO A:", token, err);
-        }
-      }
-
-    } else {
-      console.log("⚠️ Usuario sin tokens");
-    }
 
     /// 🔥 6. RESPUESTA
     res.json(newMessage);
