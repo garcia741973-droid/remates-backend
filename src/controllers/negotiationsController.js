@@ -400,6 +400,85 @@ exports.sendMessage = async (req, res) => {
       "🔥 MENSAJE GUARDADO EN FIRESTORE"
     );
 
+    /// 🔥 BUSCAR TOKENS DEL RECEPTOR
+    const tokensRes = await pool.query(
+      `
+      SELECT fcm_token
+      FROM devices
+      WHERE user_id = $1
+      `,
+      [receiver_id]
+    );
+
+    const tokens = tokensRes.rows.map(
+      t => t.fcm_token
+    );
+
+    console.log("📲 TOKENS:", tokens);
+
+    /// 🔥 ENVIAR PUSH
+    if (tokens.length > 0) {
+
+      try {
+
+        await admin.messaging()
+          .sendEachForMulticast({
+
+          tokens,
+
+          notification: {
+
+            title: "🐄 Nueva oferta",
+
+            body:
+              price
+                ? `Bs ${price} ${
+                    lot?.sale_type === 'kilo'
+                      ? '/kg'
+                      : '/lote'
+                  }`
+                : "Tienes un nuevo mensaje",
+          },
+
+          data: {
+
+            negotiationId:
+              negotiation_id.toString(),
+
+            type: 'negotiation',
+          },
+
+          android: {
+
+            priority: 'high',
+          },
+
+          apns: {
+
+            payload: {
+
+              aps: {
+
+                sound: 'default',
+              },
+            },
+          },
+        });
+
+        console.log(
+          "✅ PUSH ENVIADO"
+        );
+
+      } catch (e) {
+
+        console.log(
+          "❌ ERROR PUSH:",
+          e,
+        );
+      }
+    }
+
+
     /// 🔥 RESPUESTA
     res.json(newMessage);
 
