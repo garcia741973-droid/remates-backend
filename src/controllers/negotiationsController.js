@@ -421,8 +421,9 @@ exports.sendMessage = async (req, res) => {
 
       try {
 
-        await admin.messaging()
-          .sendEachForMulticast({
+          const response =
+            await admin.messaging()
+              .sendEachForMulticast({
 
           tokens,
 
@@ -494,6 +495,11 @@ apns: {
 
         console.log(
           "✅ PUSH ENVIADO"
+        );
+
+        console.log(
+          "📲 PUSH RESPONSE:",
+          JSON.stringify(response, null, 2)
         );
 
       } catch (e) {
