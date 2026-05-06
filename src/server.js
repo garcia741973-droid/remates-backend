@@ -127,6 +127,8 @@ app.use('/operator', operatorRoutes);
 
 app.use('/company', companyRoutes);
 
+app.use('/firebase', firebaseRoutes);
+
 app.use('/kyc', kycRoutes);
 
 const adminRoutes = require('./routes/adminRoutes');
@@ -140,3 +142,6 @@ app.use('/superadmin', superAdminRoutes);
 
 const negotiationsRoutes = require('./routes/negotiationsRoutes');
 app.use('/negotiations', negotiationsRoutes);
+
+const companyRoutes = require('./routes/companyRoutes');
+const firebaseRoutes = require('./routes/firebaseRoutes');
