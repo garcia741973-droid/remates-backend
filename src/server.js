@@ -143,5 +143,4 @@ app.use('/superadmin', superAdminRoutes);
 const negotiationsRoutes = require('./routes/negotiationsRoutes');
 app.use('/negotiations', negotiationsRoutes);
 
-const companyRoutes = require('./routes/companyRoutes');
 const firebaseRoutes = require('./routes/firebaseRoutes');
