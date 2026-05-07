@@ -32,15 +32,7 @@ exports.createNegotiation = async (req, res) => {
       WHERE id = $1
       `,
       [lot_id]
-    );
-
-    /// 🔥 BLOQUEAR LOTES VENDIDOS
-    if (lot.status === 'sold') {
-
-      return res.status(400).json({
-        error: 'Este lote ya fue vendido'
-      });
-    }    
+    );   
 
     if (lotRes.rows.length === 0) {
       return res.status(404).json({
@@ -49,6 +41,14 @@ exports.createNegotiation = async (req, res) => {
     }
 
     const lot = lotRes.rows[0];
+
+    /// 🔥 BLOQUEAR LOTES VENDIDOS
+    if (lot.status === 'sold') {
+
+      return res.status(400).json({
+        error: 'Este lote ya fue vendido'
+      });
+    }    
 
     const seller_id = lot.seller_id;
 
@@ -951,9 +951,11 @@ exports.getOrCreateNegotiation = async (req, res) => {
     /// 🔍 BUSCAR LOTE
     const lotRes = await pool.query(
       `
-      SELECT seller_id
-      FROM lots
-      WHERE id = $1
+    SELECT
+      seller_id,
+      status
+    FROM lots
+    WHERE id = $1
       `,
       [lot_id]
     );
@@ -965,8 +967,20 @@ exports.getOrCreateNegotiation = async (req, res) => {
       });
     }
 
+    const lot =
+        lotRes.rows[0];
+
     const seller_id =
-        lotRes.rows[0].seller_id;
+        lot.seller_id;
+
+    /// 🔥 BLOQUEAR LOTES VENDIDOS
+    if (lot.status === 'sold') {
+
+      return res.status(400).json({
+        error:
+          'Este lote ya fue vendido'
+      });
+    }
 
     /// 🔥 BUSCAR NEGOCIACIÓN EXISTENTE
     const existing = await pool.query(

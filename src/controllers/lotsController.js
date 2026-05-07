@@ -128,6 +128,7 @@ exports.getLots = async (req, res) => {
       FROM lots l
       JOIN users u ON u.id = l.seller_id
       WHERE l.company_id = $1
+      AND l.status != 'sold'
       ORDER BY l.created_at DESC
       `,
       [company_id]
