@@ -141,3 +141,44 @@ exports.getLots = async (req, res) => {
     res.status(500).json({ error: 'Error obteniendo lotes' });
   }
 };
+
+/// 🔥 MIS LOTES (VENDEDOR)
+exports.getMyLots = async (req, res) => {
+  try {
+
+    const company_id =
+        req.user.company_id;
+
+    const user_id =
+        req.user.user_id;
+
+    const { rows } = await pool.query(
+      `
+      SELECT
+        *
+      FROM lots
+      WHERE company_id = $1
+      AND seller_id = $2
+      ORDER BY created_at DESC
+      `,
+      [
+        company_id,
+        user_id
+      ]
+    );
+
+    res.json(rows);
+
+  } catch (error) {
+
+    console.error(
+      'ERROR GET MY LOTS:',
+      error
+    );
+
+    res.status(500).json({
+      error:
+        'Error obteniendo mis lotes'
+    });
+  }
+};
