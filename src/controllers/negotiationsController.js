@@ -1,6 +1,9 @@
 const { pool } = require('../config/db');
 const admin = require('firebase-admin');
 
+const cloudinary = require('../config/cloudinary');
+const streamifier = require('streamifier');
+
 /// 🔥 CREAR NEGOCIACIÓN
 exports.createNegotiation = async (req, res) => {
   try {
@@ -416,7 +419,7 @@ exports.sendMessage = async (req, res) => {
 
     console.log("📲 TOKENS:", tokens);
 
-    
+
     /// 🔥 ENVIAR PUSH
     if (tokens.length > 0) {
 
@@ -580,23 +583,92 @@ exports.getMessages = async (req, res) => {
 };
 
 
-/// 🔥 CERRAR NEGOCIACIÓN
+/// 🔥 CERRAR NEGOCIACIÓN → PAGO PENDIENTE
 exports.closeNegotiation = async (req, res) => {
   try {
 
+    const user_id = req.user.user_id;
+
     const { id } = req.params;
 
+    /// 🔥 OBTENER NEGOCIACIÓN
+    const negRes = await pool.query(
+      `
+      SELECT
+        n.*,
+        l.lot_number
+      FROM negotiations n
+      JOIN lots l
+        ON l.id = n.lot_id
+      WHERE n.id = $1
+      `,
+      [id]
+    );
+
+    if (negRes.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Negociación no encontrada'
+      });
+    }
+
+    const negotiation = negRes.rows[0];
+
+    /// 🔥 SOLO VENDEDOR PUEDE CERRAR
+    if (user_id !== negotiation.seller_id) {
+      return res.status(403).json({
+        error: 'Solo el vendedor puede cerrar la venta'
+      });
+    }
+
+    /// 🔥 VALIDAR STATUS
+    if (negotiation.status !== 'open') {
+      return res.status(400).json({
+        error: 'La negociación ya fue procesada'
+      });
+    }
+
+    /// 🔥 OBTENER QR ACTIVO
+    const qrRes = await pool.query(
+      `
+      SELECT *
+      FROM payment_qrs
+      WHERE is_active = true
+      ORDER BY id DESC
+      LIMIT 1
+      `
+    );
+
+    if (qrRes.rows.length === 0) {
+      return res.status(400).json({
+        error: 'No existe QR activo'
+      });
+    }
+
+    const qr = qrRes.rows[0];
+
+    /// 🔥 CAMBIAR ESTADO
     await pool.query(
       `
       UPDATE negotiations
-      SET status = 'agreed'
+      SET status = 'payment_pending'
       WHERE id = $1
       `,
       [id]
     );
 
     res.json({
-      message: 'Negociación cerrada'
+
+      success: true,
+
+      negotiation_id: negotiation.id,
+
+      lot_number: negotiation.lot_number,
+
+      amount: qr.amount,
+
+      qr_image_url: qr.qr_image_url,
+
+      status: 'payment_pending',
     });
 
   } catch (error) {
@@ -609,6 +681,238 @@ exports.closeNegotiation = async (req, res) => {
   }
 };
 
+
+/// 🔥 SUBIR COMPROBANTE Y DESBLOQUEAR CONTACTOS
+exports.uploadPaymentProof = async (req, res) => {
+  try {
+
+    const seller_id = req.user.user_id;
+
+    const { id } = req.params;
+
+    /// 🔥 VALIDAR ARCHIVO
+    if (!req.file) {
+      return res.status(400).json({
+        error: 'Debes subir un comprobante'
+      });
+    }
+
+    /// 🔥 OBTENER NEGOCIACIÓN
+    const negRes = await pool.query(
+      `
+      SELECT *
+      FROM negotiations
+      WHERE id = $1
+      `,
+      [id]
+    );
+
+    if (negRes.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Negociación no encontrada'
+      });
+    }
+
+    const negotiation = negRes.rows[0];
+
+    /// 🔥 VALIDAR VENDEDOR
+    if (negotiation.seller_id !== seller_id) {
+      return res.status(403).json({
+        error: 'No autorizado'
+      });
+    }
+
+    /// 🔥 SUBIR CLOUDINARY
+    const uploadFromBuffer = (buffer) => {
+
+      return new Promise((resolve, reject) => {
+
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            folder: 'negotiation_payments',
+          },
+          (error, result) => {
+
+            if (result) resolve(result);
+
+            else reject(error);
+          }
+        );
+
+        streamifier.createReadStream(buffer)
+          .pipe(stream);
+      });
+    };
+
+    const result = await uploadFromBuffer(req.file.buffer);
+
+    const proof_url = result.secure_url;
+
+    /// 🔥 CREAR PAYMENT
+    await pool.query(
+      `
+      INSERT INTO negotiation_payments
+      (
+        negotiation_id,
+        lot_id,
+        seller_id,
+        buyer_id,
+        amount,
+        proof_url,
+        status,
+        unlocked_at
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+      `,
+      [
+        negotiation.id,
+        negotiation.lot_id,
+        negotiation.seller_id,
+        negotiation.buyer_id,
+        70,
+        proof_url,
+        'uploaded'
+      ]
+    );
+
+    /// 🔥 DESBLOQUEAR NEGOCIACIÓN GANADORA
+    await pool.query(
+      `
+      UPDATE negotiations
+      SET
+        status = 'contacts_unlocked',
+        contacts_unlocked_at = NOW(),
+        closed_at = NOW()
+      WHERE id = $1
+      `,
+      [id]
+    );
+
+    /// 🔥 MARCAR LOTE VENDIDO
+    await pool.query(
+      `
+      UPDATE lots
+      SET
+        status = 'sold',
+        winner_user_id = $1,
+        sold_at = NOW()
+      WHERE id = $2
+      `,
+      [
+        negotiation.buyer_id,
+        negotiation.lot_id
+      ]
+    );
+
+    /// 🔥 CERRAR OTRAS NEGOCIACIONES
+    await pool.query(
+      `
+      UPDATE negotiations
+      SET status = 'closed_other_buyer'
+      WHERE lot_id = $1
+      AND id != $2
+      AND status = 'open'
+      `,
+      [
+        negotiation.lot_id,
+        negotiation.id
+      ]
+    );
+
+    /// 🔥 PUSH COMPRADOR
+    const tokensRes = await pool.query(
+      `
+      SELECT fcm_token
+      FROM devices
+      WHERE user_id = $1
+      `,
+      [negotiation.buyer_id]
+    );
+
+    const tokens = tokensRes.rows.map(
+      t => t.fcm_token
+    );
+
+    if (tokens.length > 0) {
+
+      try {
+
+        await admin.messaging()
+          .sendEachForMulticast({
+
+          tokens,
+
+          notification: {
+
+            title: '🎉 Venta confirmada',
+
+            body: 'El vendedor desbloqueó los datos de contacto',
+          },
+
+          data: {
+
+            negotiationId:
+              negotiation.id.toString(),
+
+            type: 'contacts_unlocked',
+          },
+        });
+
+      } catch (e) {
+
+        console.log(e);
+      }
+    }
+
+    /// 🔥 FIRESTORE UPDATE
+    const lotRes = await pool.query(
+      `
+      SELECT company_id
+      FROM lots
+      WHERE id = $1
+      `,
+      [negotiation.lot_id]
+    );
+
+    const company_id =
+      lotRes.rows[0]?.company_id;
+
+    if (company_id) {
+
+      await admin.firestore()
+        .collection('companies')
+        .doc(company_id.toString())
+        .collection('negotiations')
+        .doc(negotiation.id.toString())
+        .set({
+
+          status: 'contacts_unlocked',
+
+          contacts_unlocked_at:
+            admin.firestore.FieldValue.serverTimestamp(),
+
+        }, { merge: true });
+    }
+
+    res.json({
+
+      success: true,
+
+      status: 'contacts_unlocked',
+
+      proof_url,
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error subiendo comprobante'
+    });
+  }
+};
 
 /// 🔥 OBTENER NEGOCIACIÓN POR LOTE
 exports.getOrCreateNegotiation = async (req, res) => {
