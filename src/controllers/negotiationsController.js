@@ -26,12 +26,21 @@ exports.createNegotiation = async (req, res) => {
         sale_type,
         base_price,
         quantity,
+        status,
         images
       FROM lots
       WHERE id = $1
       `,
       [lot_id]
     );
+
+    /// 🔥 BLOQUEAR LOTES VENDIDOS
+    if (lot.status === 'sold') {
+
+      return res.status(400).json({
+        error: 'Este lote ya fue vendido'
+      });
+    }    
 
     if (lotRes.rows.length === 0) {
       return res.status(404).json({
