@@ -555,6 +555,16 @@ exports.getMessages = async (req, res) => {
 
         l.images
 
+        ,
+
+        n.status as negotiation_status,
+
+        buyer.full_name as buyer_name,
+        buyer.phone as buyer_phone,
+
+        seller.full_name as seller_name,
+        seller.phone as seller_phone        
+
       FROM negotiation_messages nm
 
       JOIN negotiations n
@@ -562,6 +572,12 @@ exports.getMessages = async (req, res) => {
 
       JOIN lots l
         ON l.id = n.lot_id
+
+      JOIN users buyer
+        ON buyer.id = n.buyer_id
+
+      JOIN users seller
+        ON seller.id = n.seller_id        
 
       WHERE nm.negotiation_id = $1
 
