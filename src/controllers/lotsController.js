@@ -219,3 +219,244 @@ exports.getMyLots = async (req, res) => {
     });
   }
 };
+
+/// 🔥 EDITAR LOTE
+exports.updateLot = async (req, res) => {
+  try {
+
+    const company_id =
+        req.user.company_id;
+
+    const user_id =
+        req.user.user_id;
+
+    const { id } = req.params;
+
+    const {
+
+      quantity,
+
+      class: lot_class,
+
+      breed,
+
+      weight,
+
+      sale_type,
+
+      base_price,
+
+      department,
+
+      province,
+
+      municipality,
+
+      town,
+
+      distance_km,
+
+      images,
+
+      video,
+
+    } = req.body;
+
+    /// 🔥 VALIDAR LOTE
+    const lotRes = await pool.query(
+      `
+      SELECT *
+      FROM lots
+      WHERE id = $1
+      `,
+      [id]
+    );
+
+    if (lotRes.rows.length === 0) {
+
+      return res.status(404).json({
+        error: 'Lote no encontrado'
+      });
+    }
+
+    const lot = lotRes.rows[0];
+
+    /// 🔥 VALIDAR DUEÑO
+    if (
+      lot.seller_id !== user_id
+    ) {
+
+      return res.status(403).json({
+        error: 'No autorizado'
+      });
+    }
+
+    /// 🔥 BLOQUEAR VENDIDOS
+    if (
+      lot.status === 'sold'
+    ) {
+
+      return res.status(400).json({
+        error: 'No puedes editar un lote vendido'
+      });
+    }
+
+    /// 🔥 UPDATE
+    const { rows } = await pool.query(
+      `
+      UPDATE lots
+      SET
+
+        quantity = $1,
+
+        class = $2,
+
+        breed = $3,
+
+        weight = $4,
+
+        sale_type = $5,
+
+        base_price = $6,
+
+        current_price = $6,
+
+        department = $7,
+
+        province = $8,
+
+        municipality = $9,
+
+        town = $10,
+
+        distance_km = $11,
+
+        images = $12,
+
+        video_url = $13
+
+      WHERE id = $14
+
+      RETURNING *
+      `,
+      [
+
+        quantity,
+
+        lot_class,
+
+        breed,
+
+        weight,
+
+        sale_type,
+
+        base_price,
+
+        department,
+
+        province,
+
+        municipality,
+
+        town,
+
+        distance_km,
+
+        images || [],
+
+        video || null,
+
+        id,
+      ]
+    );
+
+    res.json(rows[0]);
+
+  } catch (error) {
+
+    console.error(
+      'ERROR UPDATE LOT:',
+      error
+    );
+
+    res.status(500).json({
+      error: 'Error editando lote'
+    });
+  }
+};
+
+
+/// 🔥 ELIMINAR LOTE
+exports.deleteLot = async (req, res) => {
+  try {
+
+    const user_id =
+        req.user.user_id;
+
+    const { id } = req.params;
+
+    /// 🔥 VALIDAR
+    const lotRes = await pool.query(
+      `
+      SELECT *
+      FROM lots
+      WHERE id = $1
+      `,
+      [id]
+    );
+
+    if (lotRes.rows.length === 0) {
+
+      return res.status(404).json({
+        error: 'Lote no encontrado'
+      });
+    }
+
+    const lot = lotRes.rows[0];
+
+    /// 🔥 VALIDAR DUEÑO
+    if (
+      lot.seller_id !== user_id
+    ) {
+
+      return res.status(403).json({
+        error: 'No autorizado'
+      });
+    }
+
+    /// 🔥 BLOQUEAR SI YA VENDIDO
+    if (
+      lot.status === 'sold'
+    ) {
+
+      return res.status(400).json({
+        error: 'No puedes eliminar un lote vendido'
+      });
+    }
+
+    /// 🔥 DELETE
+    await pool.query(
+      `
+      DELETE FROM lots
+      WHERE id = $1
+      `,
+      [id]
+    );
+
+    res.json({
+      success: true
+    });
+
+  } catch (error) {
+
+    console.error(
+      'ERROR DELETE LOT:',
+      error
+    );
+
+    res.status(500).json({
+      error: 'Error eliminando lote'
+    });
+  }
+};
