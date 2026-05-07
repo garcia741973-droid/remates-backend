@@ -22,6 +22,8 @@ exports.createLot = async (req, res) => {
     const {
       quantity,
       class: lot_class,
+      town,
+      distance_km,      
       breed,
       weight,
       sale_type,
@@ -72,36 +74,71 @@ exports.createLot = async (req, res) => {
         company_id,
         seller_id,
         lot_number,
+
         quantity,
         class,
         breed,
+
         weight,
         sale_type,
+
         base_price,
         current_price,
+
         department,
         province,
         municipality,
+
+        town,
+        distance_km,
+
         images,
         video_url
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+      VALUES
+      (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9,
+        $10,
+        $11,
+        $12,
+        $13,
+        $14,
+        $15,
+        $16,
+        $17
+      )
       RETURNING *
       `,
       [
         company_id,
         user_id,
         lot_number,
+
         quantity,
         lot_class,
         breed,
+
         weight,
         sale_type,
+
         base_price,
         base_price,
+
         department.trim(),
         province.trim(),
         municipality.trim(),
+
+        town?.trim() || null,
+        distance_km || 0,
+
         images || [],
         video || null
       ]
