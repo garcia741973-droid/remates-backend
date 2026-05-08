@@ -159,16 +159,22 @@ exports.getLots = async (req, res) => {
 
     const { rows } = await pool.query(
       `
-    SELECT 
-      l.*,
+      SELECT 
+        l.*,
 
-      u.full_name as seller_name,
+        COALESCE(
+          u.full_name,
+          u.name
+        ) as seller_name,
 
-      u.seller_rating_avg,
+        u.seller_rating_avg,
 
-      u.seller_rating_count,
+        u.seller_rating_count,
 
-      u.successful_sales_count
+        u.successful_sales_count,
+
+        u.seller_status
+
       FROM lots l
       JOIN users u ON u.id = l.seller_id
       WHERE l.company_id = $1
@@ -208,7 +214,9 @@ exports.getMyLots = async (req, res) => {
 
         u.seller_rating_count,
 
-        u.successful_sales_count
+        u.successful_sales_count,
+
+        u.seller_status
 
       FROM lots l
 
