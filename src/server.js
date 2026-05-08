@@ -68,6 +68,9 @@ const sellerRoutes = require('./routes/sellerRoutes.cjs');
 const superAdminRoutes = require('./routes/superAdminRoutes.cjs');
 const negotiationsRoutes = require('./routes/negotiationsRoutes');
 
+const sellerReviewsRoutes =
+  require('./routes/sellerReviews');
+
 const app = express();
 
 app.use(cors());
@@ -108,6 +111,8 @@ app.use('/admin', adminRoutes);
 app.use('/seller', sellerRoutes);
 app.use('/superadmin', superAdminRoutes);
 app.use('/negotiations', negotiationsRoutes);
+
+app.use('/seller-reviews', sellerReviewsRoutes);
 
 /// 🚀 SERVIDOR
 const PORT = process.env.PORT || 3000;
