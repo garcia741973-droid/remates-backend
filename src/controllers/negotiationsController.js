@@ -805,9 +805,16 @@ exports.uploadPaymentProof = async (req, res) => {
       `
       UPDATE negotiations
       SET
+
         status = 'contacts_unlocked',
+
         contacts_unlocked_at = NOW(),
+
+        review_available_at =
+          NOW() + INTERVAL '48 hours',
+
         closed_at = NOW()
+
       WHERE id = $1
       `,
       [id]
