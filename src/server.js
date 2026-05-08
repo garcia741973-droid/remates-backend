@@ -71,6 +71,10 @@ const negotiationsRoutes = require('./routes/negotiationsRoutes');
 const sellerReviewsRoutes =
   require('./routes/sellerReviews');
 
+const {
+  startReviewReminderService
+} = require('./services/reviewReminderService');  
+
 const app = express();
 
 app.use(cors());
@@ -126,6 +130,9 @@ const io = new Server(server, {
 });
 
 app.set('io', io);
+
+/// 🔥 REVIEW REMINDER SERVICE
+startReviewReminderService();
 
 /// 🔥 conexión sockets
 io.on('connection', (socket) => {
