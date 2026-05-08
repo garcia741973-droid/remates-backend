@@ -6,7 +6,8 @@ const { requireAuth } = require("../middleware/authMiddleware");
 const {
   requestSeller,
   getPendingSellers,
-  approveSeller
+  approveSeller,
+  getSellerProfile
 } = require("../controllers/sellerController.cjs");
 
 /// 🟢 SOLICITAR SER VENDEDOR
@@ -17,5 +18,12 @@ router.get("/pending", requireAuth, getPendingSellers);
 
 /// 🟢 APROBAR VENDEDOR
 router.post("/approve/:id", requireAuth, approveSeller);
+
+/// 🔥 PERFIL PÚBLICO VENDEDOR
+router.get(
+  "/profile/:id",
+  requireAuth,
+  getSellerProfile
+);
 
 module.exports = router;

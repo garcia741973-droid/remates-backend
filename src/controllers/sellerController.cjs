@@ -3,30 +3,6 @@ const { pool } = require("../config/db");
 /// 🟢 SOLICITAR SER VENDEDOR
 exports.requestSeller = async (req, res) => {
   try {
-    const userId = req.user.id;
-
-    const result = await pool.query(
-      `UPDATE users 
-       SET seller_status = 'pending' 
-       WHERE id = $1
-       RETURNING id, seller_status`,
-      [userId]
-    );
-
-    res.json({
-      message: "Solicitud enviada",
-      user: result.rows[0],
-    });
-
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Error al solicitar vendedor" });
-  }
-};
-
-/// 🔴 APROBAR VENDEDOR (SUPER ADMIN)
-exports.requestSeller = async (req, res) => {
-  try {
     const userId = req.user.user_id; // 🔥 FIX CLAVE
 
     await pool.query(
@@ -112,5 +88,118 @@ exports.approveSeller = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Error aprobando vendedor" });
+  }
+};
+
+/// 🔥 PERFIL PÚBLICO VENDEDOR
+exports.getSellerProfile = async (req, res) => {
+  try {
+
+    const { id } = req.params;
+
+    /// 🔥 SELLER
+    const sellerRes = await pool.query(
+      `
+      SELECT
+
+        id,
+        full_name,
+        seller_rating_avg,
+        seller_rating_count,
+        successful_sales_count
+
+      FROM users
+
+      WHERE id = $1
+      `,
+      [id]
+    );
+
+    if (sellerRes.rows.length === 0) {
+
+      return res.status(404).json({
+        error: 'Vendedor no encontrado'
+      });
+    }
+
+    const seller =
+      sellerRes.rows[0];
+
+    /// 🔥 LOTES ACTIVOS
+    const lotsRes = await pool.query(
+      `
+      SELECT
+
+        id,
+        lot_number,
+        class,
+        breed,
+        weight,
+        sale_type,
+        base_price,
+        images,
+        town,
+        distance_km
+
+      FROM lots
+
+      WHERE seller_id = $1
+      AND status != 'sold'
+
+      ORDER BY created_at DESC
+
+      LIMIT 10
+      `,
+      [id]
+    );
+
+    /// 🔥 REVIEWS
+    const reviewsRes = await pool.query(
+      `
+      SELECT
+
+        sr.rating,
+        sr.comment,
+        sr.created_at,
+
+        u.full_name as buyer_name,
+
+        l.class,
+        l.breed,
+        l.lot_number
+
+      FROM seller_reviews sr
+
+      JOIN users u
+        ON u.id = sr.buyer_id
+
+      JOIN lots l
+        ON l.id = sr.lot_id
+
+      WHERE sr.seller_id = $1
+
+      ORDER BY sr.created_at DESC
+
+      LIMIT 20
+      `,
+      [id]
+    );
+
+    res.json({
+
+      seller,
+
+      lots: lotsRes.rows,
+
+      reviews: reviewsRes.rows,
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error obteniendo perfil vendedor'
+    });
   }
 };
