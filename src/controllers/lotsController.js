@@ -159,9 +159,16 @@ exports.getLots = async (req, res) => {
 
     const { rows } = await pool.query(
       `
-      SELECT 
-        l.*,
-        u.name as seller_name
+    SELECT 
+      l.*,
+
+      u.full_name as seller_name,
+
+      u.seller_rating_avg,
+
+      u.seller_rating_count,
+
+      u.successful_sales_count
       FROM lots l
       JOIN users u ON u.id = l.seller_id
       WHERE l.company_id = $1
@@ -192,10 +199,23 @@ exports.getMyLots = async (req, res) => {
     const { rows } = await pool.query(
       `
       SELECT
-        *
-      FROM lots
-      WHERE company_id = $1
-      AND seller_id = $2
+
+        l.*,
+
+        u.full_name as seller_name,
+
+        u.seller_rating_avg,
+
+        u.seller_rating_count,
+
+        u.successful_sales_count
+
+      FROM lots l
+
+      JOIN users u
+        ON u.id = l.seller_id
+        WHERE l.company_id = $1
+        AND l.seller_id = $2
       ORDER BY created_at DESC
       `,
       [
