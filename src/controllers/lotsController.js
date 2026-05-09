@@ -488,3 +488,370 @@ exports.deleteLot = async (req, res) => {
     });
   }
 };
+
+/// 🔥 SEARCH LOTS
+exports.searchLots = async (
+  req,
+  res
+) => {
+
+  try {
+
+    const company_id =
+      req.user.company_id;
+
+    const {
+
+      query,
+
+      class: lot_class,
+
+      breed,
+
+      sale_type,
+
+      department,
+
+      province,
+
+      municipality,
+
+      quantity_min,
+
+      quantity_max,
+
+      weight_min,
+
+      weight_max,
+
+      price_min,
+
+      price_max,
+
+      distance_min,
+
+      distance_max,
+
+      only_featured,
+
+      sort_by,
+
+    } = req.body;
+
+    let sql = `
+      SELECT
+
+        l.*,
+
+        COALESCE(
+          u.full_name,
+          u.name
+        ) as seller_name,
+
+        u.seller_rating_avg,
+
+        u.seller_rating_count,
+
+        u.successful_sales_count,
+
+        u.seller_status
+
+      FROM lots l
+
+      JOIN users u
+        ON u.id = l.seller_id
+
+      WHERE l.company_id = $1
+
+      AND l.status != 'sold'
+    `;
+
+    const values = [company_id];
+
+    let index = 2;
+
+    /// 🔍 BUSCADOR GENERAL
+    if (query) {
+
+      sql += `
+        AND (
+
+          l.class ILIKE $${index}
+
+          OR l.breed ILIKE $${index}
+
+          OR l.department ILIKE $${index}
+
+          OR l.province ILIKE $${index}
+
+          OR l.municipality ILIKE $${index}
+
+          OR l.town ILIKE $${index}
+
+        )
+      `;
+
+      values.push(`%${query}%`);
+
+      index++;
+    }
+
+    /// 🐄 CLASE
+    if (lot_class) {
+
+      sql += `
+        AND l.class = $${index}
+      `;
+
+      values.push(lot_class);
+
+      index++;
+    }
+
+    /// 🧬 RAZA
+    if (breed) {
+
+      sql += `
+        AND l.breed = $${index}
+      `;
+
+      values.push(breed);
+
+      index++;
+    }
+
+    /// 💰 TIPO VENTA
+    if (sale_type) {
+
+      sql += `
+        AND l.sale_type = $${index}
+      `;
+
+      values.push(sale_type);
+
+      index++;
+    }
+
+    /// 📍 DEPARTAMENTO
+    if (department) {
+
+      sql += `
+        AND l.department = $${index}
+      `;
+
+      values.push(department);
+
+      index++;
+    }
+
+    /// 📍 PROVINCIA
+    if (province) {
+
+      sql += `
+        AND l.province = $${index}
+      `;
+
+      values.push(province);
+
+      index++;
+    }
+
+    /// 📍 MUNICIPIO
+    if (municipality) {
+
+      sql += `
+        AND l.municipality = $${index}
+      `;
+
+      values.push(municipality);
+
+      index++;
+    }
+
+    /// 📦 CANTIDAD MÍNIMA
+    if (
+      quantity_min != null
+    ) {
+
+      sql += `
+        AND l.quantity >= $${index}
+      `;
+
+      values.push(quantity_min);
+
+      index++;
+    }
+
+    /// 📦 CANTIDAD MÁXIMA
+    if (
+      quantity_max != null
+    ) {
+
+      sql += `
+        AND l.quantity <= $${index}
+      `;
+
+      values.push(quantity_max);
+
+      index++;
+    }
+
+    /// ⚖️ PESO MÍNIMO
+    if (
+      weight_min != null
+    ) {
+
+      sql += `
+        AND l.weight >= $${index}
+      `;
+
+      values.push(weight_min);
+
+      index++;
+    }
+
+    /// ⚖️ PESO MÁXIMO
+    if (
+      weight_max != null
+    ) {
+
+      sql += `
+        AND l.weight <= $${index}
+      `;
+
+      values.push(weight_max);
+
+      index++;
+    }
+
+    /// 💵 PRECIO MÍNIMO
+    if (
+      price_min != null
+    ) {
+
+      sql += `
+        AND l.base_price >= $${index}
+      `;
+
+      values.push(price_min);
+
+      index++;
+    }
+
+    /// 💵 PRECIO MÁXIMO
+    if (
+      price_max != null
+    ) {
+
+      sql += `
+        AND l.base_price <= $${index}
+      `;
+
+      values.push(price_max);
+
+      index++;
+    }
+
+    /// 🚛 DISTANCIA MÍNIMA
+    if (
+      distance_min != null
+    ) {
+
+      sql += `
+        AND l.distance_km >= $${index}
+      `;
+
+      values.push(distance_min);
+
+      index++;
+    }
+
+    /// 🚛 DISTANCIA MÁXIMA
+    if (
+      distance_max != null
+    ) {
+
+      sql += `
+        AND l.distance_km <= $${index}
+      `;
+
+      values.push(distance_max);
+
+      index++;
+    }
+
+    /// ⭐ DESTACADOS
+    if (
+      only_featured === true
+    ) {
+
+      sql += `
+        AND l.featured = true
+      `;
+    }
+
+    /// 🔥 ORDER BY
+    switch (sort_by) {
+
+      case 'Menor precio':
+
+        sql += `
+          ORDER BY l.base_price ASC
+        `;
+
+        break;
+
+      case 'Mayor peso':
+
+        sql += `
+          ORDER BY l.weight DESC
+        `;
+
+        break;
+
+      case 'Mayor cantidad':
+
+        sql += `
+          ORDER BY l.quantity DESC
+        `;
+
+        break;
+
+      default:
+
+        sql += `
+          ORDER BY l.created_at DESC
+        `;
+    }
+
+    console.log(
+      '🔍 SEARCH SQL:',
+      sql
+    );
+
+    console.log(
+      '🔍 VALUES:',
+      values
+    );
+
+    const result =
+      await pool.query(
+        sql,
+        values
+      );
+
+    res.json(result.rows);
+
+  } catch (error) {
+
+    console.error(
+      'ERROR SEARCH LOTS:',
+      error
+    );
+
+    res.status(500).json({
+      error:
+        'Error buscando lotes'
+    });
+  }
+};

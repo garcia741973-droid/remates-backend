@@ -1,25 +1,39 @@
 const express = require('express');
 const router = express.Router();
 
-const { createLot } = require('../controllers/lotsController');
 const { requireAuth } = require('../middleware/authMiddleware');
 
 const {
-
+  createLot,
   getLots,
-
   getMyLots,
-
   updateLot,
-
   deleteLot,
-
+  searchLots,
 } = require('../controllers/lotsController');
 
-router.post('/', requireAuth, createLot);
+/// 🔍 BUSCAR LOTES
+router.post(
+  '/search',
+  requireAuth,
+  searchLots
+);
 
-router.get('/', requireAuth, getLots);
+/// 🔥 CREAR LOTE
+router.post(
+  '/',
+  requireAuth,
+  createLot
+);
 
+/// 🔥 LISTAR LOTES
+router.get(
+  '/',
+  requireAuth,
+  getLots
+);
+
+/// 🔥 MIS LOTES
 router.get(
   '/my-lots',
   requireAuth,
