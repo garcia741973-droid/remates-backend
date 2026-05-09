@@ -534,6 +534,10 @@ exports.searchLots = async (
 
       only_featured,
 
+      only_top_sellers,
+
+      only_verified,
+
       sort_by,
 
     } = req.body;
@@ -789,6 +793,28 @@ exports.searchLots = async (
         AND l.featured = true
       `;
     }
+
+    /// 🏆 TOP SELLERS
+    if (
+      only_top_sellers === true
+    ) {
+
+      sql += `
+        AND u.successful_sales_count >= 5
+
+        AND u.seller_rating_avg >= 4
+      `;
+    }
+    
+    /// ✅ VENDEDORES VERIFICADOS
+    if (
+      only_verified === true
+    ) {
+
+      sql += `
+        AND u.seller_status = 'approved'
+      `;
+    }    
 
     /// 🔥 ORDER BY
     switch (sort_by) {
