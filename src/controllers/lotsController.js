@@ -500,6 +500,9 @@ exports.searchLots = async (
     const company_id =
       req.user.company_id;
 
+    const user_id =
+      req.user.user_id;      
+
     const {
 
       query,
@@ -537,6 +540,8 @@ exports.searchLots = async (
       only_top_sellers,
 
       only_verified,
+
+      alerts_enabled,
 
       sort_by,
 
@@ -865,6 +870,64 @@ exports.searchLots = async (
         sql,
         values
       );
+
+    /// 🔔 GUARDAR ALERTA
+    if (
+      alerts_enabled === true
+    ) {
+
+      /// 🔍 VERIFICAR SI YA EXISTE
+      const existing =
+          await pool.query(
+        `
+        SELECT id
+        FROM saved_searches
+        WHERE user_id = $1
+        AND company_id = $2
+        AND filters = $3
+        LIMIT 1
+        `,
+        [
+          user_id,
+          company_id,
+          JSON.stringify(req.body),
+        ]
+      );
+
+      /// 🆕 CREAR NUEVA
+      if (
+        existing.rows.length === 0
+      ) {
+
+        await pool.query(
+          `
+          INSERT INTO saved_searches
+          (
+            user_id,
+            company_id,
+            filters,
+            alerts_enabled
+          )
+          VALUES
+          (
+            $1,
+            $2,
+            $3,
+            true
+          )
+          `,
+          [
+            user_id,
+            company_id,
+            JSON.stringify(req.body),
+          ]
+        );
+
+        console.log(
+          '🔔 ALERTA GUARDADA'
+        );
+      }
+    }
 
     res.json(result.rows);
 
