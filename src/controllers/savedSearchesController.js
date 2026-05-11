@@ -17,15 +17,25 @@ exports.getSavedSearches = async (
     const result =
       await pool.query(
         `
-        SELECT *
+        SELECT
 
-        FROM saved_searches
+        ss.*,
 
-        WHERE user_id = $1
-        AND company_id = $2
+        COUNT(sa.id) as alerts_count,
 
-        ORDER BY created_at DESC
-        `,
+        MAX(sa.created_at) as last_alert_at
+
+        FROM saved_searches ss
+
+        LEFT JOIN search_alerts sa
+        ON sa.saved_search_id = ss.id
+
+        WHERE ss.user_id = $1
+        AND ss.company_id = $2
+
+        GROUP BY ss.id
+
+        ORDER BY ss.created_at DESC`,
         [
           user_id,
           company_id,
