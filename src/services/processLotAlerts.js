@@ -1,5 +1,7 @@
 const { pool } = require('../config/db');
 
+const admin = require('firebase-admin');
+
 const {
   calculateLotMatchScore,
 } = require('./searchMatcher');
@@ -72,6 +74,30 @@ async function processLotAlerts(lot) {
         '✅ MATCHED!'
       );
 
+        /// 🔥 VERIFICAR SI YA EXISTE ALERTA PARA ESTE LOTE
+        const existingLotAlert =
+        await pool.query(
+            `
+            SELECT id
+            FROM search_alerts
+            WHERE user_id = $1
+            AND lot_id = $2
+            LIMIT 1
+            `,
+            [
+            search.user_id,
+            lot.id,
+            ]
+        );
+
+        const isFirstMatch =
+        existingLotAlert.rows.length === 0;
+
+        console.log(
+        '🧠 FIRST MATCH:',
+        isFirstMatch
+        );      
+
       /// 🚫 DUPLICADOS
       const existing =
         await pool.query(
@@ -135,6 +161,84 @@ async function processLotAlerts(lot) {
         '🔥 ALERT CREATED!'
       );
     }
+
+    /// 🔔 PUSH SOLO PRIMER MATCH
+    if (isFirstMatch) {
+
+    console.log(
+        '📲 SENDING PUSH...'
+    );
+
+    /// 🔥 TOKENS USUARIO
+    const tokensResult =
+        await pool.query(
+        `
+        SELECT fcm_token
+        FROM user_fcm_tokens
+        WHERE user_id = $1
+        `,
+        [search.user_id]
+        );
+
+    const tokens =
+        tokensResult.rows.map(
+        t => t.fcm_token
+        );
+
+    console.log(
+        '📲 TOKENS:',
+        tokens.length
+    );
+
+    if (tokens.length > 0) {
+
+        const message = {
+
+        notification: {
+
+            title:
+            '🔥 Encontramos ganado para ti',
+
+            body:
+            `${lot.class} ${lot.breed} - ${lot.department}`,
+        },
+
+        data: {
+
+            type: 'search_alert',
+
+            lot_id:
+            String(lot.id),
+
+            click_action:
+            'FLUTTER_NOTIFICATION_CLICK',
+        },
+
+        tokens,
+        };
+
+        try {
+
+        const response =
+            await admin.messaging()
+            .sendEachForMulticast(
+                message
+            );
+
+        console.log(
+            '✅ PUSH SENT:',
+            response.successCount
+        );
+
+        } catch (pushError) {
+
+        console.log(
+            '❌ PUSH ERROR:',
+            pushError
+        );
+        }
+    }
+    }    
 
   } catch (err) {
 
