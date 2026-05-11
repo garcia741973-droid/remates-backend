@@ -103,7 +103,12 @@ async function processLotAlerts(lot) {
 
         pushUserId =
             search.user_id;
-        }        
+        }      
+        
+        console.log(
+        '👤 PUSH USER:',
+        pushUserId
+        );        
 
       console.log(
         '🧠 FIRST MATCH:',
@@ -192,10 +197,20 @@ async function processLotAlerts(lot) {
             [pushUserId]
             );
 
+            console.log(
+            '🔍 TOKEN QUERY USER:',
+            pushUserId
+            );
+
         const tokens =
             tokensResult.rows.map(
             t => t.fcm_token
             );
+
+        console.log(
+        '📲 TOKEN RESULT:',
+        tokensResult.rows
+        );
 
         console.log(
             '📲 TOKENS:',
