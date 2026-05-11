@@ -37,6 +37,8 @@ async function processLotAlerts(lot) {
 
     let shouldSendPush = false;
 
+    let pushUserId = null;
+
     for (const search of searches) {
 
       console.log(
@@ -96,7 +98,11 @@ async function processLotAlerts(lot) {
         existingLotAlert.rows.length === 0;
 
         if (isFirstMatch) {
+
         shouldSendPush = true;
+
+        pushUserId =
+            search.user_id;
         }        
 
       console.log(
@@ -183,7 +189,7 @@ async function processLotAlerts(lot) {
             WHERE id = $1
             AND fcm_token IS NOT NULL
             `,
-            [searches[0].user_id]
+            [pushUserId]
             );
 
         const tokens =
