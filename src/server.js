@@ -71,6 +71,9 @@ const negotiationsRoutes = require('./routes/negotiationsRoutes');
 const sellerReviewsRoutes =
   require('./routes/sellerReviews');
 
+const searchAlertsRoutes =
+  require('./routes/searchAlertsRoutes');  
+
 const {
   startReviewReminderService
 } = require('./services/reviewReminderService');  
@@ -117,6 +120,11 @@ app.use('/superadmin', superAdminRoutes);
 app.use('/negotiations', negotiationsRoutes);
 
 app.use('/seller-reviews', sellerReviewsRoutes);
+
+app.use(
+  '/search-alerts',
+  searchAlertsRoutes
+);
 
 /// 🚀 SERVIDOR
 const PORT = process.env.PORT || 3000;
