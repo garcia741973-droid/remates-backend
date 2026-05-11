@@ -264,7 +264,32 @@ async function processLotAlerts(lot) {
             console.log(
             '❌ PUSH RESPONSES:',
             response.responses
-            );            
+            );
+            
+            /// 🧹 LIMPIAR TOKENS INVÁLIDOS
+            for (let i = 0; i < response.responses.length; i++) {
+
+            const resp =
+                response.responses[i];
+
+            if (resp.success) continue;
+
+            const failedToken =
+                tokens[i];
+
+            console.log(
+                '🗑️ REMOVING INVALID TOKEN:',
+                failedToken
+            );
+
+            await pool.query(
+                `
+                DELETE FROM devices
+                WHERE fcm_token = $1
+                `,
+                [failedToken]
+            );
+            }            
 
             } catch (pushError) {
 
