@@ -1,5 +1,9 @@
 const { pool } = require('../config/db');
 
+const {
+  processLotAlerts,
+} = require('../services/processLotAlerts');
+
 exports.createLot = async (req, res) => {
   try {
     const company_id = req.user.company_id;
@@ -142,6 +146,11 @@ exports.createLot = async (req, res) => {
         images || [],
         video || null
       ]
+    );
+
+    /// 🧠 PROCESAR ALERTAS
+    await processLotAlerts(
+      rows[0]
     );
 
     res.json(rows[0]);
