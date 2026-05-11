@@ -767,7 +767,7 @@ exports.searchLots = async (
     ) {
 
       sql += `
-        AND l.distance_km >= $${index}
+        AND COALESCE(l.distance_km, 0) >= $${index}
       `;
 
       values.push(distance_min);
@@ -781,7 +781,7 @@ exports.searchLots = async (
     ) {
 
       sql += `
-        AND l.distance_km <= $${index}
+        AND COALESCE(l.distance_km, 0) <= $${index}
       `;
 
       values.push(distance_max);
