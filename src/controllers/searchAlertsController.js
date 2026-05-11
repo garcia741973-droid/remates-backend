@@ -98,3 +98,39 @@ exports.getSearchAlerts = async (
     });
   }
 };
+
+/// 🔥 MARCAR ALERTA ABIERTA
+exports.markAsOpened = async (req, res) => {
+
+  try {
+
+    const { id } = req.params;
+
+    await pool.query(
+      `
+      UPDATE search_alerts
+      SET
+        opened = true,
+        opened_at = NOW()
+      WHERE id = $1
+      `,
+      [id]
+    );
+
+    res.json({
+      success: true,
+    });
+
+  } catch (error) {
+
+    console.log(
+      '❌ MARK OPENED ERROR:',
+      error
+    );
+
+    res.status(500).json({
+      error:
+        'Error marcando alerta'
+    });
+  }
+};

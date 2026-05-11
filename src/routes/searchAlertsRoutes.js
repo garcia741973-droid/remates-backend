@@ -22,5 +22,11 @@ router.get(
   getSearchAlerts
 );
 
+router.put(
+  '/:id/open',
+  requireAuth,
+  searchAlertsController.markAsOpened
+);
+
 module.exports =
   router;
