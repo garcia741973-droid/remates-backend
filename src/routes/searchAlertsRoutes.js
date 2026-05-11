@@ -21,6 +21,18 @@ router.get(
   searchAlertsController.getSearchAlerts
 );
 
+router.put(
+  '/:id/unread',
+  requireAuth,
+  searchAlertsController.markAsUnread
+);
+
+router.put(
+  '/:id/hide',
+  requireAuth,
+  searchAlertsController.hideAlert
+);
+
 router.get(
   '/unread-count',
   requireAuth,

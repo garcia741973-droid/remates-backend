@@ -58,6 +58,7 @@ exports.getSearchAlerts = async (
 
         WHERE sa.user_id = $1
         AND sa.company_id = $2
+        AND COALESCE(sa.hidden, false) = false
 
         GROUP BY
 
@@ -185,6 +186,84 @@ exports.getUnreadCount = async (
     res.status(500).json({
       error:
         'Error obteniendo contador'
+    });
+  }
+};
+
+/// 🔥 MARCAR NO LEÍDO
+exports.markAsUnread = async (
+  req,
+  res
+) => {
+
+  try {
+
+    const { id } = req.params;
+
+    await pool.query(
+      `
+      UPDATE search_alerts
+      SET
+        opened = false,
+        reopened_at = NOW()
+      WHERE id = $1
+      `,
+      [id]
+    );
+
+    res.json({
+      success: true,
+    });
+
+  } catch (error) {
+
+    console.log(
+      '❌ MARK UNREAD ERROR:',
+      error
+    );
+
+    res.status(500).json({
+      error:
+        'Error marcando no leído'
+    });
+  }
+};
+
+/// 🔥 OCULTAR ALERTA
+exports.hideAlert = async (
+  req,
+  res
+) => {
+
+  try {
+
+    const { id } = req.params;
+
+    await pool.query(
+      `
+      UPDATE search_alerts
+      SET
+        hidden = true,
+        hidden_at = NOW()
+      WHERE id = $1
+      `,
+      [id]
+    );
+
+    res.json({
+      success: true,
+    });
+
+  } catch (error) {
+
+    console.log(
+      '❌ HIDE ALERT ERROR:',
+      error
+    );
+
+    res.status(500).json({
+      error:
+        'Error ocultando alerta'
     });
   }
 };
