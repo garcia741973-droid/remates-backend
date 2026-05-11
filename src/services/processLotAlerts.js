@@ -1,4 +1,4 @@
-const pool = require('../config/db');
+const { pool } = require('../config/db');
 
 const {
   calculateLotMatchScore,
@@ -12,18 +12,41 @@ async function processLotAlerts(lot) {
       '🧠 PROCESSING LOT ALERTS...'
     );
 
-    /// 🔍 BUSQUEDAS ACTIVAS
-    const searchesResult = await pool.query(`
-      SELECT *
-      FROM saved_searches
-      WHERE alerts_enabled = true
-    `);
+    console.log(
+      '🐂 LOT:',
+      lot
+    );
 
-    const searches = searchesResult.rows;
+    /// 🔍 BUSQUEDAS
+    const searchesResult =
+      await pool.query(`
+        SELECT *
+        FROM saved_searches
+        WHERE alerts_enabled = true
+      `);
+
+    console.log(
+      '🔍 SEARCHES FOUND:',
+      searchesResult.rows.length
+    );
+
+    const searches =
+      searchesResult.rows;
 
     for (const search of searches) {
 
-      const filters = search.filters;
+      console.log(
+        '📦 SEARCH:',
+        search.id
+      );
+
+      console.log(
+        '📦 FILTERS:',
+        search.filters
+      );
+
+      const filters =
+        search.filters;
 
       const result =
         calculateLotMatchScore(
@@ -36,9 +59,20 @@ async function processLotAlerts(lot) {
         result
       );
 
-      if (!result.matched) continue;
+      if (!result.matched) {
 
-      /// 🚫 EVITAR DUPLICADOS
+        console.log(
+          '❌ NOT MATCHED'
+        );
+
+        continue;
+      }
+
+      console.log(
+        '✅ MATCHED!'
+      );
+
+      /// 🚫 DUPLICADOS
       const existing =
         await pool.query(
           `
@@ -55,13 +89,26 @@ async function processLotAlerts(lot) {
           ]
         );
 
+      console.log(
+        '🔍 EXISTING ALERTS:',
+        existing.rows.length
+      );
+
       if (
         existing.rows.length > 0
       ) {
+
+        console.log(
+          '⚠️ ALERT ALREADY EXISTS'
+        );
+
         continue;
       }
 
-      /// 💾 CREAR ALERTA
+      console.log(
+        '💾 INSERTING ALERT...'
+      );
+
       await pool.query(
         `
         INSERT INTO search_alerts (
@@ -85,17 +132,14 @@ async function processLotAlerts(lot) {
       );
 
       console.log(
-        '🔥 ALERT CREATED FOR USER:',
-        search.user_id
+        '🔥 ALERT CREATED!'
       );
-
-      /// 🔔 PUSH VENDRA DESPUES
     }
 
   } catch (err) {
 
     console.log(
-      '❌ PROCESS LOT ALERTS ERROR:',
+      '❌ PROCESS ALERTS ERROR:',
       err
     );
   }

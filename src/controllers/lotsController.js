@@ -149,8 +149,21 @@ exports.createLot = async (req, res) => {
     );
 
     /// 🧠 PROCESAR ALERTAS
+    console.log(
+      '🔥 LOT CREATED:',
+      rows[0].id
+    );
+
+    console.log(
+      '🧠 CALLING PROCESS ALERTS...'
+    );
+
     await processLotAlerts(
       rows[0]
+    );
+
+    console.log(
+      '✅ PROCESS ALERTS FINISHED'
     );
 
     res.json(rows[0]);
