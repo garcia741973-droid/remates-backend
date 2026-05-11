@@ -21,6 +21,12 @@ router.get(
   searchAlertsController.getSearchAlerts
 );
 
+router.get(
+  '/unread-count',
+  requireAuth,
+  searchAlertsController.getUnreadCount
+);
+
 router.put(
   '/:id/open',
   requireAuth,

@@ -138,3 +138,53 @@ exports.markAsOpened = async (req, res) => {
     });
   }
 };
+
+/// 🔔 CONTADOR ALERTAS NO LEÍDAS
+exports.getUnreadCount = async (
+  req,
+  res
+) => {
+
+  try {
+
+    const user_id =
+      req.user.user_id;
+
+    const company_id =
+      req.user.company_id;
+
+    const result =
+      await pool.query(
+        `
+        SELECT COUNT(*) as total
+        FROM search_alerts
+        WHERE user_id = $1
+        AND company_id = $2
+        AND opened = false
+        `,
+        [
+          user_id,
+          company_id,
+        ]
+      );
+
+    res.json({
+      total:
+        Number(
+          result.rows[0].total
+        ),
+    });
+
+  } catch (error) {
+
+    console.log(
+      '❌ GET UNREAD COUNT ERROR:',
+      error
+    );
+
+    res.status(500).json({
+      error:
+        'Error obteniendo contador'
+    });
+  }
+};
