@@ -16,6 +16,8 @@ const {
 
   toggleSavedSearch,
 
+  getSavedSearchAlerts,
+
   deleteSavedSearch,
 
 } = require(
@@ -41,6 +43,13 @@ router.delete(
   '/:id',
   requireAuth,
   deleteSavedSearch
+);
+
+/// 🔥 ALERTAS DE BÚSQUEDA
+router.get(
+  '/:id/alerts',
+  requireAuth,
+  getSavedSearchAlerts
 );
 
 module.exports =

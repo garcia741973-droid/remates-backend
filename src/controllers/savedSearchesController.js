@@ -204,3 +204,72 @@ exports.deleteSavedSearch = async (
     });
   }
 };
+
+/// 🔥 ALERTAS DE UNA BÚSQUEDA
+exports.getSavedSearchAlerts =
+  async (
+    req,
+    res
+  ) => {
+
+    try {
+
+      const user_id =
+        req.user.user_id;
+
+      const company_id =
+        req.user.company_id;
+
+      const { id } =
+        req.params;
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+
+            sa.id as alert_id,
+
+            sa.score,
+
+            sa.reasons,
+
+            sa.created_at,
+
+            l.*
+
+          FROM search_alerts sa
+
+          JOIN lots l
+            ON l.id = sa.lot_id
+
+          WHERE sa.saved_search_id = $1
+          AND sa.user_id = $2
+          AND sa.company_id = $3
+
+          ORDER BY sa.created_at DESC
+          `,
+          [
+            id,
+            user_id,
+            company_id,
+          ]
+        );
+
+      res.json(
+        result.rows
+      );
+
+    } catch (error) {
+
+      console.log(
+        'ERROR GET SAVED SEARCH ALERTS:',
+        error
+      );
+
+      res.status(500).json({
+        error:
+          'Error obteniendo oportunidades'
+      });
+    }
+  };
