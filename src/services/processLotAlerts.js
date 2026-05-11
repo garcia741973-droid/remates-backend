@@ -236,6 +236,16 @@ async function processLotAlerts(lot) {
                 response.successCount
             );
 
+            console.log(
+            '❌ PUSH FAILURES:',
+            response.failureCount
+            );
+
+            console.log(
+            '❌ PUSH RESPONSES:',
+            response.responses
+            );            
+
             } catch (pushError) {
 
             console.log(
