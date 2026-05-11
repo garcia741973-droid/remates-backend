@@ -10,10 +10,11 @@ const {
   '../controllers/searchAlertsController'
 );
 
-const requireAuth =
-  require(
-    '../middleware/requireAuth'
-  );
+const {
+  requireAuth,
+} = require(
+  '../middleware/authMiddleware'
+);
 
 router.get(
   '/',
