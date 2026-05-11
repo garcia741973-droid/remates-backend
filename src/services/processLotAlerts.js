@@ -238,7 +238,7 @@ async function processLotAlerts(lot) {
         );
         }
     }
-    }    
+    }
 
   } catch (err) {
 
