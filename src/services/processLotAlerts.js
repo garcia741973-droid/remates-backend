@@ -190,9 +190,8 @@ async function processLotAlerts(lot) {
             await pool.query(
             `
             SELECT fcm_token
-            FROM users
-            WHERE id = $1
-            AND fcm_token IS NOT NULL
+            FROM devices
+            WHERE user_id = $1
             `,
             [pushUserId]
             );
