@@ -18,6 +18,10 @@ exports.getSearchAlerts = async (
         `
         SELECT
 
+        MAX(sa.id) as alert_id,
+
+        BOOL_OR(sa.opened) as opened,
+
         l.id as lot_id,
 
         MAX(sa.score) as score,

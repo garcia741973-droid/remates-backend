@@ -4,11 +4,10 @@ const express =
 const router =
   express.Router();
 
-const {
-  getSearchAlerts,
-} = require(
-  '../controllers/searchAlertsController'
-);
+const searchAlertsController =
+  require(
+    '../controllers/searchAlertsController'
+  );
 
 const {
   requireAuth,
@@ -19,7 +18,7 @@ const {
 router.get(
   '/',
   requireAuth,
-  getSearchAlerts
+  searchAlertsController.getSearchAlerts
 );
 
 router.put(
