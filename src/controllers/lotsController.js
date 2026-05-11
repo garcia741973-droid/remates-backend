@@ -966,3 +966,65 @@ exports.searchLots = async (
     });
   }
 };
+
+/// 🔥 GET LOT BY ID
+exports.getLotById = async (req, res) => {
+
+  try {
+
+    const { id } = req.params;
+
+    const { rows } =
+      await pool.query(
+        `
+        SELECT
+
+          l.*,
+
+          COALESCE(
+            u.full_name,
+            u.name
+          ) as seller_name,
+
+          u.seller_rating_avg,
+
+          u.seller_rating_count,
+
+          u.successful_sales_count,
+
+          u.seller_status
+
+        FROM lots l
+
+        JOIN users u
+          ON u.id = l.seller_id
+
+        WHERE l.id = $1
+
+        LIMIT 1
+        `,
+        [id]
+      );
+
+    if (rows.length === 0) {
+
+      return res.status(404).json({
+        error: 'Lote no encontrado'
+      });
+    }
+
+    res.json(rows[0]);
+
+  } catch (error) {
+
+    console.error(
+      'ERROR GET LOT BY ID:',
+      error
+    );
+
+    res.status(500).json({
+      error:
+        'Error obteniendo lote'
+    });
+  }
+};

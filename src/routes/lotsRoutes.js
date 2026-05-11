@@ -40,6 +40,12 @@ router.get(
   getMyLots
 );
 
+router.get(
+  '/:id',
+  requireAuth,
+  lotsController.getLotById
+);
+
 /// 🔥 EDITAR LOTE
 router.put(
   '/:id',
