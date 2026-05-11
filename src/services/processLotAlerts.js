@@ -74,29 +74,29 @@ async function processLotAlerts(lot) {
         '✅ MATCHED!'
       );
 
-        /// 🔥 VERIFICAR SI YA EXISTE ALERTA PARA ESTE LOTE
-        const existingLotAlert =
+      /// 🔥 VERIFICAR SI YA EXISTE ALERTA PARA ESTE LOTE
+      const existingLotAlert =
         await pool.query(
-            `
-            SELECT id
-            FROM search_alerts
-            WHERE user_id = $1
-            AND lot_id = $2
-            LIMIT 1
-            `,
-            [
+          `
+          SELECT id
+          FROM search_alerts
+          WHERE user_id = $1
+          AND lot_id = $2
+          LIMIT 1
+          `,
+          [
             search.user_id,
             lot.id,
-            ]
+          ]
         );
 
-        const isFirstMatch =
+      const isFirstMatch =
         existingLotAlert.rows.length === 0;
 
-        console.log(
+      console.log(
         '🧠 FIRST MATCH:',
         isFirstMatch
-        );      
+      );
 
       /// 🚫 DUPLICADOS
       const existing =
@@ -160,85 +160,89 @@ async function processLotAlerts(lot) {
       console.log(
         '🔥 ALERT CREATED!'
       );
-    }
 
-    /// 🔔 PUSH SOLO PRIMER MATCH
-    if (isFirstMatch) {
+      /// 🔔 PUSH SOLO PRIMER MATCH
+      if (isFirstMatch) {
 
-    console.log(
-        '📲 SENDING PUSH...'
-    );
-
-    /// 🔥 TOKENS USUARIO
-    const tokensResult =
-        await pool.query(
-        `
-        SELECT fcm_token
-        FROM user_fcm_tokens
-        WHERE user_id = $1
-        `,
-        [search.user_id]
+        console.log(
+          '📲 SENDING PUSH...'
         );
 
-    const tokens =
-        tokensResult.rows.map(
-        t => t.fcm_token
+        /// 🔥 TOKENS USUARIO
+        const tokensResult =
+          await pool.query(
+            `
+            SELECT fcm_token
+            FROM user_fcm_tokens
+            WHERE user_id = $1
+            `,
+            [search.user_id]
+          );
+
+        const tokens =
+          tokensResult.rows.map(
+            t => t.fcm_token
+          );
+
+        console.log(
+          '📲 TOKENS:',
+          tokens.length
         );
 
-    console.log(
-        '📲 TOKENS:',
-        tokens.length
-    );
+        if (tokens.length > 0) {
 
-    if (tokens.length > 0) {
+          const message = {
 
-        const message = {
+            notification: {
 
-        notification: {
+              title:
+                '🔥 Encontramos ganado para ti',
 
-            title:
-            '🔥 Encontramos ganado para ti',
+              body:
+                `${lot.class} ${lot.breed} - ${lot.department}`,
+            },
 
-            body:
-            `${lot.class} ${lot.breed} - ${lot.department}`,
-        },
+            data: {
 
-        data: {
+              type: 'search_alert',
 
-            type: 'search_alert',
+              lot_id:
+                String(lot.id),
 
-            lot_id:
-            String(lot.id),
+              click_action:
+                'FLUTTER_NOTIFICATION_CLICK',
+            },
 
-            click_action:
-            'FLUTTER_NOTIFICATION_CLICK',
-        },
+            tokens,
+          };
 
-        tokens,
-        };
+          try {
 
-        try {
+            const response =
+              await admin.messaging()
+                .sendEachForMulticast(
+                  message
+                );
 
-        const response =
-            await admin.messaging()
-            .sendEachForMulticast(
-                message
+            console.log(
+              '✅ PUSH SENT:',
+              response.successCount
             );
 
-        console.log(
-            '✅ PUSH SENT:',
-            response.successCount
-        );
+          } catch (pushError) {
 
-        } catch (pushError) {
-
-        console.log(
-            '❌ PUSH ERROR:',
-            pushError
-        );
+            console.log(
+              '❌ PUSH ERROR:',
+              pushError
+            );
+          }
         }
+      }
     }
-    }
+
+    console.log(
+      '✅ PROCESS ALERTS FINISHED'
+    );
 
   } catch (err) {
 
