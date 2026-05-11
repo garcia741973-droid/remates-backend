@@ -35,6 +35,8 @@ async function processLotAlerts(lot) {
     const searches =
       searchesResult.rows;
 
+    let shouldSendPush = false;
+
     for (const search of searches) {
 
       console.log(
@@ -92,6 +94,10 @@ async function processLotAlerts(lot) {
 
       const isFirstMatch =
         existingLotAlert.rows.length === 0;
+
+        if (isFirstMatch) {
+        shouldSendPush = true;
+        }        
 
       console.log(
         '🧠 FIRST MATCH:',
@@ -161,84 +167,84 @@ async function processLotAlerts(lot) {
         '🔥 ALERT CREATED!'
       );
 
-      /// 🔔 PUSH SOLO PRIMER MATCH
-      if (isFirstMatch) {
+        /// 🔔 PUSH FINAL
+        if (shouldSendPush) {
 
         console.log(
-          '📲 SENDING PUSH...'
+            '📲 SENDING PUSH...'
         );
 
-        /// 🔥 TOKENS USUARIO
+        /// 🔥 TOKEN USUARIO
         const tokensResult =
-          await pool.query(
+            await pool.query(
             `
             SELECT fcm_token
             FROM users
             WHERE id = $1
             AND fcm_token IS NOT NULL
             `,
-            [search.user_id]
-          );
+            [searches[0].user_id]
+            );
 
         const tokens =
-          tokensResult.rows.map(
+            tokensResult.rows.map(
             t => t.fcm_token
-          );
+            );
 
         console.log(
-          '📲 TOKENS:',
-          tokens.length
+            '📲 TOKENS:',
+            tokens.length
         );
 
         if (tokens.length > 0) {
 
-          const message = {
+            const message = {
 
             notification: {
 
-              title:
+                title:
                 '🔥 Encontramos ganado para ti',
 
-              body:
+                body:
                 `${lot.class} ${lot.breed} - ${lot.department}`,
             },
 
             data: {
 
-              type: 'search_alert',
+                type: 'search_alert',
 
-              lot_id:
+                lot_id:
                 String(lot.id),
 
-              click_action:
+                click_action:
                 'FLUTTER_NOTIFICATION_CLICK',
             },
 
             tokens,
-          };
+            };
 
-          try {
+            try {
 
             const response =
-              await admin.messaging()
+                await admin.messaging()
                 .sendEachForMulticast(
-                  message
+                    message
                 );
 
             console.log(
-              '✅ PUSH SENT:',
-              response.successCount
+                '✅ PUSH SENT:',
+                response.successCount
             );
 
-          } catch (pushError) {
+            } catch (pushError) {
 
             console.log(
-              '❌ PUSH ERROR:',
-              pushError
+                '❌ PUSH ERROR:',
+                pushError
             );
-          }
+            }
         }
-      }
+        }
     }
 
     console.log(
