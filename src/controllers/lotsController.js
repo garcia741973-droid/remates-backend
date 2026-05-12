@@ -264,8 +264,24 @@ exports.getLots = async (req, res) => {
       FROM lots l
       JOIN users u ON u.id = l.seller_id
       WHERE l.company_id = $1
+
       AND l.status != 'sold'
-      ORDER BY l.created_at DESC
+
+      ORDER BY
+
+      CASE
+      WHEN
+        l.featured = true
+        AND l.featured_until > NOW()
+      THEN 0
+      ELSE 1
+      END,
+
+      l.featured_until DESC NULLS LAST,
+
+      u.successful_sales_count DESC,
+
+      l.created_at DESC
       `,
       [company_id]
     );
@@ -934,10 +950,24 @@ exports.searchLots = async (
 
         break;
 
-      default:
+        default:
 
         sql += `
-          ORDER BY l.created_at DESC
+          ORDER BY
+
+          CASE
+          WHEN
+            l.featured = true
+            AND l.featured_until > NOW()
+          THEN 0
+          ELSE 1
+          END,
+
+          l.featured_until DESC NULLS LAST,
+
+          u.successful_sales_count DESC,
+
+          l.created_at DESC
         `;
     }
 
