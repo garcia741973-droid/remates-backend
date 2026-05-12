@@ -34,24 +34,24 @@ router.get(
 );
 
 /// ⭐ SOLICITUDES PREMIUM
-router.get(
-  "/featured-requests",
-  requireAuth,
-  getFeaturedRequests
-);
+//router.get(
+//  "/featured-requests",
+//  requireAuth,
+//  getFeaturedRequests
+//);
 
 /// ✅ APROBAR PREMIUM
-router.post(
-  "/featured-requests/:id/approve",
-  requireAuth,
-  approveFeaturedRequest
-);
+//router.post(
+//  "/featured-requests/:id/approve",
+//  requireAuth,
+//  approveFeaturedRequest
+//);
 
 /// ❌ RECHAZAR PREMIUM
-router.post(
-  "/featured-requests/:id/reject",
-  requireAuth,
-  rejectFeaturedRequest
-);
+//router.post(
+//  "/featured-requests/:id/reject",
+//  requireAuth,
+//  rejectFeaturedRequest
+//);
 
 module.exports = router;

@@ -150,10 +150,10 @@ app.use(
   savedSearchesRoutes
 );
 
-app.use(
-  '/featured-requests',
-  featuredRoutes
-);
+//app.use(
+//  '/featured-requests',
+//  featuredRoutes
+//);
 
 const promotionRoutes =
     require('./routes/promotionRoutes');
