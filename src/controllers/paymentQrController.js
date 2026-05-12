@@ -19,6 +19,11 @@ exports.getActiveQr = async (
 
         WHERE is_active = true
 
+        AND (
+        valid_until IS NULL
+        OR valid_until > NOW()
+        )
+
         ORDER BY id DESC
 
         LIMIT 1
@@ -88,15 +93,19 @@ exports.createQr = async (
         `
         INSERT INTO payment_qrs
         (
-          qr_image_url,
-          amount,
-          is_active
+        qr_image_url,
+        amount,
+        is_active,
+        valid_from,
+        valid_until
         )
         VALUES
         (
-          $1,
-          $2,
-          true
+        $1,
+        $2,
+        true,
+        NOW(),
+        NOW() + INTERVAL '30 days'
         )
         RETURNING *
         `,
