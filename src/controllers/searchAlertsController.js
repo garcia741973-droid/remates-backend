@@ -20,7 +20,7 @@ exports.getSearchAlerts = async (
 
         MAX(sa.id) as alert_id,
 
-        BOOL_OR(sa.opened) as opened,
+        BOOL_AND(sa.opened) as opened,
 
         l.id as lot_id,
 
