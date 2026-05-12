@@ -162,6 +162,7 @@ exports.getUnreadCount = async (
         WHERE user_id = $1
         AND company_id = $2
         AND opened = false
+        AND COALESCE(hidden, false) = false
         `,
         [
           user_id,
