@@ -116,3 +116,219 @@ exports.uploadFeaturedProof = async (
     });
   }
 };
+
+/// ⭐ OBTENER SOLICITUDES PREMIUM
+exports.getFeaturedRequests = async (
+  req,
+  res
+) => {
+
+  try {
+
+    const { rows } =
+      await pool.query(
+        `
+        SELECT
+
+          fr.*,
+
+          l.lot_number,
+
+          l.images,
+
+          l.class,
+
+          l.breed,
+
+          l.quantity,
+
+          COALESCE(
+            u.full_name,
+            u.name
+          ) as seller_name
+
+        FROM featured_requests fr
+
+        JOIN lots l
+          ON l.id = fr.lot_id
+
+        JOIN users u
+          ON u.id = fr.user_id
+
+        ORDER BY fr.created_at DESC
+        `
+      );
+
+    res.json(rows);
+
+  } catch (error) {
+
+    console.error(
+      'ERROR GET FEATURED REQUESTS:',
+      error
+    );
+
+    res.status(500).json({
+      error:
+        'Error obteniendo solicitudes'
+    });
+  }
+};
+
+/// ✅ APROBAR PREMIUM
+exports.approveFeaturedRequest =
+  async (
+    req,
+    res
+  ) => {
+
+  try {
+
+    const { id } =
+      req.params;
+
+    /// 🔍 BUSCAR
+    const requestRes =
+      await pool.query(
+        `
+        SELECT *
+        FROM featured_requests
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [id]
+      );
+
+    if (
+      requestRes.rows.length === 0
+    ) {
+
+      return res.status(404).json({
+        error:
+          'Solicitud no encontrada'
+      });
+    }
+
+    const request =
+      requestRes.rows[0];
+
+    /// 🔴 VALIDAR STATUS
+    if (
+      request.status !==
+      'payment_uploaded'
+    ) {
+
+      return res.status(400).json({
+        error:
+          'La solicitud no está lista'
+      });
+    }
+
+    /// 🔥 ACTIVAR DESTACADO
+    await pool.query(
+      `
+      UPDATE lots
+      SET
+
+        featured = true,
+
+        featured_until =
+          NOW() +
+          ($1 || ' days')::interval
+
+      WHERE id = $2
+      `,
+      [
+        request.days,
+        request.lot_id
+      ]
+    );
+
+    /// 🔥 APROBAR REQUEST
+    const { rows } =
+      await pool.query(
+        `
+        UPDATE featured_requests
+        SET
+
+          status = 'approved',
+
+          approved_at = NOW()
+
+        WHERE id = $1
+
+        RETURNING *
+        `,
+        [id]
+      );
+
+    console.log(
+      '⭐ FEATURED APPROVED:',
+      id
+    );
+
+    res.json(rows[0]);
+
+  } catch (error) {
+
+    console.error(
+      'ERROR APPROVE FEATURED:',
+      error
+    );
+
+    res.status(500).json({
+      error:
+        'Error aprobando destacado'
+    });
+  }
+};
+
+/// ❌ RECHAZAR PREMIUM
+exports.rejectFeaturedRequest =
+  async (
+    req,
+    res
+  ) => {
+
+  try {
+
+    const { id } =
+      req.params;
+
+    const { rows } =
+      await pool.query(
+        `
+        UPDATE featured_requests
+        SET
+
+          status = 'rejected',
+
+          rejected_at = NOW()
+
+        WHERE id = $1
+
+        RETURNING *
+        `,
+        [id]
+      );
+
+    console.log(
+      '❌ FEATURED REJECTED:',
+      id
+    );
+
+    res.json(rows[0]);
+
+  } catch (error) {
+
+    console.error(
+      'ERROR REJECT FEATURED:',
+      error
+    );
+
+    res.status(500).json({
+      error:
+        'Error rechazando solicitud'
+    });
+  }
+};
