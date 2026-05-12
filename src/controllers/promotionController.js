@@ -11,7 +11,7 @@ exports.getPlans = async (req, res) => {
             SELECT *
             FROM promotion_plans
             WHERE is_active = true
-            ORDER BY priority ASC
+            ORDER BY priority DESC
 
         `);
 
@@ -39,7 +39,7 @@ exports.createPromotionRequest = async (
     try {
 
         const userId =
-            req.user.id;
+            req.user.user_id;
 
         const companyId =
             req.user.company_id;
@@ -277,12 +277,7 @@ exports.getPromotionRequests =
                     l.department,
                     l.municipality,
 
-                    (
-                        SELECT image_url
-                        FROM lot_images
-                        WHERE lot_id = l.id
-                        LIMIT 1
-                    ) as image
+                    l.images[1] as image
 
                 FROM promotion_requests pr
 
