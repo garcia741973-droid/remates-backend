@@ -38,7 +38,9 @@ exports.createLot = async (req, res) => {
 
       /// 🔥 NUEVO
       images,
-      video
+      video,
+
+      featured_requested,
     } = req.body;
 
     /// 🔴 VALIDACIÓN UBICACIÓN
@@ -97,7 +99,9 @@ exports.createLot = async (req, res) => {
         distance_km,
 
         images,
-        video_url
+        video_url,
+
+        featured
       )
       VALUES
       (
@@ -117,7 +121,8 @@ exports.createLot = async (req, res) => {
         $14,
         $15,
         $16,
-        $17
+        $17,
+        false
       )
       RETURNING *
       `,
@@ -148,6 +153,56 @@ exports.createLot = async (req, res) => {
       ]
     );
 
+    const createdLot = rows[0];
+
+    /// ⭐ CREAR SOLICITUD DESTACADA
+    let featuredRequest = null;
+
+    if (featured_requested === true) {
+
+      const featuredRes = await pool.query(
+        `
+        INSERT INTO featured_requests
+        (
+          lot_id,
+          user_id,
+          company_id,
+
+          status,
+
+          amount,
+          days
+        )
+        VALUES
+        (
+          $1,
+          $2,
+          $3,
+          'pending_payment',
+          $4,
+          $5
+        )
+        RETURNING *
+        `,
+        [
+          createdLot.id,
+          user_id,
+          company_id,
+
+          50, // 🔥 luego configurable
+          3
+        ]
+      );
+
+      featuredRequest =
+        featuredRes.rows[0];
+
+      console.log(
+        '⭐ FEATURED REQUEST CREATED:',
+        featuredRequest.id
+      );
+    }
+
     /// 🧠 PROCESAR ALERTAS
     console.log(
       '🔥 LOT CREATED:',
@@ -166,7 +221,16 @@ exports.createLot = async (req, res) => {
       '✅ PROCESS ALERTS FINISHED'
     );
 
-    res.json(rows[0]);
+    res.json({
+
+      lot: createdLot,
+
+      featured_request:
+          featuredRequest,
+
+      requires_featured_payment:
+          featuredRequest != null,
+    });
 
   } catch (error) {
     console.error("ERROR CREATE LOT:", error);
