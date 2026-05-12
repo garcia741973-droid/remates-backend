@@ -155,6 +155,14 @@ app.use(
   featuredRoutes
 );
 
+const promotionRoutes =
+    require('./routes/promotionRoutes');
+
+app.use(
+    '/promotions',
+    promotionRoutes,
+);
+
 /// 🚀 SERVIDOR
 const PORT = process.env.PORT || 3000;
 

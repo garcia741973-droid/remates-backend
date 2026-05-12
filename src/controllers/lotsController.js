@@ -240,13 +240,27 @@ exports.createLot = async (req, res) => {
 
 /// 🔥 SOLO UNA VEZ
 exports.getLots = async (req, res) => {
-  try {
-    const company_id = req.user.company_id;
 
-    const { rows } = await pool.query(
+  try {
+
+    const company_id =
+        req.user.company_id;
+
+    const { rows } =
+        await pool.query(
       `
-      SELECT 
+      SELECT
+
         l.*,
+
+        /// ⭐ FEATURED DINÁMICO
+        CASE
+        WHEN
+          l.promoted_until IS NOT NULL
+          AND l.promoted_until > NOW()
+        THEN true
+        ELSE false
+        END as featured,
 
         COALESCE(
           u.full_name,
@@ -262,26 +276,28 @@ exports.getLots = async (req, res) => {
         u.seller_status
 
       FROM lots l
-      JOIN users u ON u.id = l.seller_id
-      WHERE l.company_id = $1
 
-      AND l.status != 'sold'
+      JOIN users u
+        ON u.id = l.seller_id
+
+      WHERE
+
+        l.company_id = $1
+
+        AND l.status != 'sold'
 
       ORDER BY
 
-      CASE
-      WHEN
-        l.featured = true
-        AND l.featured_until > NOW()
-      THEN 0
-      ELSE 1
-      END,
+        COALESCE(
+          l.promotion_priority,
+          0
+        ) DESC,
 
-      l.featured_until DESC NULLS LAST,
+        l.promoted_until DESC NULLS LAST,
 
-      u.successful_sales_count DESC,
+        u.successful_sales_count DESC,
 
-      l.created_at DESC
+        l.created_at DESC
       `,
       [company_id]
     );
@@ -289,8 +305,16 @@ exports.getLots = async (req, res) => {
     res.json(rows);
 
   } catch (error) {
-    console.error('ERROR GET LOTS:', error);
-    res.status(500).json({ error: 'Error obteniendo lotes' });
+
+    console.error(
+      'ERROR GET LOTS:',
+      error
+    );
+
+    res.status(500).json({
+      error:
+        'Error obteniendo lotes'
+    });
   }
 };
 
@@ -897,7 +921,8 @@ exports.searchLots = async (
     ) {
 
       sql += `
-        AND l.featured = true
+      AND l.promoted_until IS NOT NULL
+      AND l.promoted_until > NOW()
       `;
     }
 
@@ -1155,9 +1180,9 @@ exports.getFeaturedLots =
 
           AND l.status != 'sold'
 
-          AND l.featured = true
+          AND l.promoted_until IS NOT NULL
 
-          AND l.featured_until > NOW()
+          AND l.promoted_until > NOW()
 
         ORDER BY
 
