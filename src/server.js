@@ -62,6 +62,9 @@ const operatorRoutes = require('./routes/operatorRoutes');
 const companyRoutes = require('./routes/companyRoutes');
 const firebaseRoutes = require('./routes/firebaseRoutes');
 
+const paymentQrRoutes =
+  require('./routes/paymentQrRoutes');
+
 const kycRoutes = require('./routes/kyc.cjs');
 const adminRoutes = require('./routes/adminRoutes');
 const sellerRoutes = require('./routes/sellerRoutes.cjs');
@@ -119,6 +122,12 @@ app.use('/bids', bidsRoutes);
 app.use('/operator', operatorRoutes);
 app.use('/company', companyRoutes);
 app.use('/firebase', firebaseRoutes);
+
+app.use(
+  '/payment-qrs',
+  paymentQrRoutes
+);
+
 app.use('/kyc', kycRoutes);
 app.use('/admin', adminRoutes);
 app.use('/seller', sellerRoutes);
