@@ -9,7 +9,6 @@ exports.createLot = async (req, res) => {
     const company_id = req.user.company_id;
     const user_id = req.user.user_id;
 
-    /// 🔴 VALIDAR VENDEDOR
     const userResult = await pool.query(
       `SELECT seller_status FROM users WHERE id = $1`,
       [user_id]
@@ -27,7 +26,7 @@ exports.createLot = async (req, res) => {
       quantity,
       class: lot_class,
       town,
-      distance_km,      
+      distance_km,
       breed,
       weight,
       sale_type,
@@ -35,47 +34,47 @@ exports.createLot = async (req, res) => {
       department,
       province,
       municipality,
-
-      /// 🔥 NUEVO
       images,
       video,
-
-      featured_requested,
+      promotion_plan_id,
     } = req.body;
 
-    /// 🔴 VALIDACIÓN UBICACIÓN
     if (!department || !province || !municipality) {
       return res.status(400).json({
         error: 'Debes seleccionar departamento, provincia y municipio'
       });
     }
 
-    /// 🔴 VALIDACIONES NUMÉRICAS
     if (!quantity || Number(quantity) <= 0) {
-      return res.status(400).json({ error: 'Cantidad inválida' });
+      return res.status(400).json({
+        error: 'Cantidad inválida'
+      });
     }
 
     if (!base_price || Number(base_price) <= 0) {
-      return res.status(400).json({ error: 'Precio base inválido' });
+      return res.status(400).json({
+        error: 'Precio base inválido'
+      });
     }
 
-    /// 🔥 GENERAR NÚMERO DE LOTE AUTOMÁTICO
     const countResult = await pool.query(
       `
-      SELECT COUNT(*) FROM lots
-      WHERE company_id = $1 AND seller_id = $2
+      SELECT COUNT(*)
+      FROM lots
+      WHERE company_id = $1
+      AND seller_id = $2
       `,
       [company_id, user_id]
     );
 
-    const count = parseInt(countResult.rows[0].count) + 1;
+    const count =
+        parseInt(countResult.rows[0].count) + 1;
 
     const lot_number = count;
 
-    /// 🔥 INSERT FINAL
     const { rows } = await pool.query(
       `
-      INSERT INTO lots 
+      INSERT INTO lots
       (
         company_id,
         seller_id,
@@ -149,92 +148,101 @@ exports.createLot = async (req, res) => {
         distance_km || 0,
 
         images || [],
-        video || null
+        video || null,
       ]
     );
 
     const createdLot = rows[0];
 
-    /// ⭐ CREAR SOLICITUD DESTACADA
-    let featuredRequest = null;
+    let promotionRequest = null;
 
-    if (featured_requested === true) {
-
-      const featuredRes = await pool.query(
+    if (promotion_plan_id != null) {
+      const planRes = await pool.query(
         `
-        INSERT INTO featured_requests
+        SELECT *
+        FROM promotion_plans
+        WHERE id = $1
+        AND is_active = true
+        LIMIT 1
+        `,
+        [promotion_plan_id]
+      );
+
+      if (planRes.rows.length === 0) {
+        return res.status(400).json({
+          error: 'Plan de promoción inválido'
+        });
+      }
+
+      const plan = planRes.rows[0];
+
+      const promoRes = await pool.query(
+        `
+        INSERT INTO promotion_requests
         (
-          lot_id,
-          user_id,
           company_id,
-
+          user_id,
+          promotion_plan_id,
+          entity_type,
+          entity_id,
           status,
-
-          amount,
-          days
+          amount
         )
         VALUES
         (
           $1,
           $2,
           $3,
-          'pending_payment',
+          'lot',
           $4,
+          'pending_payment',
           $5
         )
         RETURNING *
         `,
         [
-          createdLot.id,
-          user_id,
           company_id,
-
-          50, // 🔥 luego configurable
-          3
+          user_id,
+          plan.id,
+          createdLot.id,
+          plan.price,
         ]
       );
 
-      featuredRequest =
-        featuredRes.rows[0];
+      promotionRequest = promoRes.rows[0];
 
       console.log(
-        '⭐ FEATURED REQUEST CREATED:',
-        featuredRequest.id
+        '🚀 PROMOTION REQUEST CREATED:',
+        promotionRequest.id
       );
     }
 
-    /// 🧠 PROCESAR ALERTAS
     console.log(
       '🔥 LOT CREATED:',
-      rows[0].id
+      createdLot.id
     );
 
-    console.log(
-      '🧠 CALLING PROCESS ALERTS...'
-    );
-
-    await processLotAlerts(
-      rows[0]
-    );
-
-    console.log(
-      '✅ PROCESS ALERTS FINISHED'
-    );
+    await processLotAlerts(createdLot);
 
     res.json({
-
       lot: createdLot,
 
-      featured_request:
-          featuredRequest,
+      promotion_request:
+          promotionRequest,
 
-      requires_featured_payment:
-          featuredRequest != null,
+      requires_promotion_payment:
+          promotionRequest != null,
     });
 
   } catch (error) {
-    console.error("ERROR CREATE LOT:", error);
-    res.status(500).json({ error: 'Error creando lote' });
+    console.error(
+      'ERROR CREATE LOT:',
+      error
+    );
+
+    res.status(500).json({
+      error: 'Error creando lote'
+    });
   }
 };
 
@@ -968,8 +976,29 @@ exports.searchLots = async (
     ) {
 
       sql += `
-      AND l.promoted_until IS NOT NULL
-      AND l.promoted_until > NOW()
+      AND (
+
+        (
+
+          l.promoted_until IS NOT NULL
+
+          AND l.promoted_until > NOW()
+
+        )
+
+        OR
+
+        (
+
+          l.featured = true
+
+          AND l.featured_until IS NOT NULL
+
+          AND l.featured_until > NOW()
+
+        )
+
+      )
       `;
     }
 
@@ -1024,23 +1053,46 @@ exports.searchLots = async (
 
         default:
 
-        sql += `
-          ORDER BY
+          sql += `
+            ORDER BY
 
-          CASE
-          WHEN
-            l.featured = true
-            AND l.featured_until > NOW()
-          THEN 0
-          ELSE 1
-          END,
+            CASE
 
-          l.featured_until DESC NULLS LAST,
+              WHEN
 
-          u.successful_sales_count DESC,
+                (
+                  l.promoted_until IS NOT NULL
+                  AND l.promoted_until > NOW()
+                )
 
-          l.created_at DESC
-        `;
+                OR
+
+                (
+                  l.featured = true
+                  AND l.featured_until IS NOT NULL
+                  AND l.featured_until > NOW()
+                )
+
+              THEN 0
+
+              ELSE 1
+
+            END,
+
+            COALESCE(
+              l.promotion_priority,
+              0
+            ) DESC,
+
+            COALESCE(
+              l.promoted_until,
+              l.featured_until
+            ) DESC NULLS LAST,
+
+            u.successful_sales_count DESC,
+
+            l.created_at DESC
+          `;
     }
 
     console.log(
