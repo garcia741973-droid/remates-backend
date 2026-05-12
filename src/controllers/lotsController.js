@@ -1227,11 +1227,34 @@ exports.getFeaturedLots =
 
           AND l.status != 'sold'
 
-          AND l.promoted_until IS NOT NULL
+          AND (
 
-          AND l.promoted_until > NOW()
+            (
 
-          ORDER BY
+              l.featured = true
+
+              AND l.featured_until IS NOT NULL
+
+              AND l.featured_until > NOW()
+            )
+
+            OR
+
+            (
+
+              l.promoted_until IS NOT NULL
+
+              AND l.promoted_until > NOW()
+            )
+
+          )
+
+        ORDER BY
+
+          COALESCE(
+            l.promotion_priority,
+            0
+          ) DESC,
 
           COALESCE(
             l.promoted_until,
