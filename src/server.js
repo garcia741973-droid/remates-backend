@@ -75,7 +75,10 @@ const searchAlertsRoutes =
   require('./routes/searchAlertsRoutes');
   
 const savedSearchesRoutes =
-  require('./routes/savedSearchesRoutes');  
+  require('./routes/savedSearchesRoutes');
+  
+const featuredRoutes =
+  require('./routes/featuredRoutes');  
 
 const {
   startReviewReminderService
@@ -132,6 +135,11 @@ app.use(
 app.use(
   '/saved-searches',
   savedSearchesRoutes
+);
+
+app.use(
+  '/featured-requests',
+  featuredRoutes
 );
 
 /// 🚀 SERVIDOR
