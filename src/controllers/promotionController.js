@@ -306,3 +306,50 @@ exports.getPromotionRequests =
             });
         }
     };
+
+/// 🔥 SUBIR COMPROBANTE
+exports.uploadProof = async (
+    req,
+    res,
+) => {
+
+    try {
+
+        const { id } = req.params;
+
+        const {
+            payment_proof_url,
+        } = req.body;
+
+        await pool.query(
+
+            `
+            UPDATE promotion_requests
+            SET
+                payment_proof_url = $1,
+                status = 'pending_approval'
+            WHERE id = $2
+            `,
+            [
+                payment_proof_url,
+                id,
+            ],
+        );
+
+        res.json({
+            success: true,
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ UPLOAD PROOF ERROR',
+            err,
+        );
+
+        res.status(500).json({
+            error:
+                'Error subiendo comprobante',
+        });
+    }
+};    

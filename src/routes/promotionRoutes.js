@@ -46,4 +46,10 @@ router.post(
     controller.approvePromotion,
 );
 
+router.put(
+  '/:id/proof',
+  requireAuth,
+  promotionController.uploadProof
+);
+
 module.exports = router;
