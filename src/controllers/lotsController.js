@@ -238,7 +238,7 @@ exports.createLot = async (req, res) => {
   }
 };
 
-/// 🔥 SOLO UNA VEZ
+/// 🔥 GET LOTS
 exports.getLots = async (req, res) => {
 
   try {
@@ -253,14 +253,32 @@ exports.getLots = async (req, res) => {
 
         l.*,
 
-        /// ⭐ FEATURED DINÁMICO
+        /// ⭐ FEATURED COMPATIBLE
         CASE
-        WHEN
-          l.promoted_until IS NOT NULL
-          AND l.promoted_until > NOW()
-        THEN true
-        ELSE false
-        END as featured,
+
+          WHEN
+
+            (
+              l.promoted_until IS NOT NULL
+
+              AND l.promoted_until > NOW()
+            )
+
+            OR
+
+            (
+              l.featured = true
+
+              AND l.featured_until IS NOT NULL
+
+              AND l.featured_until > NOW()
+            )
+
+          THEN true
+
+          ELSE false
+
+        END AS featured,
 
         COALESCE(
           u.full_name,
@@ -288,12 +306,41 @@ exports.getLots = async (req, res) => {
 
       ORDER BY
 
+        CASE
+
+          WHEN
+
+            (
+              l.promoted_until IS NOT NULL
+
+              AND l.promoted_until > NOW()
+            )
+
+            OR
+
+            (
+              l.featured = true
+
+              AND l.featured_until IS NOT NULL
+
+              AND l.featured_until > NOW()
+            )
+
+          THEN 0
+
+          ELSE 1
+
+        END,
+
         COALESCE(
           l.promotion_priority,
           0
         ) DESC,
 
-        l.promoted_until DESC NULLS LAST,
+        COALESCE(
+          l.promoted_until,
+          l.featured_until
+        ) DESC NULLS LAST,
 
         u.successful_sales_count DESC,
 
@@ -1184,9 +1231,12 @@ exports.getFeaturedLots =
 
           AND l.promoted_until > NOW()
 
-        ORDER BY
+          ORDER BY
 
-          l.featured_until DESC,
+          COALESCE(
+            l.promoted_until,
+            l.featured_until
+          ) DESC,
 
           successful_sales_count DESC,
 
