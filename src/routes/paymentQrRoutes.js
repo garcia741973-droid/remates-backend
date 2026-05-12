@@ -12,7 +12,15 @@ const {
 );
 
 const {
-  getActiveQr
+
+  getActiveQr,
+
+  createQr,
+
+  getAllQrs,
+
+  activateQr,
+
 } = require(
   '../controllers/paymentQrController'
 );
@@ -22,6 +30,27 @@ router.get(
   '/active',
   requireAuth,
   getActiveQr
+);
+
+/// 🔥 CREAR QR
+router.post(
+  '/',
+  requireAuth,
+  createQr
+);
+
+/// 🔥 LISTAR
+router.get(
+  '/',
+  requireAuth,
+  getAllQrs
+);
+
+/// 🔥 ACTIVAR
+router.put(
+  '/:id/activate',
+  requireAuth,
+  activateQr
 );
 
 module.exports = router;
