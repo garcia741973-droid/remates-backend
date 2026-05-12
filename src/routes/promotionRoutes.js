@@ -7,8 +7,15 @@ const router =
 const controller =
     require('../controllers/promotionController');
 
-const requireAuth =
-    require('../middleware/requireAuth');
+const {
+
+    requireAuth,
+
+    requireAdmin,
+
+} = require(
+    '../middleware/authMiddleware'
+);
 
 /// 🔥 PLANES
 router.get(
@@ -16,25 +23,27 @@ router.get(
     controller.getPlans,
 );
 
-/// 🔥 CREAR SOLICITUD
+/// 🔥 CREAR REQUEST
 router.post(
     '/request',
     requireAuth,
     controller.createPromotionRequest,
 );
 
-/// 🔥 ADMIN APROBAR
-router.post(
-    '/approve/:id',
-    requireAuth,
-    controller.approvePromotion,
-);
-
 /// 🔥 ADMIN LISTAR
 router.get(
     '/requests',
     requireAuth,
+    requireAdmin,
     controller.getPromotionRequests,
+);
+
+/// 🔥 ADMIN APROBAR
+router.post(
+    '/approve/:id',
+    requireAuth,
+    requireAdmin,
+    controller.approvePromotion,
 );
 
 module.exports = router;
