@@ -85,7 +85,11 @@ const featuredRoutes =
 
 const {
   startReviewReminderService
-} = require('./services/reviewReminderService');  
+} = require('./services/reviewReminderService');
+
+const {
+  startQrExpirationService
+} = require('./services/qrExpirationService');
 
 const app = express();
 
@@ -166,6 +170,8 @@ app.set('io', io);
 
 /// 🔥 REVIEW REMINDER SERVICE
 startReviewReminderService();
+
+startQrExpirationService();
 
 /// 🔥 conexión sockets
 io.on('connection', (socket) => {
