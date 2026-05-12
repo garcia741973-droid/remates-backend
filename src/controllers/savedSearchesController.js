@@ -230,6 +230,8 @@ exports.getSavedSearchAlerts =
 
             sa.id as alert_id,
 
+            sa.opened,
+
             sa.score,
 
             sa.reasons,
