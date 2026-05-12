@@ -49,7 +49,7 @@ router.post(
 router.put(
   '/:id/proof',
   requireAuth,
-  promotionController.uploadProof
+  controller.uploadProof
 );
 
 module.exports = router;
