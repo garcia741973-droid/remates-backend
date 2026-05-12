@@ -1122,3 +1122,68 @@ exports.getLotById = async (req, res) => {
     });
   }
 };
+
+/// ⭐ LOTES DESTACADOS
+exports.getFeaturedLots =
+  async (req, res) => {
+
+  try {
+
+    const company_id =
+      req.user.company_id;
+
+    const { rows } =
+      await pool.query(
+        `
+        SELECT
+
+          l.*,
+
+          COALESCE(
+            u.successful_sales_count,
+            0
+          ) as successful_sales_count
+
+        FROM lots l
+
+        LEFT JOIN users u
+          ON u.id = l.seller_id
+
+        WHERE
+
+          l.company_id = $1
+
+          AND l.status != 'sold'
+
+          AND l.featured = true
+
+          AND l.featured_until > NOW()
+
+        ORDER BY
+
+          l.featured_until DESC,
+
+          successful_sales_count DESC,
+
+          l.created_at DESC
+
+        LIMIT 6
+        `,
+        [company_id]
+      );
+
+    res.json(rows);
+
+  } catch (error) {
+
+    console.error(
+      'ERROR FEATURED LOTS:',
+      error
+    );
+
+    res.status(500).json({
+      error:
+        'Error obteniendo destacados'
+    });
+  }
+};

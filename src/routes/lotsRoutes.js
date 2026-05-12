@@ -1,3 +1,4 @@
+
 const express = require('express');
 const router = express.Router();
 
@@ -13,6 +14,7 @@ const {
   updateLot,
   deleteLot,
   searchLots,
+  getFeaturedLots,
 } = require('../controllers/lotsController');
 
 /// 🔍 BUSCAR LOTES
@@ -27,6 +29,12 @@ router.post(
   '/',
   requireAuth,
   createLot
+);
+
+router.get(
+  '/featured',
+  requireAuth,
+  getFeaturedLots
 );
 
 /// 🔥 LISTAR LOTES
