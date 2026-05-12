@@ -23,16 +23,47 @@ exports.requireAuth = (req, res, next) => {
   }
 };
 
-exports.requireAdmin = (req, res, next) => {
+exports.requireAdmin = (
+  req,
+  res,
+  next
+) => {
+
   try {
-    if (!req.user || req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'No autorizado (admin)' });
+
+    if (!req.user) {
+
+      return res.status(403).json({
+        error: 'No autorizado'
+      });
+    }
+
+    /// 🔥 ACEPTAR ADMIN Y SUPER ADMIN
+    if (
+
+      req.user.role !== 'admin'
+
+      &&
+
+      req.user.role !== 'super_admin'
+
+    ) {
+
+      return res.status(403).json({
+        error:
+          'No autorizado (admin)'
+      });
     }
 
     next();
 
   } catch (error) {
+
     console.error(error);
-    return res.status(500).json({ error: 'Error validando admin' });
+
+    return res.status(500).json({
+      error:
+        'Error validando admin'
+    });
   }
 };
