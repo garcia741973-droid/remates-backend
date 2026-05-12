@@ -245,9 +245,10 @@ exports.getSavedSearchAlerts =
           JOIN lots l
             ON l.id = sa.lot_id
 
-          WHERE sa.saved_search_id = $1
-          AND sa.user_id = $2
-          AND sa.company_id = $3
+            WHERE sa.saved_search_id = $1
+            AND sa.user_id = $2
+            AND sa.company_id = $3
+            AND COALESCE(sa.hidden, false) = false
 
           ORDER BY sa.created_at DESC
           `,
