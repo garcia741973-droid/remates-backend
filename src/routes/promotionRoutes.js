@@ -8,7 +8,7 @@ const controller =
     require('../controllers/promotionController');
 
 const requireAuth =
-    require('../middlewares/requireAuth');
+    require('../middleware/requireAuth');
 
 /// 🔥 PLANES
 router.get(
