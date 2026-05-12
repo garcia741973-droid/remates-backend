@@ -1,4 +1,5 @@
-const pool = require('../db');
+const { pool } =
+    require('../config/db');
 
 /// 🔥 OBTENER PLANES ACTIVOS
 exports.getPlans = async (req, res) => {
