@@ -266,21 +266,9 @@ exports.getLots = async (req, res) => {
 
           WHEN
 
-            (
-              l.promoted_until IS NOT NULL
+            l.promoted_until IS NOT NULL
 
-              AND l.promoted_until > NOW()
-            )
-
-            OR
-
-            (
-              l.featured = true
-
-              AND l.featured_until IS NOT NULL
-
-              AND l.featured_until > NOW()
-            )
+            AND l.promoted_until > NOW()
 
           THEN true
 
