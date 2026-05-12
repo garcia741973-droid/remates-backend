@@ -300,43 +300,32 @@ exports.getLots = async (req, res) => {
 
         AND l.status != 'sold'
 
-      ORDER BY
+        ORDER BY
 
-        CASE
+          CASE
 
-          WHEN
+            WHEN
 
-            (
               l.promoted_until IS NOT NULL
 
               AND l.promoted_until > NOW()
-            )
 
-            OR
+            THEN 0
 
-            (
-              l.featured = true
+            ELSE 1
 
-              AND l.featured_until IS NOT NULL
+          END,
 
-              AND l.featured_until > NOW()
-            )
+          COALESCE(
+            l.promotion_priority,
+            0
+          ) DESC,
 
-          THEN 0
+          l.promoted_until DESC NULLS LAST,
 
-          ELSE 1
+          u.successful_sales_count DESC,
 
-        END,
-
-        COALESCE(
-          l.promotion_priority,
-          0
-        ) DESC,
-
-        COALESCE(
-          l.promoted_until,
-          l.featured_until
-        ) DESC NULLS LAST,
+          l.created_at DESC
 
         u.successful_sales_count DESC,
 
@@ -964,29 +953,8 @@ exports.searchLots = async (
     ) {
 
       sql += `
-      AND (
-
-        (
-
-          l.promoted_until IS NOT NULL
-
-          AND l.promoted_until > NOW()
-
-        )
-
-        OR
-
-        (
-
-          l.featured = true
-
-          AND l.featured_until IS NOT NULL
-
-          AND l.featured_until > NOW()
-
-        )
-
-      )
+      AND l.promoted_until IS NOT NULL
+      AND l.promoted_until > NOW()
       `;
     }
 
@@ -1048,18 +1016,8 @@ exports.searchLots = async (
 
               WHEN
 
-                (
-                  l.promoted_until IS NOT NULL
-                  AND l.promoted_until > NOW()
-                )
-
-                OR
-
-                (
-                  l.featured = true
-                  AND l.featured_until IS NOT NULL
-                  AND l.featured_until > NOW()
-                )
+                l.promoted_until IS NOT NULL
+                AND l.promoted_until > NOW()
 
               THEN 0
 
@@ -1072,10 +1030,7 @@ exports.searchLots = async (
               0
             ) DESC,
 
-            COALESCE(
-              l.promoted_until,
-              l.featured_until
-            ) DESC NULLS LAST,
+            l.promoted_until DESC NULLS LAST,
 
             u.successful_sales_count DESC,
 
