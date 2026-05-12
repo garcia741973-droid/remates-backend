@@ -1264,6 +1264,11 @@ exports.getFeaturedLots =
           l.*,
 
           COALESCE(
+            u.full_name,
+            u.name
+          ) as seller_name,
+
+          COALESCE(
             u.successful_sales_count,
             0
           ) as successful_sales_count
@@ -1279,27 +1284,9 @@ exports.getFeaturedLots =
 
           AND l.status != 'sold'
 
-          AND (
+          AND l.promoted_until IS NOT NULL
 
-            (
-
-              l.featured = true
-
-              AND l.featured_until IS NOT NULL
-
-              AND l.featured_until > NOW()
-            )
-
-            OR
-
-            (
-
-              l.promoted_until IS NOT NULL
-
-              AND l.promoted_until > NOW()
-            )
-
-          )
+          AND l.promoted_until > NOW()
 
         ORDER BY
 
@@ -1308,16 +1295,13 @@ exports.getFeaturedLots =
             0
           ) DESC,
 
-          COALESCE(
-            l.promoted_until,
-            l.featured_until
-          ) DESC,
+          l.promoted_until DESC,
 
           successful_sales_count DESC,
 
           l.created_at DESC
 
-        LIMIT 6
+        LIMIT 10
         `,
         [company_id]
       );
