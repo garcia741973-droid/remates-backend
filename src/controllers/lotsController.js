@@ -261,19 +261,12 @@ exports.getLots = async (req, res) => {
 
         l.*,
 
-        -- ⭐ FEATURED COMPATIBLE
         CASE
-
           WHEN
-
             l.promoted_until IS NOT NULL
-
             AND l.promoted_until > NOW()
-
           THEN true
-
           ELSE false
-
         END AS featured,
 
         COALESCE(
@@ -298,34 +291,27 @@ exports.getLots = async (req, res) => {
 
         l.company_id = $1
 
-        AND l.status != 'sold'
+        AND (
+          l.status IS NULL
+          OR l.status != 'sold'
+        )
 
-        ORDER BY
+      ORDER BY
 
-          CASE
+        CASE
+          WHEN
+            l.promoted_until IS NOT NULL
+            AND l.promoted_until > NOW()
+          THEN 0
+          ELSE 1
+        END,
 
-            WHEN
+        COALESCE(
+          l.promotion_priority,
+          0
+        ) DESC,
 
-              l.promoted_until IS NOT NULL
-
-              AND l.promoted_until > NOW()
-
-            THEN 0
-
-            ELSE 1
-
-          END,
-
-          COALESCE(
-            l.promotion_priority,
-            0
-          ) DESC,
-
-          l.promoted_until DESC NULLS LAST,
-
-          u.successful_sales_count DESC,
-
-          l.created_at DESC
+        l.promoted_until DESC NULLS LAST,
 
         u.successful_sales_count DESC,
 
