@@ -253,7 +253,7 @@ exports.getLots = async (req, res) => {
 
         l.*,
 
-        /// ⭐ FEATURED COMPATIBLE
+        -- ⭐ FEATURED COMPATIBLE
         CASE
 
           WHEN
