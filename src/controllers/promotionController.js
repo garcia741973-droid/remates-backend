@@ -6,14 +6,34 @@ exports.getPlans = async (req, res) => {
 
     try {
 
-        const result = await pool.query(`
+        const { type } = req.query;
 
+        let sql = `
             SELECT *
             FROM promotion_plans
             WHERE is_active = true
-            ORDER BY priority DESC
+        `;
 
-        `);
+        const values = [];
+
+        if (type) {
+
+            sql += `
+                AND type = $1
+            `;
+
+            values.push(type);
+        }
+
+        sql += `
+            ORDER BY priority DESC
+        `;
+
+        const result =
+            await pool.query(
+                sql,
+                values,
+            );
 
         res.json(result.rows);
 
@@ -665,7 +685,7 @@ exports.createPlan = async (
 
             type,
 
-            name,
+            name,            
 
             description,
 
