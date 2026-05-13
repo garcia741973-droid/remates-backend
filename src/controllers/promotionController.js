@@ -873,3 +873,95 @@ exports.togglePlan = async (
         });
     }
 };
+
+/// ❌ RECHAZAR PROMOCIÓN
+exports.rejectPromotion =
+    async (req, res) => {
+
+    try {
+
+        const { id } =
+            req.params;
+
+        const requestResult =
+            await pool.query(
+
+                `
+                SELECT *
+                FROM promotion_requests
+                WHERE id = $1
+                LIMIT 1
+                `,
+                [id],
+            );
+
+        if (
+            requestResult.rows.length === 0
+        ) {
+
+            return res.status(404).json({
+                error:
+                    'Solicitud no encontrada',
+            });
+        }
+
+        const request =
+            requestResult.rows[0];
+
+        /// 🔥 ACTUALIZAR REQUEST
+        await pool.query(
+
+            `
+            UPDATE promotion_requests
+            SET
+
+                status = 'rejected',
+
+                rejected_at = NOW()
+
+            WHERE id = $1
+            `,
+            [id],
+        );
+
+        /// 🔥 LIMPIAR LOTE
+        if (
+            request.entity_type ===
+            'lot'
+        ) {
+
+            await pool.query(
+
+                `
+                UPDATE lots
+                SET
+
+                    promoted_until = NULL,
+
+                    promotion_priority = 0
+
+                WHERE id = $1
+                `,
+                [
+                    request.entity_id,
+                ],
+            );
+        }
+
+        res.json({
+            success: true,
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ REJECT PROMOTION ERROR',
+            err,
+        );
+
+        res.status(500).json({
+            error:
+                'Error rechazando promoción',
+        });
+    }
+};

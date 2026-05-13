@@ -78,6 +78,14 @@ router.post(
     controller.approvePromotion,
 );
 
+/// ❌ RECHAZAR PROMOCIÓN
+router.post(
+    '/reject/:id',
+    requireAuth,
+    requireAdmin,
+    controller.rejectPromotion,
+);
+
 /// 🔥 CANCELAR PROMOCIÓN
 router.post(
     '/cancel/:id',
