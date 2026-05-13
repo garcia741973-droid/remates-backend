@@ -1016,7 +1016,10 @@ exports.getHomeBanners =
 
                 WHERE
 
-                    pr.company_id = $1
+                    (
+                        pr.company_id = $1
+                        OR pr.company_id IS NULL
+                    )
 
                     AND pr.status = 'approved'
 
@@ -1057,7 +1060,10 @@ exports.getHomeBanners =
 
                 WHERE
 
-                    pr.company_id = $1
+                    (
+                        pr.company_id = $1
+                        OR pr.company_id IS NULL
+                    )
 
                     AND pr.status = 'approved'
 
@@ -1110,8 +1116,18 @@ exports.createAdCampaign =
 
     try {
 
+        console.log(
+            '🔥 CREATE AD BODY 👉',
+            req.body,
+        );
+
+        console.log(
+            '🔥 USER 👉',
+            req.user,
+        );
+
         const companyId =
-            req.user.company_id;
+            req.user.company_id || null;
 
         const userId =
             req.user.user_id;
@@ -1204,7 +1220,7 @@ exports.createAdCampaign =
                 parseInt(days),
         );
 
-        /// 🔥 CREAR CAMPAÑA
+        /// 🔥 INSERT
         const result =
             await pool.query(
 
@@ -1216,6 +1232,8 @@ exports.createAdCampaign =
                     promotion_plan_id,
 
                     entity_type,
+
+                    entity_id,
 
                     status,
 
@@ -1246,6 +1264,8 @@ exports.createAdCampaign =
                     $3,
 
                     'advertising',
+
+                    NULL,
 
                     'approved',
 
@@ -1298,6 +1318,11 @@ exports.createAdCampaign =
                     whatsapp,
                 ],
             );
+
+        console.log(
+            '🔥 CAMPAIGN CREATED 👉',
+            result.rows[0],
+        );
 
         res.json({
 
