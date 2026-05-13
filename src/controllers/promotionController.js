@@ -183,6 +183,45 @@ exports.approvePromotion =
             const request =
                 requestResult.rows[0];
 
+                /// 🔥 VALIDAR LIMITE DESTACADOS
+                if (
+                    request.entity_type === 'lot'
+                ) {
+
+                    const activeResult =
+                        await pool.query(
+
+                            `
+                            SELECT COUNT(*) as total
+                            FROM lots
+                            WHERE
+
+                                promoted_until IS NOT NULL
+
+                                AND promoted_until > NOW()
+                            `
+                        );
+
+                    const activeTotal =
+                        parseInt(
+                            activeResult.rows[0].total
+                        );
+
+                    console.log(
+                        '🔥 ACTIVE PROMOTED LOTS:',
+                        activeTotal,
+                    );
+
+                    if (activeTotal >= 10) {
+
+                        return res.status(400).json({
+
+                            error:
+                                'Ya existen 10 promociones activas',
+                        });
+                    }
+                }
+
             /// 🔥 CALCULAR FECHAS
             const startDate =
                 new Date();
