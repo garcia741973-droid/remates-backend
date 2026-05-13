@@ -38,12 +38,28 @@ router.get(
     controller.getPromotionRequests,
 );
 
+/// 🔥 STATS ACTIVAS
+router.get(
+    '/active-stats',
+    requireAuth,
+    requireAdmin,
+    controller.getActivePromotionsStats,
+);
+
 /// 🔥 ADMIN APROBAR
 router.post(
     '/approve/:id',
     requireAuth,
     requireAdmin,
     controller.approvePromotion,
+);
+
+/// 🔥 CANCELAR PROMOCIÓN
+router.post(
+    '/cancel/:id',
+    requireAuth,
+    requireAdmin,
+    controller.cancelPromotion,
 );
 
 router.put(

@@ -391,4 +391,191 @@ exports.uploadProof = async (
                 'Error subiendo comprobante',
         });
     }
-};    
+};
+
+/// 🔥 CANCELAR PROMOCIÓN
+exports.cancelPromotion =
+    async (req, res) => {
+
+    try {
+
+        const { id } =
+            req.params;
+
+        /// 🔥 BUSCAR REQUEST
+        const result =
+            await pool.query(
+
+                `
+                SELECT *
+                FROM promotion_requests
+                WHERE id = $1
+                LIMIT 1
+                `,
+                [id],
+            );
+
+        if (
+            result.rows.length === 0
+        ) {
+
+            return res.status(404).json({
+
+                error:
+                    'Promoción no encontrada',
+            });
+        }
+
+        const request =
+            result.rows[0];
+
+        /// 🔥 CANCELAR REQUEST
+        await pool.query(
+
+            `
+            UPDATE promotion_requests
+            SET
+                status = 'cancelled'
+            WHERE id = $1
+            `,
+            [id],
+        );
+
+        /// 🔥 SI ES LOTE
+        if (
+            request.entity_type === 'lot'
+        ) {
+
+            await pool.query(
+
+                `
+                UPDATE lots
+                SET
+
+                    promoted_until = NULL,
+
+                    promotion_priority = 0
+
+                WHERE id = $1
+                `,
+                [
+                    request.entity_id,
+                ],
+            );
+        }
+
+        res.json({
+            success: true,
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ CANCEL PROMOTION ERROR',
+            err,
+        );
+
+        res.status(500).json({
+
+            error:
+                'Error cancelando promoción',
+        });
+    }
+};
+
+/// 🔥 STATS PROMOCIONES ACTIVAS
+exports.getActivePromotionsStats =
+    async (req, res) => {
+
+    try {
+
+        /// 🔥 TOTAL ACTIVAS
+        const activeResult =
+            await pool.query(
+
+                `
+                SELECT COUNT(*) as total
+                FROM lots
+                WHERE
+
+                    promoted_until IS NOT NULL
+
+                    AND promoted_until > NOW()
+                `
+            );
+
+        const total =
+            parseInt(
+                activeResult.rows[0].total
+            );
+
+        /// 🔥 LISTA ACTIVAS
+        const promotionsResult =
+            await pool.query(
+
+                `
+                SELECT
+
+                    l.id,
+
+                    l.class,
+
+                    l.breed,
+
+                    l.images[1] as image,
+
+                    l.promoted_until,
+
+                    l.promotion_priority,
+
+                    COALESCE(
+                        u.full_name,
+                        u.name
+                    ) as seller_name
+
+                FROM lots l
+
+                LEFT JOIN users u
+                    ON u.id = l.seller_id
+
+                WHERE
+
+                    l.promoted_until IS NOT NULL
+
+                    AND l.promoted_until > NOW()
+
+                ORDER BY
+
+                    l.promotion_priority DESC,
+
+                    l.promoted_until ASC
+                `
+            );
+
+        res.json({
+
+            total,
+
+            limit: 10,
+
+            available:
+                10 - total,
+
+            promotions:
+                promotionsResult.rows,
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ ACTIVE PROMO STATS ERROR',
+            err,
+        );
+
+        res.status(500).json({
+
+            error:
+                'Error obteniendo estadísticas',
+        });
+    }
+};
