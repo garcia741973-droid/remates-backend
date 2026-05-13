@@ -321,6 +321,10 @@ exports.getPromotionRequests =
 
                     l.municipality,
 
+                    l.promoted_until,
+
+                    l.promotion_priority,
+
                     l.images[1] as image
 
                 FROM promotion_requests pr
