@@ -1615,3 +1615,79 @@ exports.createAdCampaign =
         });
     }
 };
+
+/// 👁 INCREMENT IMPRESSION
+exports.incrementImpression =
+    async (req, res) => {
+
+    try {
+
+        const { id } =
+            req.params;
+
+        await pool.query(
+
+            `
+            UPDATE promotion_requests
+            SET impressions =
+                COALESCE(impressions, 0) + 1
+            WHERE id = $1
+            `,
+            [id]
+        );
+
+        res.json({
+            success: true,
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ IMPRESSION ERROR',
+            err,
+        );
+
+        res.status(500).json({
+            error:
+                'Error incrementando impression',
+        });
+    }
+};
+
+/// 🖱 INCREMENT CLICK
+exports.incrementClick =
+    async (req, res) => {
+
+    try {
+
+        const { id } =
+            req.params;
+
+        await pool.query(
+
+            `
+            UPDATE promotion_requests
+            SET clicks =
+                COALESCE(clicks, 0) + 1
+            WHERE id = $1
+            `,
+            [id]
+        );
+
+        res.json({
+            success: true,
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ CLICK ERROR',
+            err,
+        );
+
+        res.status(500).json({
+            error:
+                'Error incrementando click',
+        });
+    }
+};

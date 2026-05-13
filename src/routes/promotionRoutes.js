@@ -123,4 +123,16 @@ router.put(
   controller.uploadProof
 );
 
+/// 👁 IMPRESSION
+router.post(
+    '/:id/impression',
+    controller.incrementImpression,
+);
+
+/// 🖱 CLICK
+router.post(
+    '/:id/click',
+    controller.incrementClick,
+);
+
 module.exports = router;
