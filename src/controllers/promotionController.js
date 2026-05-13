@@ -1144,23 +1144,25 @@ exports.updatePromotion =
         const { id } =
             req.params;
 
-        const {
+            const {
 
-            title,
+                title,
 
-            description,
+                description,
 
-            redirect_url,
+                redirect_url,
 
-            whatsapp,
+                whatsapp,
 
-            priority,
+                button_text,
 
-            sponsor,
+                priority,
 
-            is_visible,
+                sponsor,
 
-        } = req.body;
+                is_visible,
+
+            } = req.body;
 
         const result =
             await pool.query(
@@ -1177,13 +1179,15 @@ exports.updatePromotion =
 
                     whatsapp = $4,
 
-                    priority = $5,
+                    button_text = $5,
 
-                    sponsor = $6,
+                    priority = $6,
 
-                    is_visible = $7
+                    sponsor = $7,
 
-                WHERE id = $8
+                    is_visible = $8
+
+                    WHERE id = $9
 
                 RETURNING *
                 `,
@@ -1196,6 +1200,8 @@ exports.updatePromotion =
                     redirect_url,
 
                     whatsapp,
+
+                    button_text,
 
                     priority,
 
