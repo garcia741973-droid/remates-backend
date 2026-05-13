@@ -27,7 +27,7 @@ exports.getPromotions = async (req, res) => {
       LEFT JOIN promotion_plans pp
         ON pp.id = pr.promotion_plan_id
 
-      WHERE 1=1
+      WHERE pr.entity_type != 'featured_lot'
     `;
 
     const values = [];
