@@ -773,6 +773,26 @@ exports.uploadPaymentProof = async (req, res) => {
 
     const proof_url = result.secure_url;
 
+    /// 🔥 OBTENER QR ACTIVO
+    const qrRes = await pool.query(
+      `
+      SELECT *
+      FROM payment_qrs
+      WHERE is_active = true
+      ORDER BY id DESC
+      LIMIT 1
+      `
+    );
+
+    if (qrRes.rows.length === 0) {
+
+      return res.status(400).json({
+        error: 'No existe QR activo'
+      });
+    }
+
+    const qr = qrRes.rows[0];
+
     /// 🔥 CREAR PAYMENT
     await pool.query(
       `
@@ -794,7 +814,7 @@ exports.uploadPaymentProof = async (req, res) => {
         negotiation.lot_id,
         negotiation.seller_id,
         negotiation.buyer_id,
-        70,
+        qr.amount,
         proof_url,
         'uploaded'
       ]
