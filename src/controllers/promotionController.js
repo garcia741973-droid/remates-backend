@@ -311,9 +311,14 @@ exports.getPromotionRequests =
                     pp.days,
                     pp.priority,
 
+                    l.lot_number,
+
                     l.class,
+
                     l.breed,
+
                     l.department,
+
                     l.municipality,
 
                     l.images[1] as image
