@@ -40,6 +40,8 @@ const {
 
   updatePromotionPriority,
 
+  updatePromotion,
+
 } = require(
   "../controllers/promotionController"
 );
@@ -91,6 +93,13 @@ router.put(
   "/promotions/:id/priority",
   requireAuth,
   updatePromotionPriority
+);
+
+/// ✏️ UPDATE PROMOTION
+router.put(
+  "/promotions/:id",
+  requireAuth,
+  updatePromotion
 );
 
 module.exports = router;

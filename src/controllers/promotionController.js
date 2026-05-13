@@ -1131,6 +1131,106 @@ exports.updatePromotionPriority =
     }
 };
 
+/// ✏️ UPDATE PROMOTION
+exports.updatePromotion =
+    async (req, res) => {
+
+    try {
+
+        const { id } =
+            req.params;
+
+        const {
+
+            title,
+
+            description,
+
+            redirect_url,
+
+            whatsapp,
+
+            priority,
+
+            sponsor,
+
+            is_visible,
+
+        } = req.body;
+
+        const result =
+            await pool.query(
+
+                `
+                UPDATE promotion_requests
+                SET
+
+                    title = $1,
+
+                    description = $2,
+
+                    redirect_url = $3,
+
+                    whatsapp = $4,
+
+                    priority = $5,
+
+                    sponsor = $6,
+
+                    is_visible = $7
+
+                WHERE id = $8
+
+                RETURNING *
+                `,
+                [
+
+                    title,
+
+                    description,
+
+                    redirect_url,
+
+                    whatsapp,
+
+                    priority,
+
+                    sponsor,
+
+                    is_visible,
+
+                    id,
+                ]
+            );
+
+        console.log(
+            '🔥 PROMOTION UPDATED:',
+            id,
+        );
+
+        res.json({
+
+            success: true,
+
+            promotion:
+                result.rows[0],
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ UPDATE PROMOTION ERROR',
+            err,
+        );
+
+        res.status(500).json({
+
+            error:
+                'Error actualizando promoción',
+        });
+    }
+};
+
 /// 🏠 HOME BANNERS
 exports.getHomeBanners =
     async (req, res) => {
