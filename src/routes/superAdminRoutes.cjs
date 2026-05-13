@@ -26,6 +26,24 @@ const {
   "../controllers/featuredController"
 );
 
+const {
+
+  getPromotionRequests,
+
+  approvePromotion,
+
+  rejectPromotion,
+
+  togglePromotionVisibility,
+
+  toggleSponsor,
+
+  updatePromotionPriority,
+
+} = require(
+  "../controllers/promotionController"
+);
+
 /// 👥 USUARIOS
 router.get(
   "/users",
@@ -33,25 +51,46 @@ router.get(
   getAllUsers
 );
 
-/// ⭐ SOLICITUDES PREMIUM
-//router.get(
-//  "/featured-requests",
-//  requireAuth,
-//  getFeaturedRequests
-//);
+/// 📢 PROMOCIONES
+router.get(
+  "/promotions",
+  requireAuth,
+  getPromotionRequests
+);
 
-/// ✅ APROBAR PREMIUM
-//router.post(
-//  "/featured-requests/:id/approve",
-//  requireAuth,
-//  approveFeaturedRequest
-//);
+/// ✅ APROBAR
+router.post(
+  "/promotions/:id/approve",
+  requireAuth,
+  approvePromotion
+);
 
-/// ❌ RECHAZAR PREMIUM
-//router.post(
-//  "/featured-requests/:id/reject",
-//  requireAuth,
-//  rejectFeaturedRequest
-//);
+/// ❌ RECHAZAR
+router.post(
+  "/promotions/:id/reject",
+  requireAuth,
+  rejectPromotion
+);
+
+/// 👁️ VISIBILIDAD
+router.put(
+  "/promotions/:id/visibility",
+  requireAuth,
+  togglePromotionVisibility
+);
+
+/// ⭐ SPONSOR
+router.put(
+  "/promotions/:id/sponsor",
+  requireAuth,
+  toggleSponsor
+);
+
+/// 🔥 PRIORIDAD
+router.put(
+  "/promotions/:id/priority",
+  requireAuth,
+  updatePromotionPriority
+);
 
 module.exports = router;

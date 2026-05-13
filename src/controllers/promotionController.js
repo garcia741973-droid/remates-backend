@@ -986,6 +986,153 @@ exports.rejectPromotion =
     }
 };
 
+/// 👁️ TOGGLE VISIBILITY
+exports.togglePromotionVisibility =
+    async (req, res) => {
+
+    try {
+
+        const { id } =
+            req.params;
+
+        const {
+            is_visible,
+        } = req.body;
+
+        const result =
+            await pool.query(
+
+                `
+                UPDATE promotion_requests
+                SET
+                    is_visible = $1
+                WHERE id = $2
+                RETURNING *
+                `,
+                [
+                    is_visible,
+                    id,
+                ],
+            );
+
+        res.json({
+            success: true,
+            promotion:
+                result.rows[0],
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ TOGGLE VISIBILITY ERROR',
+            err,
+        );
+
+        res.status(500).json({
+            error:
+                'Error actualizando visibilidad',
+        });
+    }
+};
+
+/// ⭐ TOGGLE SPONSOR
+exports.toggleSponsor =
+    async (req, res) => {
+
+    try {
+
+        const { id } =
+            req.params;
+
+        const {
+            sponsor,
+        } = req.body;
+
+        const result =
+            await pool.query(
+
+                `
+                UPDATE promotion_requests
+                SET
+                    sponsor = $1
+                WHERE id = $2
+                RETURNING *
+                `,
+                [
+                    sponsor,
+                    id,
+                ],
+            );
+
+        res.json({
+            success: true,
+            promotion:
+                result.rows[0],
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ TOGGLE SPONSOR ERROR',
+            err,
+        );
+
+        res.status(500).json({
+            error:
+                'Error actualizando sponsor',
+        });
+    }
+};
+
+/// 🔥 UPDATE PRIORITY
+exports.updatePromotionPriority =
+    async (req, res) => {
+
+    try {
+
+        const { id } =
+            req.params;
+
+        const {
+            priority,
+        } = req.body;
+
+        const result =
+            await pool.query(
+
+                `
+                UPDATE promotion_requests
+                SET
+                    priority = $1
+                WHERE id = $2
+                RETURNING *
+                `,
+                [
+                    priority,
+                    id,
+                ],
+            );
+
+        res.json({
+            success: true,
+            promotion:
+                result.rows[0],
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ UPDATE PRIORITY ERROR',
+            err,
+        );
+
+        res.status(500).json({
+            error:
+                'Error actualizando prioridad',
+        });
+    }
+};
+
 /// 🏠 HOME BANNERS
 exports.getHomeBanners =
     async (req, res) => {
@@ -1014,25 +1161,29 @@ exports.getHomeBanners =
                     ON pp.id =
                         pr.promotion_plan_id
 
-                WHERE
+                    WHERE
 
-                    (
-                        pr.company_id = $1
-                        OR pr.company_id IS NULL
-                    )
+                        (
+                            pr.company_id = $1
+                            OR pr.company_id IS NULL
+                        )
 
-                    AND pr.status = 'approved'
+                        AND pr.status = 'approved'
 
-                    AND pr.ends_at > NOW()
+                        AND pr.is_visible = true
 
-                    AND pp.type =
-                        'home_banner_main'
+                        AND pr.ends_at > NOW()
 
-                ORDER BY
+                        AND pp.type =
+                            'home_banner_main'
 
-                    pp.priority DESC,
+                        ORDER BY
 
-                    pr.created_at DESC
+                            pr.priority DESC,
+
+                            pp.priority DESC,
+
+                            pr.created_at DESC
 
                 LIMIT 10
                 `,
@@ -1072,11 +1223,15 @@ exports.getHomeBanners =
                     AND pp.type =
                         'home_banner_small'
 
-                ORDER BY
+                    AND pr.is_visible = true    
 
-                    pp.priority DESC,
+                    ORDER BY
 
-                    pr.created_at DESC
+                        pr.priority DESC,
+
+                        pp.priority DESC,
+
+                        pr.created_at DESC
 
                 LIMIT 20
                 `,
