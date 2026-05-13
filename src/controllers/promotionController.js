@@ -588,3 +588,224 @@ exports.getActivePromotionsStats =
         });
     }
 };
+
+/// 🔥 CREAR PLAN
+exports.createPlan = async (
+    req,
+    res,
+) => {
+
+    try {
+
+        const {
+
+            type,
+
+            name,
+
+            description,
+
+            days,
+
+            price,
+
+            priority,
+
+            badge_color,
+
+        } = req.body;
+
+        const result =
+            await pool.query(
+
+                `
+                INSERT INTO promotion_plans
+                (
+                    type,
+                    name,
+                    description,
+                    days,
+                    price,
+                    priority,
+                    badge_color,
+                    is_active
+                )
+                VALUES
+                (
+                    $1,
+                    $2,
+                    $3,
+                    $4,
+                    $5,
+                    $6,
+                    $7,
+                    true
+                )
+                RETURNING *
+                `,
+                [
+
+                    type,
+
+                    name,
+
+                    description,
+
+                    days,
+
+                    price,
+
+                    priority,
+
+                    badge_color,
+                ],
+            );
+
+        res.json({
+            success: true,
+            plan: result.rows[0],
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ CREATE PLAN ERROR',
+            err,
+        );
+
+        res.status(500).json({
+            error:
+                'Error creando plan',
+        });
+    }
+};
+
+/// 🔥 EDITAR PLAN
+exports.updatePlan = async (
+    req,
+    res,
+) => {
+
+    try {
+
+        const { id } =
+            req.params;
+
+        const {
+
+            name,
+
+            description,
+
+            days,
+
+            price,
+
+            priority,
+
+            badge_color,
+
+        } = req.body;
+
+        const result =
+            await pool.query(
+
+                `
+                UPDATE promotion_plans
+                SET
+
+                    name = $1,
+
+                    description = $2,
+
+                    days = $3,
+
+                    price = $4,
+
+                    priority = $5,
+
+                    badge_color = $6
+
+                WHERE id = $7
+
+                RETURNING *
+                `,
+                [
+
+                    name,
+
+                    description,
+
+                    days,
+
+                    price,
+
+                    priority,
+
+                    badge_color,
+
+                    id,
+                ],
+            );
+
+        res.json({
+            success: true,
+            plan: result.rows[0],
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ UPDATE PLAN ERROR',
+            err,
+        );
+
+        res.status(500).json({
+            error:
+                'Error actualizando plan',
+        });
+    }
+};
+
+/// 🔥 ACTIVAR / DESACTIVAR PLAN
+exports.togglePlan = async (
+    req,
+    res,
+) => {
+
+    try {
+
+        const { id } =
+            req.params;
+
+        const result =
+            await pool.query(
+
+                `
+                UPDATE promotion_plans
+                SET
+                    is_active = NOT is_active
+                WHERE id = $1
+                RETURNING *
+                `,
+                [id],
+            );
+
+        res.json({
+            success: true,
+            plan: result.rows[0],
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ TOGGLE PLAN ERROR',
+            err,
+        );
+
+        res.status(500).json({
+            error:
+                'Error cambiando estado',
+        });
+    }
+};

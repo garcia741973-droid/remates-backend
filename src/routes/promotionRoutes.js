@@ -23,6 +23,30 @@ router.get(
     controller.getPlans,
 );
 
+/// 🔥 CREAR PLAN
+router.post(
+    '/plans',
+    requireAuth,
+    requireAdmin,
+    controller.createPlan,
+);
+
+/// 🔥 EDITAR PLAN
+router.put(
+    '/plans/:id',
+    requireAuth,
+    requireAdmin,
+    controller.updatePlan,
+);
+
+/// 🔥 ACTIVAR / DESACTIVAR
+router.post(
+    '/plans/:id/toggle',
+    requireAuth,
+    requireAdmin,
+    controller.togglePlan,
+);
+
 /// 🔥 CREAR REQUEST
 router.post(
     '/request',
