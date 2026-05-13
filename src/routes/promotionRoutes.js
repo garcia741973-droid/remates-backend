@@ -61,6 +61,14 @@ router.post(
     controller.createPromotionRequest,
 );
 
+/// 📢 CREAR CAMPAÑA PUBLICITARIA
+router.post(
+    '/create-campaign',
+    requireAuth,
+    requireAdmin,
+    controller.createAdCampaign,
+);
+
 /// 🔥 ADMIN LISTAR
 router.get(
     '/requests',

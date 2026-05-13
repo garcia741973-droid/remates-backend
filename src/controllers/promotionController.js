@@ -1103,3 +1103,221 @@ exports.getHomeBanners =
         });
     }
 };
+
+/// 📢 CREAR CAMPAÑA PUBLICITARIA
+exports.createAdCampaign =
+    async (req, res) => {
+
+    try {
+
+        const companyId =
+            req.user.company_id;
+
+        const userId =
+            req.user.user_id;
+
+        const {
+
+            type,
+
+            title,
+
+            description,
+
+            image_url,
+
+            redirect_url,
+
+            button_text,
+
+            whatsapp,
+
+            days,
+
+            amount,
+
+        } = req.body;
+
+        /// 🔥 VALIDAR TIPO
+        const allowedTypes = [
+
+            'home_banner_main',
+
+            'home_banner_small',
+
+            'search_banner',
+
+            'auction_banner',
+
+            'seller_boost',
+        ];
+
+        if (
+            !allowedTypes.includes(type)
+        ) {
+
+            return res.status(400).json({
+
+                error:
+                    'Tipo inválido',
+            });
+        }
+
+        /// 🔥 BUSCAR PLAN
+        const planResult =
+            await pool.query(
+
+                `
+                SELECT *
+                FROM promotion_plans
+                WHERE type = $1
+                AND is_active = true
+                ORDER BY priority DESC
+                LIMIT 1
+                `,
+                [type],
+            );
+
+        if (
+            planResult.rows.length === 0
+        ) {
+
+            return res.status(404).json({
+
+                error:
+                    'No existe plan para este tipo',
+            });
+        }
+
+        const plan =
+            planResult.rows[0];
+
+        /// 🔥 FECHAS
+        const startDate =
+            new Date();
+
+        const endDate =
+            new Date();
+
+        endDate.setDate(
+            endDate.getDate() +
+                parseInt(days),
+        );
+
+        /// 🔥 CREAR CAMPAÑA
+        const result =
+            await pool.query(
+
+                `
+                INSERT INTO promotion_requests
+                (
+                    company_id,
+                    user_id,
+                    promotion_plan_id,
+
+                    entity_type,
+
+                    status,
+
+                    starts_at,
+
+                    ends_at,
+
+                    approved_at,
+
+                    amount,
+
+                    title,
+
+                    description,
+
+                    image_url,
+
+                    redirect_url,
+
+                    button_text,
+
+                    whatsapp
+                )
+                VALUES
+                (
+                    $1,
+                    $2,
+                    $3,
+
+                    'advertising',
+
+                    'approved',
+
+                    $4,
+
+                    $5,
+
+                    NOW(),
+
+                    $6,
+
+                    $7,
+
+                    $8,
+
+                    $9,
+
+                    $10,
+
+                    $11,
+
+                    $12
+                )
+                RETURNING *
+                `,
+                [
+
+                    companyId,
+
+                    userId,
+
+                    plan.id,
+
+                    startDate,
+
+                    endDate,
+
+                    amount,
+
+                    title,
+
+                    description,
+
+                    image_url,
+
+                    redirect_url,
+
+                    button_text,
+
+                    whatsapp,
+                ],
+            );
+
+        res.json({
+
+            success: true,
+
+            campaign:
+                result.rows[0],
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ CREATE AD CAMPAIGN ERROR',
+            err,
+        );
+
+        res.status(500).json({
+
+            error:
+                'Error creando campaña',
+        });
+    }
+};
