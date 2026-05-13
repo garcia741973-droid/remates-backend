@@ -1277,6 +1277,8 @@ exports.getHomeBanners =
 
                         ORDER BY
 
+                            pr.sponsor DESC,
+
                             pr.priority DESC,
 
                             pp.priority DESC,
@@ -1324,6 +1326,8 @@ exports.getHomeBanners =
                     AND pr.is_visible = true    
 
                     ORDER BY
+
+                        pr.sponsor DESC,
 
                         pr.priority DESC,
 
