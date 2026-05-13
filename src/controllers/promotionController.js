@@ -995,7 +995,7 @@ exports.getHomeBanners =
         const company_id =
             req.user.company_id;
 
-        /// 🔥 BANNER PRINCIPAL
+        /// 🔥 MAIN BANNERS
         const mainResult =
             await pool.query(
 
@@ -1034,12 +1034,12 @@ exports.getHomeBanners =
 
                     pr.created_at DESC
 
-                LIMIT 1
+                LIMIT 10
                 `,
                 [company_id],
             );
 
-        /// 🔥 BANNERS PEQUEÑOS
+        /// 🔥 SMALL BANNERS
         const smallResult =
             await pool.query(
 
@@ -1078,18 +1078,15 @@ exports.getHomeBanners =
 
                     pr.created_at DESC
 
-                LIMIT 10
+                LIMIT 20
                 `,
                 [company_id],
             );
 
         res.json({
 
-            main_banner:
-
-                mainResult.rows.length > 0
-                    ? mainResult.rows[0]
-                    : null,
+            main_banners:
+                mainResult.rows,
 
             small_banners:
                 smallResult.rows,
