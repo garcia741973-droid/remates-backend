@@ -398,7 +398,24 @@ exports.getPromotionRequests =
 
                     pp.days,
 
-                    c.name as company_name
+                    pp.priority as promotion_priority,
+
+                    c.name as company_name,
+
+                    l.lot_number,
+
+                    l.images,
+
+                    l.class,
+
+                    l.breed,
+
+                    l.promoted_until,
+
+                    COALESCE(
+                        u.full_name,
+                        u.name
+                    ) as seller_name
 
                 FROM promotion_requests pr
 
@@ -410,9 +427,22 @@ exports.getPromotionRequests =
                     ON c.id =
                         pr.company_id
 
-                ORDER BY
+                LEFT JOIN lots l
+                    ON l.id =
+                        pr.entity_id
 
-                    pr.priority DESC,
+                LEFT JOIN users u
+                    ON u.id =
+                        l.seller_id
+
+                WHERE
+
+                    pr.entity_type = 'lot'
+
+                    AND pp.type =
+                        'featured_lot'
+
+                ORDER BY
 
                     pr.created_at DESC
                 `
