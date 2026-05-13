@@ -1085,7 +1085,7 @@ exports.toggleSponsor =
 /// 🔥 UPDATE PRIORITY
 exports.updatePromotionPriority =
     async (req, res) => {
-
+    
     try {
 
         const { id } =
@@ -1134,6 +1134,10 @@ exports.updatePromotionPriority =
 /// ✏️ UPDATE PROMOTION
 exports.updatePromotion =
     async (req, res) => {
+
+            console.log(
+        '🔥🔥🔥 UPDATE PROMOTION ENDPOINT HIT'
+        );
 
     try {
 
@@ -1207,6 +1211,11 @@ exports.updatePromotion =
             '🔥 PROMOTION UPDATED:',
             id,
         );
+
+            console.log(
+            '🔥 UPDATED DATA:',
+            result.rows[0]
+            );
 
         res.json({
 
