@@ -253,6 +253,70 @@ exports.approvePromotion =
                 ],
             );
 
+            /// 🔥 VALIDAR CUPOS ACTIVOS
+
+            const activeResult =
+                await pool.query(
+
+                    `
+                    SELECT COUNT(*) as total
+                    FROM lots
+                    WHERE
+
+                        promoted_until IS NOT NULL
+
+                        AND promoted_until > NOW()
+                    `
+                );
+
+            const activeTotal =
+                parseInt(
+                    activeResult.rows[0].total,
+                );
+
+            if (activeTotal >= 10) {
+
+                return res.status(400).json({
+
+                    error:
+                        'No hay espacios disponibles en destacados',
+                });
+            }
+
+            /// 🔥 VALIDAR PREMIUM
+            if (request.priority >= 2) {
+
+                const premiumResult =
+                    await pool.query(
+
+                        `
+                        SELECT COUNT(*) as total
+                        FROM lots
+                        WHERE
+
+                            promotion_priority >= 2
+
+                            AND promoted_until IS NOT NULL
+
+                            AND promoted_until > NOW()
+                        `
+                    );
+
+                const premiumTotal =
+                    parseInt(
+                        premiumResult.rows[0].total,
+                    );
+
+                if (premiumTotal >= 3) {
+
+                    return res.status(400).json({
+
+                        error:
+                            'No hay espacios premium disponibles',
+                    });
+                }
+            }
+
             /// 🔥 SI ES LOTE
             if (
                 request.entity_type ===

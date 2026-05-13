@@ -1,3 +1,12 @@
+
+const {
+
+  cleanupExpiredPromotions,
+
+} = require(
+  './services/cleanupExpiredPromotions'
+);
+
 require('dotenv').config();
 
 console.log(
@@ -180,6 +189,13 @@ app.set('io', io);
 startReviewReminderService();
 
 startQrExpirationService();
+
+/// 🧹 LIMPIEZA PROMOCIONES VENCIDAS
+setInterval(() => {
+
+  cleanupExpiredPromotions();
+
+}, 1000 * 60 * 5);
 
 /// 🔥 conexión sockets
 io.on('connection', (socket) => {
