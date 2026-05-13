@@ -639,15 +639,21 @@ exports.getActivePromotionsStats =
 
                     l.id,
 
+                    l.lot_number,
+
                     l.class,
 
                     l.breed,
+
+                    l.images,
 
                     l.images[1] as image,
 
                     l.promoted_until,
 
                     l.promotion_priority,
+
+                    l.base_price,
 
                     COALESCE(
                         u.full_name,
