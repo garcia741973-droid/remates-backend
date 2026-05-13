@@ -109,6 +109,14 @@ router.post(
     controller.cancelPromotion,
 );
 
+/// ✏️ UPDATE PROMOTION
+router.put(
+    '/:id',
+    requireAuth,
+    requireAdmin,
+    controller.updatePromotion,
+);
+
 router.put(
   '/:id/proof',
   requireAuth,
