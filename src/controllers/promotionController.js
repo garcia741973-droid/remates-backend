@@ -378,66 +378,64 @@ exports.approvePromotion =
         }
     };
 
-/// 🔥 ADMIN LISTAR SOLICITUDES
+/// 🔥 ADMIN LISTAR PROMOCIONES
 exports.getPromotionRequests =
     async (req, res) => {
 
-        try {
+    try {
 
-            const result =
-                await pool.query(`
+        const result =
+            await pool.query(
 
+                `
                 SELECT
 
                     pr.*,
 
                     pp.name as plan_name,
+
+                    pp.type,
+
                     pp.days,
-                    pp.priority,
 
-                    l.lot_number,
-
-                    l.class,
-
-                    l.breed,
-
-                    l.department,
-
-                    l.municipality,
-
-                    l.promoted_until,
-
-                    l.promotion_priority,
-
-                    l.images[1] as image
+                    c.name as company_name
 
                 FROM promotion_requests pr
 
                 JOIN promotion_plans pp
-                ON pp.id = pr.promotion_plan_id
+                    ON pp.id =
+                        pr.promotion_plan_id
 
-                LEFT JOIN lots l
-                ON l.id = pr.entity_id
+                LEFT JOIN companies c
+                    ON c.id =
+                        pr.company_id
 
-                ORDER BY pr.created_at DESC
+                ORDER BY
 
-            `);
+                    pr.priority DESC,
 
-            res.json(result.rows);
-
-        } catch (err) {
-
-            console.log(
-                '❌ GET PROMOTION REQUESTS ERROR',
-                err,
+                    pr.created_at DESC
+                `
             );
 
-            res.status(500).json({
-                error:
-                    'Error obteniendo solicitudes',
-            });
-        }
-    };
+        res.json(
+            result.rows,
+        );
+
+    } catch (err) {
+
+        console.log(
+            '❌ GET PROMOTION REQUESTS ERROR',
+            err,
+        );
+
+        res.status(500).json({
+
+            error:
+                'Error obteniendo promociones',
+        });
+    }
+};
 
 /// 🔥 SUBIR COMPROBANTE
 exports.uploadProof = async (
