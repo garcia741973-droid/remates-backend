@@ -635,25 +635,25 @@ exports.getActivePromotionsStats =
             await pool.query(
 
                 `
-                SELECT
+                    SELECT
 
-                    l.id,
+                        l.id,
 
-                    l.lot_number,
+                        l.lot_number,
 
-                    l.class,
+                        l.class,
 
-                    l.breed,
+                        l.breed,
 
-                    l.images,
+                        l.base_price,
 
-                    l.images[1] as image,
+                        l.images,
 
-                    l.promoted_until,
+                        l.images[1] as image_url,
 
-                    l.promotion_priority,
+                        l.promoted_until,
 
-                    l.base_price,
+                        l.promotion_priority,
 
                     COALESCE(
                         u.full_name,
