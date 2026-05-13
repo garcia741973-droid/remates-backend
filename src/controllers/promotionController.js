@@ -985,3 +985,121 @@ exports.rejectPromotion =
         });
     }
 };
+
+/// 🏠 HOME BANNERS
+exports.getHomeBanners =
+    async (req, res) => {
+
+    try {
+
+        const company_id =
+            req.user.company_id;
+
+        /// 🔥 BANNER PRINCIPAL
+        const mainResult =
+            await pool.query(
+
+                `
+                SELECT
+
+                    pr.*,
+
+                    pp.type,
+
+                    pp.priority
+
+                FROM promotion_requests pr
+
+                JOIN promotion_plans pp
+                    ON pp.id =
+                        pr.promotion_plan_id
+
+                WHERE
+
+                    pr.company_id = $1
+
+                    AND pr.status = 'approved'
+
+                    AND pr.ends_at > NOW()
+
+                    AND pp.type =
+                        'home_banner_main'
+
+                ORDER BY
+
+                    pp.priority DESC,
+
+                    pr.created_at DESC
+
+                LIMIT 1
+                `,
+                [company_id],
+            );
+
+        /// 🔥 BANNERS PEQUEÑOS
+        const smallResult =
+            await pool.query(
+
+                `
+                SELECT
+
+                    pr.*,
+
+                    pp.type,
+
+                    pp.priority
+
+                FROM promotion_requests pr
+
+                JOIN promotion_plans pp
+                    ON pp.id =
+                        pr.promotion_plan_id
+
+                WHERE
+
+                    pr.company_id = $1
+
+                    AND pr.status = 'approved'
+
+                    AND pr.ends_at > NOW()
+
+                    AND pp.type =
+                        'home_banner_small'
+
+                ORDER BY
+
+                    pp.priority DESC,
+
+                    pr.created_at DESC
+
+                LIMIT 10
+                `,
+                [company_id],
+            );
+
+        res.json({
+
+            main_banner:
+
+                mainResult.rows.length > 0
+                    ? mainResult.rows[0]
+                    : null,
+
+            small_banners:
+                smallResult.rows,
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ HOME BANNERS ERROR',
+            err,
+        );
+
+        res.status(500).json({
+
+            error:
+                'Error obteniendo banners',
+        });
+    }
+};

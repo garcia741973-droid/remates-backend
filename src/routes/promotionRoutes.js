@@ -23,6 +23,13 @@ router.get(
     controller.getPlans,
 );
 
+/// 🏠 HOME BANNERS
+router.get(
+    '/home-banners',
+    requireAuth,
+    controller.getHomeBanners,
+);
+
 /// 🔥 CREAR PLAN
 router.post(
     '/plans',
