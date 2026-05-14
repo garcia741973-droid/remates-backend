@@ -222,6 +222,11 @@ exports.getCategories =
 
     try {
 
+        console.log(
+            '🔥 CASH USER 👉',
+            req.user,
+        );        
+
         const company_id =
             req.user.company_id;
 
