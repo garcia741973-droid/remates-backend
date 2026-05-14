@@ -403,6 +403,7 @@ exports.approvePromotion =
                 `
                 INSERT INTO cash_movements
                 (
+                    company_id,
                     type,
                     category,
                     amount,
@@ -415,17 +416,20 @@ exports.approvePromotion =
 
                 VALUES
                 (
+                    $1,
                     'income',
                     'destacados',
-                    $1,
                     $2,
-                    'promotion',
                     $3,
+                    'promotion',
                     $4,
-                    $5
+                    $5,
+                    $6
                 )
                 `,
                 [
+
+                    request.company_id,
 
                     request.amount || 0,
 
