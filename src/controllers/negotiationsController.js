@@ -2,7 +2,7 @@ const { pool } = require('../config/db');
 const admin = require('firebase-admin');
 
 const {
-  sendNotificationToSuperAdmins,
+  sendAdminNotification,
 } = require('../services/notificationService');
 
 const cloudinary = require('../config/cloudinary');
@@ -957,7 +957,7 @@ exports.uploadPaymentProof = async (req, res) => {
             '🔥 ENVIANDO ALERTA PAYMENT ADMIN'
           );
 
-          await sendNotificationToSuperAdmins({
+          await sendAdminNotification({
 
             title:
               '💰 Nuevo comprobante negociación',
