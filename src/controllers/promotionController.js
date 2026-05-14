@@ -203,10 +203,13 @@ exports.approvePromotion =
             const request =
                 requestResult.rows[0];
 
-                /// 🔥 VALIDAR LIMITE DESTACADOS
-                if (
-                    request.entity_type === 'lot'
-                ) {
+            /// 🔥 VALIDAR LIMITE DESTACADOS
+            if (
+                request.entity_type === 'lot'
+            ) {
+
+                /// 🔥 SOLO DESTACADOS NORMALES
+                if (request.priority < 2) {
 
                     const activeResult =
                         await pool.query(
@@ -216,7 +219,9 @@ exports.approvePromotion =
                             FROM lots
                             WHERE
 
-                                promoted_until IS NOT NULL
+                                promotion_priority = 1
+
+                                AND promoted_until IS NOT NULL
 
                                 AND promoted_until > NOW()
                             `
@@ -228,7 +233,7 @@ exports.approvePromotion =
                         );
 
                     console.log(
-                        '🔥 ACTIVE PROMOTED LOTS:',
+                        '🔥 ACTIVE NORMAL FEATURED:',
                         activeTotal,
                     );
 
@@ -237,10 +242,11 @@ exports.approvePromotion =
                         return res.status(400).json({
 
                             error:
-                                'Ya existen 10 promociones activas',
+                                'Ya existen 10 destacados activos',
                         });
                     }
                 }
+            }
 
             /// 🔥 CALCULAR FECHAS
             const startDate =
