@@ -36,11 +36,15 @@ exports.login = async (req, res) => {
     }
 
     /// 🔴 SUPER ADMIN (SIN EMPRESA)
+    /// 🔴 SUPER ADMIN
     if (user.role === 'super_admin') {
 
       const token = jwt.sign(
         {
           user_id: user.id,
+
+          company_id: user.company_id,
+
           role: user.role,
         },
         process.env.JWT_SECRET,
@@ -48,10 +52,14 @@ exports.login = async (req, res) => {
       );
 
       return res.json({
+
         token,
+
         role: user.role,
+
+        company_id: user.company_id,
       });
-    }    
+    }  
 
 
     /// 🔥 SI NO VIENE company_id
