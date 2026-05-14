@@ -254,24 +254,6 @@ exports.approvePromotion =
                     request.days,
             );
 
-            /// 🔥 ACTUALIZAR REQUEST
-            await pool.query(
-
-                `
-                UPDATE promotion_requests
-                SET
-                    status = 'approved',
-                    starts_at = $1,
-                    ends_at = $2,
-                    approved_at = NOW()
-                WHERE id = $3
-                `,
-                [
-                    startDate,
-                    endDate,
-                    id,
-                ],
-            );
 
             /// 🔥 VALIDAR CUPOS ACTIVOS
 
@@ -359,6 +341,26 @@ exports.approvePromotion =
                     ],
                 );
             }
+
+
+            /// 🔥 ACTUALIZAR REQUEST
+            await pool.query(
+
+                `
+                UPDATE promotion_requests
+                SET
+                    status = 'approved',
+                    starts_at = $1,
+                    ends_at = $2,
+                    approved_at = NOW()
+                WHERE id = $3
+                `,
+                [
+                    startDate,
+                    endDate,
+                    id,
+                ],
+            );
 
             res.json({
                 success: true,
