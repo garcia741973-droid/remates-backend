@@ -1157,7 +1157,16 @@ exports.getMyNegotiations = async (req, res) => {
         n.buyer_id = $1
         OR n.seller_id = $1
 
-      ORDER BY n.created_at DESC
+      ORDER BY
+
+      CASE
+        WHEN n.status = 'open' THEN 0
+        WHEN n.status = 'payment_pending' THEN 1
+        WHEN n.status = 'contacts_unlocked' THEN 2
+        ELSE 3
+      END,
+
+      n.created_at DESC
       `,
       [user_id]
     );
