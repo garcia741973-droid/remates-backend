@@ -358,6 +358,8 @@ exports.approvePromotion =
                         ],
                     );
 
+
+                    
                 console.log(
                     '🔥 LOT UPDATED:',
                     updateResult.rows[0],
