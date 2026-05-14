@@ -397,6 +397,48 @@ exports.approvePromotion =
                 ],
             );
 
+            /// 🔥 REGISTRAR INGRESO EN CAJA
+            await pool.query(
+
+                `
+                INSERT INTO cash_movements
+                (
+                    type,
+                    category,
+                    amount,
+                    description,
+                    reference_type,
+                    reference_id,
+                    proof_url,
+                    created_by
+                )
+
+                VALUES
+                (
+                    'income',
+                    'destacados',
+                    $1,
+                    $2,
+                    'promotion',
+                    $3,
+                    $4,
+                    $5
+                )
+                `,
+                [
+
+                    request.amount || 0,
+
+                    `Promoción lote #${request.entity_id}`,
+
+                    request.id,
+
+                    request.payment_proof_url,
+
+                    req.user.user_id,
+                ],
+            );
+
             res.json({
                 success: true,
             });

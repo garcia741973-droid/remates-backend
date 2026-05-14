@@ -824,6 +824,47 @@ exports.uploadPaymentProof = async (req, res) => {
       ]
     );
 
+    /// 🔥 REGISTRAR INGRESO EN CAJA
+    await pool.query(
+
+        `
+        INSERT INTO cash_movements
+        (
+            type,
+            category,
+            amount,
+            description,
+            reference_type,
+            reference_id,
+            proof_url,
+            created_by
+        )
+
+        VALUES
+        (
+            'income',
+            'negotiaciones',
+            $1,
+            $2,
+            'negotiation_payment',
+            $3,
+            $4,
+            $5
+        )
+        `,
+        [
+            qr.amount,
+
+            `Pago desbloqueo negociación #${negotiation.id}`,
+
+            negotiation.id,
+
+            proof_url,
+
+            seller_id,
+        ],
+    );
+
     /// 🔥 DESBLOQUEAR NEGOCIACIÓN GANADORA
     await pool.query(
       `
