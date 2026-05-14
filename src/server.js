@@ -90,7 +90,10 @@ const savedSearchesRoutes =
   require('./routes/savedSearchesRoutes');
   
 const featuredRoutes =
-  require('./routes/featuredRoutes');  
+  require('./routes/featuredRoutes');
+  
+const cashRoutes =
+    require('./routes/cashRoutes');  
 
 const {
   startReviewReminderService
@@ -170,6 +173,11 @@ const promotionRoutes =
 app.use(
     '/promotions',
     promotionRoutes,
+);
+
+app.use(
+    '/cash',
+    cashRoutes,
 );
 
 /// 🚀 SERVIDOR
