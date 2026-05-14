@@ -6,6 +6,8 @@ const {
     getCashReport,
     getCashMovements,
     createExpense,
+    getCategories,
+    createCategory,
 } = require(
     '../controllers/cashController',
 );
@@ -32,6 +34,18 @@ router.post(
     '/expense',
     requireAuth,
     createExpense,
+);
+
+router.get(
+    '/categories',
+    requireAuth,
+    getCategories,
+);
+
+router.post(
+    '/categories',
+    requireAuth,
+    createCategory,
 );
 
 module.exports = router;

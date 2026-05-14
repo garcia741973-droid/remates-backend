@@ -213,3 +213,148 @@ exports.createExpense =
         });
     }
 };
+
+/// ======================================================
+/// 🔥 OBTENER CATEGORÍAS
+/// ======================================================
+exports.getCategories =
+    async (req, res) => {
+
+    try {
+
+        const company_id =
+            req.user.company_id;
+
+        const { rows } =
+            await pool.query(
+
+                `
+                SELECT *
+
+                FROM cash_categories
+
+                WHERE
+                    company_id = $1
+
+                    AND is_active = true
+
+                ORDER BY name ASC
+                `,
+                [company_id],
+            );
+
+        res.json(rows);
+
+    } catch (err) {
+
+        console.log(
+            '❌ GET CASH CATEGORIES ERROR',
+            err,
+        );
+
+        res.status(500).json({
+            error:
+                'Error obteniendo categorías',
+        });
+    }
+};
+
+/// ======================================================
+/// 🔥 CREAR CATEGORÍA
+/// ======================================================
+exports.createCategory =
+    async (req, res) => {
+
+    try {
+
+        const company_id =
+            req.user.company_id;
+
+        const {
+            name,
+            type,
+        } = req.body;
+
+        /// 🔥 VALIDAR
+        if (!name || !type) {
+
+            return res.status(400).json({
+                error:
+                    'Datos incompletos',
+            });
+        }
+
+        /// 🔥 EVITAR DUPLICADOS
+        const exists =
+            await pool.query(
+
+                `
+                SELECT id
+
+                FROM cash_categories
+
+                WHERE
+                    company_id = $1
+
+                    AND LOWER(name) = LOWER($2)
+
+                LIMIT 1
+                `,
+                [
+                    company_id,
+                    name,
+                ],
+            );
+
+        if (
+            exists.rows.length > 0
+        ) {
+
+            return res.status(400).json({
+                error:
+                    'La categoría ya existe',
+            });
+        }
+
+        const { rows } =
+            await pool.query(
+
+                `
+                INSERT INTO cash_categories
+                (
+                    company_id,
+                    name,
+                    type
+                )
+
+                VALUES
+                (
+                    $1,
+                    $2,
+                    $3
+                )
+
+                RETURNING *
+                `,
+                [
+                    company_id,
+                    name,
+                    type,
+                ],
+            );
+
+        res.json(rows[0]);
+
+    } catch (err) {
+
+        console.log(
+            '❌ CREATE CASH CATEGORY ERROR',
+            err,
+        );
+
+        res.status(500).json({
+            error:
+                'Error creando categoría',
+        });
+    }
+};
