@@ -28,13 +28,19 @@ const {
 
 const {
 
-  getPromotionRequests,
+  getPromotions,
 
   approvePromotion,
 
-  rejectPromotion,
+  toggleVisibility,
 
-  togglePromotionVisibility,
+} = require(
+  "../controllers/superAdminPromotionsController"
+);
+
+const {
+
+  rejectPromotion,
 
   toggleSponsor,
 
@@ -57,7 +63,7 @@ router.get(
 router.get(
   "/promotions",
   requireAuth,
-  getPromotionRequests
+  getPromotions
 );
 
 /// ✅ APROBAR
@@ -78,7 +84,7 @@ router.post(
 router.put(
   "/promotions/:id/visibility",
   requireAuth,
-  togglePromotionVisibility
+  toggleVisibility
 );
 
 /// ⭐ SPONSOR
