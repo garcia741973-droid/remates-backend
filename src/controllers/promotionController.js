@@ -325,23 +325,44 @@ exports.approvePromotion =
                 'lot'
             ) {
 
-                await pool.query(
+                console.log(
+                    '🔥 PROMOTING LOT:',
+                    request.entity_id,
+                );
 
-                    `
-                    UPDATE lots
-                    SET
-                        promoted_until = $1,
-                        promotion_priority = $2
-                    WHERE id = $3
-                    `,
-                    [
-                        endDate,
-                        request.priority,
-                        request.entity_id,
-                    ],
+                console.log(
+                    '🔥 PRIORITY:',
+                    request.priority,
+                );
+
+                console.log(
+                    '🔥 END DATE:',
+                    endDate,
+                );
+
+                const updateResult =
+                    await pool.query(
+
+                        `
+                        UPDATE lots
+                        SET
+                            promoted_until = $1,
+                            promotion_priority = $2
+                        WHERE id = $3
+                        RETURNING *
+                        `,
+                        [
+                            endDate,
+                            request.priority,
+                            request.entity_id,
+                        ],
+                    );
+
+                console.log(
+                    '🔥 LOT UPDATED:',
+                    updateResult.rows[0],
                 );
             }
-
 
             /// 🔥 ACTUALIZAR REQUEST
             await pool.query(
