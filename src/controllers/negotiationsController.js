@@ -1,6 +1,10 @@
 const { pool } = require('../config/db');
 const admin = require('firebase-admin');
 
+const {
+  sendNotificationToSuperAdmins,
+} = require('../services/notificationService');
+
 const cloudinary = require('../config/cloudinary');
 const streamifier = require('streamifier');
 
@@ -945,6 +949,41 @@ exports.uploadPaymentProof = async (req, res) => {
 
         }, { merge: true });
     }
+
+        /// 🔥 PUSH SUPER ADMIN
+        try {
+
+          console.log(
+            '🔥 ENVIANDO ALERTA PAYMENT ADMIN'
+          );
+
+          await sendNotificationToSuperAdmins({
+
+            title:
+              '💰 Nuevo comprobante negociación',
+
+            body:
+              `Negociación #${negotiation.id} subió comprobante`,
+
+            data: {
+
+              type: 'negotiation_payment',
+
+              negotiation_id:
+                negotiation.id.toString(),
+
+              lot_id:
+                negotiation.lot_id.toString(),
+            },
+          });
+
+        } catch (e) {
+
+          console.log(
+            '❌ ERROR PUSH NEGOTIATION PAYMENT',
+            e,
+          );
+        }
 
     res.json({
 
