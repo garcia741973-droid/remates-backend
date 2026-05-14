@@ -641,8 +641,8 @@ exports.getActivePromotionsStats =
 
     try {
 
-        /// 🔥 TOTAL ACTIVAS
-        const activeResult =
+        /// 🔥 DESTACADOS NORMALES
+        const featuredResult =
             await pool.query(
 
                 `
@@ -650,16 +650,44 @@ exports.getActivePromotionsStats =
                 FROM lots
                 WHERE
 
-                    promoted_until IS NOT NULL
+                    promotion_priority = 1
+
+                    AND promoted_until IS NOT NULL
 
                     AND promoted_until > NOW()
                 `
             );
 
-        const total =
+        const featuredTotal =
             parseInt(
-                activeResult.rows[0].total
+                featuredResult.rows[0].total
             );
+
+        /// 🔥 PREMIUM
+        const premiumResult =
+            await pool.query(
+
+                `
+                SELECT COUNT(*) as total
+                FROM lots
+                WHERE
+
+                    promotion_priority >= 2
+
+                    AND promoted_until IS NOT NULL
+
+                    AND promoted_until > NOW()
+                `
+            );
+
+        const premiumTotal =
+            parseInt(
+                premiumResult.rows[0].total
+            );
+
+        /// 🔥 TOTAL GENERAL
+        const total =
+            featuredTotal + premiumTotal;
 
         /// 🔥 LISTA ACTIVAS
         const promotionsResult =
@@ -710,18 +738,29 @@ exports.getActivePromotionsStats =
                 `
             );
 
-        res.json({
+            res.json({
 
-            total,
+                total,
 
-            limit: 10,
+                featured_total:
+                    featuredTotal,
 
-            available:
-                10 - total,
+                featured_limit: 10,
 
-            promotions:
-                promotionsResult.rows,
-        });
+                featured_available:
+                    10 - featuredTotal,
+
+                premium_total:
+                    premiumTotal,
+
+                premium_limit: 3,
+
+                premium_available:
+                    3 - premiumTotal,
+
+                promotions:
+                    promotionsResult.rows,
+            });
 
     } catch (err) {
 
