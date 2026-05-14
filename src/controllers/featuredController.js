@@ -1,4 +1,9 @@
 const { pool } = require('../config/db');
+const {
+  sendAdminNotification,
+} = require(
+  '../services/notificationService'
+);
 
 /// 🔥 SUBIR COMPROBANTE PREMIUM
 exports.uploadFeaturedProof = async (
@@ -96,12 +101,31 @@ exports.uploadFeaturedProof = async (
         ]
       );
 
-    console.log(
-      '⭐ FEATURED PROOF UPLOADED:',
-      id
-    );
+      console.log(
+        '⭐ FEATURED PROOF UPLOADED:',
+        id
+      );
 
-    res.json(rows[0]);
+      /// 🔥 PUSH SUPER ADMIN
+      await sendAdminNotification({
+
+        title:
+          'Nuevo pago destacado 💰',
+
+        body:
+          'Un usuario subió comprobante para lote destacado',
+
+        data: {
+
+          type:
+            'featured_payment',
+
+          featured_request_id:
+            id,
+        },
+      });
+
+      res.json(rows[0]);
 
   } catch (error) {
 
