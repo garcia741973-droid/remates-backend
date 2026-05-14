@@ -7,6 +7,9 @@ exports.getCashReport = async (req, res) => {
 
     try {
 
+        const company_id =
+            req.user.company_id;
+
         const { rows } =
             await pool.query(
 
@@ -36,7 +39,10 @@ exports.getCashReport = async (req, res) => {
                     ) as total_expense
 
                 FROM cash_movements
-                `
+
+                WHERE company_id = $1
+                `,
+                [company_id]
             );
 
         const income =
@@ -82,6 +88,9 @@ exports.getCashMovements =
 
     try {
 
+        const company_id =
+            req.user.company_id;    
+
         const { rows } =
             await pool.query(
 
@@ -90,8 +99,11 @@ exports.getCashMovements =
 
                 FROM cash_movements
 
+                WHERE company_id = $1
+
                 ORDER BY created_at DESC
-                `
+                `,
+                [company_id]
             );
 
         res.json(rows);
@@ -122,11 +134,32 @@ exports.createExpense =
         const user_id =
             req.user.user_id;
 
+        const company_id =
+            req.user.company_id;
+
         const {
             amount,
             description,
             category,
         } = req.body;
+
+        /// 🔥 VALIDAR MONTO
+        if (!amount || amount <= 0) {
+
+            return res.status(400).json({
+                error:
+                    'Monto inválido',
+            });
+        }
+
+        /// 🔥 VALIDAR DESCRIPCIÓN
+        if (!description) {
+
+            return res.status(400).json({
+                error:
+                    'Descripción requerida',
+            });
+        }
 
         const { rows } =
             await pool.query(
@@ -134,6 +167,7 @@ exports.createExpense =
                 `
                 INSERT INTO cash_movements
                 (
+                    company_id,
                     type,
                     category,
                     amount,
@@ -144,18 +178,20 @@ exports.createExpense =
 
                 VALUES
                 (
-                    'expense',
                     $1,
+                    'expense',
                     $2,
                     $3,
+                    $4,
                     'manual_expense',
-                    $4
+                    $5
                 )
 
                 RETURNING *
                 `,
                 [
-                    category,
+                    company_id,
+                    category || 'general',
                     amount,
                     description,
                     user_id,
