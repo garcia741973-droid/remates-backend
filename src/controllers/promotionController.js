@@ -1,6 +1,12 @@
 const { pool } =
     require('../config/db');
 
+    const {
+    sendAdminNotification,
+} = require(
+    '../services/notificationService'
+);
+
 /// 🔥 OBTENER PLANES ACTIVOS
 exports.getPlans = async (req, res) => {
 
@@ -526,6 +532,25 @@ exports.uploadProof = async (
                 id,
             ],
         );
+
+        /// 🔥 PUSH SUPER ADMIN
+        await sendAdminNotification({
+
+            title:
+                'Nuevo pago destacado 💰',
+
+            body:
+                'Un usuario subió comprobante para promoción de lote',
+
+            data: {
+
+                type:
+                    'featured_payment',
+
+                promotion_request_id:
+                    id,
+            },
+        });
 
         res.json({
             success: true,
