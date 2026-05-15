@@ -5,7 +5,7 @@ const router = express.Router();
 const {
     getCashReport,
     getCashMovements,
-    createExpense,
+    createMovement,
     getCategories,
     createCategory,
 } = require(
@@ -31,7 +31,7 @@ router.get(
 );
 
 router.post(
-    '/expense',
+    '/movement',
     requireAuth,
     createExpense,
 );

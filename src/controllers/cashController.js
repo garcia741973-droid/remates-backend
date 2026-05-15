@@ -124,9 +124,9 @@ exports.getCashMovements =
 
 
 /// ======================================================
-/// 🔥 CREAR EGRESO MANUAL
+/// 🔥 CREAR MOVIMIENTO MANUAL
 /// ======================================================
-exports.createExpense =
+exports.createMovement =
     async (req, res) => {
 
     try {
@@ -138,10 +138,23 @@ exports.createExpense =
             req.user.company_id;
 
         const {
+            type,
             amount,
             description,
             category,
         } = req.body;
+
+        /// 🔥 VALIDAR TIPO
+        if (
+            type != 'income' &&
+            type != 'expense'
+        ) {
+
+            return res.status(400).json({
+                error:
+                    'Tipo inválido',
+            });
+        }
 
         /// 🔥 VALIDAR MONTO
         if (!amount || amount <= 0) {
@@ -179,18 +192,19 @@ exports.createExpense =
                 VALUES
                 (
                     $1,
-                    'expense',
                     $2,
                     $3,
                     $4,
-                    'manual_expense',
-                    $5
+                    $5,
+                    'manual',
+                    $6
                 )
 
                 RETURNING *
                 `,
                 [
                     company_id,
+                    type,
                     category || 'general',
                     amount,
                     description,
@@ -203,13 +217,13 @@ exports.createExpense =
     } catch (err) {
 
         console.log(
-            '❌ CREATE EXPENSE ERROR',
+            '❌ CREATE MOVEMENT ERROR',
             err,
         );
 
         res.status(500).json({
             error:
-                'Error creando egreso',
+                'Error creando movimiento',
         });
     }
 };
