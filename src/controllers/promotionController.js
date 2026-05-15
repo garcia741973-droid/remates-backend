@@ -1655,16 +1655,61 @@ exports.createAdCampaign =
             planResult.rows[0];
 
         /// 🔥 FECHAS
-        const startDate =
+
+        let startDate =
             new Date();
 
-        const endDate =
+        let endDate =
             new Date();
 
-        endDate.setDate(
-            endDate.getDate() +
-                parseInt(days),
-        );
+        /// 🔥 SI VIENEN FECHAS MANUALES
+        if (
+            req.body.starts_at &&
+            req.body.ends_at
+        ) {
+
+            startDate =
+                new Date(req.body.starts_at);
+
+            endDate =
+                new Date(req.body.ends_at);
+
+        } else {
+
+            /// 🔥 MODO POR DÍAS
+            const totalDays =
+                parseInt(days);
+
+            if (
+                isNaN(totalDays) ||
+                totalDays <= 0
+            ) {
+
+                return res.status(400).json({
+
+                    error:
+                        'Cantidad de días inválida',
+                });
+            }
+
+            endDate.setDate(
+                endDate.getDate() +
+                    totalDays,
+            );
+        }
+
+        /// 🔥 VALIDAR FECHAS
+        if (
+            isNaN(startDate.getTime()) ||
+            isNaN(endDate.getTime())
+        ) {
+
+            return res.status(400).json({
+
+                error:
+                    'Fechas inválidas',
+            });
+        }
 
         /// 🔥 INSERT
         const result =
@@ -1866,5 +1911,49 @@ exports.incrementClick =
             error:
                 'Error incrementando click',
         });
+    }
+};
+
+/// 🧹 CLEAN EXPIRED CAMPAIGNS
+exports.cleanExpiredCampaigns =
+    async () => {
+
+    try {
+
+        const result =
+            await pool.query(
+
+                `
+                UPDATE promotion_requests
+
+                SET is_visible = false
+
+                WHERE
+
+                    entity_type = 'advertising'
+
+                    AND is_visible = true
+
+                    AND ends_at < NOW()
+
+                RETURNING id
+                `
+            );
+
+        console.log(
+
+            '🧹 EXPIRED CAMPAIGNS CLEANED:',
+
+            result.rowCount,
+        );
+
+    } catch (err) {
+
+        console.log(
+
+            '❌ CLEAN EXPIRED CAMPAIGNS ERROR',
+
+            err,
+        );
     }
 };
