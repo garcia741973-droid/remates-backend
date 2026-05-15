@@ -33,7 +33,7 @@ router.get(
 router.post(
     '/movement',
     requireAuth,
-    createExpense,
+    createMovement,
 );
 
 router.get(
