@@ -836,9 +836,9 @@ exports.uploadPaymentProof = async (req, res) => {
               [negotiation.lot_id]
           );
 
-      const company_id =
-          lotCompanyRes.rows[0]
-              ?.company_id;
+          const cash_company_id =
+              lotCompanyRes.rows[0]
+                  ?.company_id;
 
       /// 🔥 REGISTRAR INGRESO EN CAJA
       await pool.query(
@@ -846,7 +846,7 @@ exports.uploadPaymentProof = async (req, res) => {
           `
           INSERT INTO cash_movements
           (
-              company_id,
+              cash_company_id,
               type,
               category,
               amount,
