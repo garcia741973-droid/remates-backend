@@ -840,51 +840,51 @@ exports.uploadPaymentProof = async (req, res) => {
               lotCompanyRes.rows[0]
                   ?.company_id;
 
-      /// 🔥 REGISTRAR INGRESO EN CAJA
-      await pool.query(
+          /// 🔥 REGISTRAR INGRESO EN CAJA
+          await pool.query(
 
-          `
-          INSERT INTO cash_movements
-          (
-              cash_company_id,
-              type,
-              category,
-              amount,
-              description,
-              reference_type,
-              reference_id,
-              proof_url,
-              created_by
-          )
+              `
+              INSERT INTO cash_movements
+              (
+                  company_id,
+                  type,
+                  category,
+                  amount,
+                  description,
+                  reference_type,
+                  reference_id,
+                  proof_url,
+                  created_by
+              )
 
-          VALUES
-          (
-              $1,
-              'income',
-              'negotiaciones',
-              $2,
-              $3,
-              'negotiation_payment',
-              $4,
-              $5,
-              $6
-          )
-          `,
-          [
+              VALUES
+              (
+                  $1,
+                  'income',
+                  'negotiaciones',
+                  $2,
+                  $3,
+                  'negotiation_payment',
+                  $4,
+                  $5,
+                  $6
+              )
+              `,
+              [
 
-              company_id,
+                  cash_company_id,
 
-              qr.amount,
+                  qr.amount,
 
-              `Pago desbloqueo negociación #${negotiation.id}`,
+                  `Pago desbloqueo negociación #${negotiation.id}`,
 
-              negotiation.id,
+                  negotiation.id,
 
-              proof_url,
+                  proof_url,
 
-              seller_id,
-          ],
-      );
+                  seller_id,
+              ],
+          );
 
     /// 🔥 DESBLOQUEAR NEGOCIACIÓN GANADORA
     await pool.query(
