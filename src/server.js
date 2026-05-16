@@ -1,7 +1,3 @@
-const {
-    createOperationEvent,
-} = require('./operationEventsService');
-
 
 const {
 
