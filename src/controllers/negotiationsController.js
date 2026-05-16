@@ -922,6 +922,21 @@ exports.uploadPaymentProof = async (req, res) => {
       ]
     );
 
+    /// 🔥 LIMPIAR DESTACADO / PREMIUM
+    await pool.query(
+      `
+      UPDATE lots
+      SET
+
+        promoted_until = NULL,
+
+        promotion_priority = 0
+
+      WHERE id = $1
+      `,
+      [negotiation.lot_id]
+    );
+
     /// 🔥 CERRAR OTRAS NEGOCIACIONES
     await pool.query(
       `
