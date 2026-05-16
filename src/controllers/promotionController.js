@@ -384,10 +384,17 @@ exports.approvePromotion =
                 `
                 UPDATE promotion_requests
                 SET
-                    status = 'approved',
+
+                    status = 'active',
+
+                    is_visible = true,
+
                     starts_at = $1,
+
                     ends_at = $2,
+
                     approved_at = NOW()
+
                 WHERE id = $3
                 `,
                 [
