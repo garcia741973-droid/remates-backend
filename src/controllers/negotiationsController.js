@@ -937,6 +937,25 @@ exports.uploadPaymentProof = async (req, res) => {
       ]
     );
 
+    /// 🔥 DESACTIVAR PROMOCIONES DEL LOTE VENDIDO
+    await pool.query(
+      `
+      UPDATE promotion_requests
+      SET
+
+        status = 'completed',
+
+        is_visible = false,
+
+        ends_at = NOW()
+
+      WHERE entity_type = 'lot'
+      AND entity_id = $1
+      AND is_visible = true
+      `,
+      [negotiation.lot_id]
+    );
+
     /// 🔥 PUSH COMPRADOR
     const tokensRes = await pool.query(
       `
