@@ -4,6 +4,10 @@ const {
   processLotAlerts,
 } = require('../services/processLotAlerts');
 
+const {
+  createOperationEvent,
+} = require('../services/operationEventsService');
+
 exports.createLot = async (req, res) => {
   try {
     const company_id = req.user.company_id;
@@ -233,6 +237,29 @@ exports.createLot = async (req, res) => {
     );
 
     await processLotAlerts(createdLot);
+
+    /// 🔥 EVENTO OPERATIVO
+    await createOperationEvent({
+
+      type: 'new_lot',
+
+      title:
+          '🐄 Nuevo lote publicado',
+
+      message:
+          `${lot_class} ${breed} publicado por vendedor ${user_id}`,
+
+      priority: 'high',
+
+      data: {
+
+        lot_id:
+            createdLot.id,
+
+        seller_id:
+            user_id,
+      },
+    });    
 
     res.json({
       lot: createdLot,
@@ -564,6 +591,28 @@ exports.updateLot = async (req, res) => {
       ]
     );
 
+    /// 🔥 EVENTO OPERATIVO
+    await createOperationEvent({
+
+      type: 'lot_updated',
+
+      title:
+          '✏️ Lote actualizado',
+
+      message:
+          `Lote ${id} fue editado por vendedor ${user_id}`,
+
+      priority: 'medium',
+
+      data: {
+
+        lot_id: id,
+
+        seller_id:
+            user_id,
+      },
+    });
+
     res.json(rows[0]);
 
   } catch (error) {
@@ -636,6 +685,28 @@ exports.deleteLot = async (req, res) => {
       `,
       [id]
     );
+
+    /// 🔥 EVENTO OPERATIVO
+    await createOperationEvent({
+
+      type: 'lot_deleted',
+
+      title:
+          '🗑 Lote eliminado',
+
+      message:
+          `Lote ${id} eliminado por vendedor ${user_id}`,
+
+      priority: 'medium',
+
+      data: {
+
+        lot_id: id,
+
+        seller_id:
+            user_id,
+      },
+    });
 
     res.json({
       success: true

@@ -1,5 +1,9 @@
 const { pool } = require('../config/db');
 
+const {
+  createOperationEvent,
+} = require('../services/operationEventsService');
+
 exports.createAuction = async (req, res) => {
   try {
     const company_id = req.user.company_id;
@@ -196,6 +200,25 @@ exports.startAuction = async (req, res) => {
       `UPDATE auctions SET status = 'live' WHERE id = $1`,
       [auction_id]
     );
+
+    /// 🔥 EVENTO OPERATIVO
+    await createOperationEvent({
+
+      type: 'auction_started',
+
+      title:
+          '📺 Remate iniciado',
+
+      message:
+          `El remate ${auction_id} inició transmisión en vivo`,
+
+      priority: 'high',
+
+      data: {
+
+        auction_id,
+      },
+    });
 
     res.json({ message: 'Remate iniciado correctamente' });
 

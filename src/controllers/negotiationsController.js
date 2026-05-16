@@ -5,6 +5,10 @@ const {
   sendAdminNotification,
 } = require('../services/notificationService');
 
+const {
+  createOperationEvent,
+} = require('../services/operationEventsService');
+
 const cloudinary = require('../config/cloudinary');
 const streamifier = require('streamifier');
 
@@ -951,6 +955,35 @@ exports.uploadPaymentProof = async (req, res) => {
         negotiation.id
       ]
     );
+
+    /// 🔥 EVENTO OPERATIVO
+    await createOperationEvent({
+
+      type: 'negotiation_closed',
+
+      title:
+          '🤝 Negociación cerrada',
+
+      message:
+          `El lote ${negotiation.lot_id} fue vendido exitosamente`,
+
+      priority: 'high',
+
+      data: {
+
+        negotiation_id:
+            negotiation.id,
+
+        lot_id:
+            negotiation.lot_id,
+
+        seller_id:
+            negotiation.seller_id,
+
+        buyer_id:
+            negotiation.buyer_id,
+      },
+    });
 
     /// 🔥 DESACTIVAR PROMOCIONES DEL LOTE VENDIDO
     await pool.query(

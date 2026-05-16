@@ -1,5 +1,9 @@
 const { pool } = require("../config/db");
 
+const {
+  createOperationEvent,
+} = require('../services/operationEventsService');
+
 //
 // 🧠 1. GET KYC
 //
@@ -255,6 +259,26 @@ const approveKyc = async (req, res) => {
        WHERE user_id = $1`,
       [userId]
     );
+
+    /// 🔥 EVENTO OPERATIVO
+    await createOperationEvent({
+
+      type: 'kyc_approved',
+
+      title:
+          '✅ Usuario verificado KYC',
+
+      message:
+          `Usuario ${userId} fue aprobado y ya puede operar`,
+
+      priority: 'high',
+
+      data: {
+
+        user_id:
+            userId,
+      },
+    });
 
     res.json({ ok: true });
 
