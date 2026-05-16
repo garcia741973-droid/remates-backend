@@ -1,6 +1,10 @@
 const admin = require('firebase-admin');
 const { pool } = require('../config/db');
 
+const {
+    createOperationEvent,
+} = require('./operationEventsService');
+
 /// ======================================================
 /// 🔥 ENVIAR PUSH DIRECTO
 /// ======================================================
@@ -113,12 +117,45 @@ exports.sendPushNotification = async ({
             response.successCount,
         );
 
+        /// 🔥 EVENTO OPERATIVO
+        await createOperationEvent({
+
+            type: 'push_sent',
+
+            title: '📲 Push enviado',
+
+            message:
+                `${response.successCount} push enviados`,
+
+            data: {
+
+                users: userIds,
+
+                title,
+                body,
+            },
+        });        
+
     } catch (err) {
 
         console.log(
             '❌ PUSH ERROR',
             err,
         );
+
+        await createOperationEvent({
+
+            type: 'push_error',
+
+            title:
+                '❌ Error push notification',
+
+            message:
+                err.message,
+
+            priority: 'high',
+        });
+
     }
 };
 
