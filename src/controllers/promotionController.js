@@ -1319,34 +1319,58 @@ exports.updatePromotionPriority =
 exports.updatePromotion =
     async (req, res) => {
 
-            console.log(
+    console.log(
         '🔥🔥🔥 UPDATE PROMOTION ENDPOINT HIT'
-        );
+    );
 
     try {
 
         const { id } =
             req.params;
 
-            const {
+        console.log(
+            '🔥 PARAM ID:',
+            id,
+        );
 
-                title,
+        console.log(
+            '🔥 BODY RECEIVED:',
+            req.body,
+        );
 
-                description,
+        const {
 
-                redirect_url,
+            title,
 
-                whatsapp,
+            description,
 
-                button_text,
+            redirect_url,
 
-                priority,
+            whatsapp,
 
-                sponsor,
+            button_text,
 
-                is_visible,
+            priority,
 
-            } = req.body;
+            sponsor,
+
+            is_visible,
+
+            starts_at,
+
+            ends_at,
+
+        } = req.body;
+
+        console.log(
+            '🔥 STARTS_AT:',
+            starts_at,
+        );
+
+        console.log(
+            '🔥 ENDS_AT:',
+            ends_at,
+        );
 
         const result =
             await pool.query(
@@ -1369,9 +1393,13 @@ exports.updatePromotion =
 
                     sponsor = $7,
 
-                    is_visible = $8
+                    is_visible = $8,
 
-                    WHERE id = $9
+                    starts_at = $9,
+
+                    ends_at = $10
+
+                WHERE id = $11
 
                 RETURNING *
                 `,
@@ -1393,6 +1421,10 @@ exports.updatePromotion =
 
                     is_visible,
 
+                    starts_at,
+
+                    ends_at,
+
                     id,
                 ]
             );
@@ -1402,10 +1434,10 @@ exports.updatePromotion =
             id,
         );
 
-            console.log(
+        console.log(
             '🔥 UPDATED DATA:',
             result.rows[0]
-            );
+        );
 
         res.json({
 
