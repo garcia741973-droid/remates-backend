@@ -3,7 +3,11 @@ const { pool } =
 
 const {
     createOperationEvent,
-} = require('./operationEventsService');    
+} = require('./operationEventsService');
+
+const {
+    sendAdminNotification,
+} = require('../services/notificationService');
 
 const cleanupExpiredPromotions =
     async () => {
@@ -82,6 +86,25 @@ const cleanupExpiredPromotions =
                             promo.id,
                     },
                 });
+
+                /// 🔥 PUSH SUPER ADMIN
+                await sendAdminNotification({
+
+                    title:
+                        '⚠ Campaña por vencer',
+
+                    body:
+                        `"${promo.title}" vence en menos de 3 días`,
+
+                    data: {
+
+                        type:
+                            'promotion_expiring',
+
+                        promotion_id:
+                            promo.id.toString(),
+                    },
+                });                
 
                 console.log(
                     `⚠ PROMOTION EXPIRING EVENT: ${promo.title}`

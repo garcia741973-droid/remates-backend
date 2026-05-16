@@ -8,6 +8,10 @@ const {
   createOperationEvent,
 } = require('../services/operationEventsService');
 
+const {
+  sendAdminNotification,
+} = require('../services/notificationService');
+
 exports.createLot = async (req, res) => {
   try {
     const company_id = req.user.company_id;
@@ -260,6 +264,23 @@ exports.createLot = async (req, res) => {
             user_id,
       },
     });    
+
+    await sendAdminNotification({
+
+      title:
+        '🐄 Nuevo lote publicado',
+
+      body:
+        `${lot_class} ${breed} publicado`,
+
+      data: {
+
+        type: 'new_lot',
+
+        lot_id:
+          createdLot.id.toString(),
+      },
+    });
 
     res.json({
       lot: createdLot,

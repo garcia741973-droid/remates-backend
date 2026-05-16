@@ -985,6 +985,28 @@ exports.uploadPaymentProof = async (req, res) => {
       },
     });
 
+    /// 🔥 PUSH SUPER ADMIN
+    await sendAdminNotification({
+
+      title:
+          '🤝 Negociación cerrada',
+
+      body:
+          `Lote ${negotiation.lot_id} vendido exitosamente`,
+
+      data: {
+
+        type:
+            'negotiation_closed',
+
+        negotiation_id:
+            negotiation.id.toString(),
+
+        lot_id:
+            negotiation.lot_id.toString(),
+      },
+    });    
+
     /// 🔥 DESACTIVAR PROMOCIONES DEL LOTE VENDIDO
     await pool.query(
       `

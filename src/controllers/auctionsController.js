@@ -4,6 +4,10 @@ const {
   createOperationEvent,
 } = require('../services/operationEventsService');
 
+const {
+  sendAdminNotification,
+} = require('../services/notificationService');
+
 exports.createAuction = async (req, res) => {
   try {
     const company_id = req.user.company_id;
@@ -219,6 +223,24 @@ exports.startAuction = async (req, res) => {
         auction_id,
       },
     });
+
+    /// 🔥 PUSH SUPER ADMIN
+    await sendAdminNotification({
+
+      title:
+          '📺 Remate iniciado',
+
+      body:
+          `El remate ${auction_id} ya está en vivo`,
+
+      data: {
+
+        type: 'auction_started',
+
+        auction_id:
+            auction_id.toString(),
+      },
+    });    
 
     res.json({ message: 'Remate iniciado correctamente' });
 

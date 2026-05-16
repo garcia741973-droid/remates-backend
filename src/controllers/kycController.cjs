@@ -4,6 +4,10 @@ const {
   createOperationEvent,
 } = require('../services/operationEventsService');
 
+const {
+  sendAdminNotification,
+} = require('../services/notificationService');
+
 //
 // 🧠 1. GET KYC
 //
@@ -277,6 +281,24 @@ const approveKyc = async (req, res) => {
 
         user_id:
             userId,
+      },
+    });
+
+    /// 🔥 PUSH SUPER ADMIN
+    await sendAdminNotification({
+
+      title:
+          '✅ Usuario verificado',
+
+      body:
+          `Usuario ${userId} aprobado en KYC`,
+
+      data: {
+
+        type: 'kyc_approved',
+
+        user_id:
+            userId.toString(),
       },
     });
 
