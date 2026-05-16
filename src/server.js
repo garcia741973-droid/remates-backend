@@ -96,7 +96,10 @@ const featuredRoutes =
   require('./routes/featuredRoutes');
   
 const cashRoutes =
-    require('./routes/cashRoutes');  
+    require('./routes/cashRoutes');
+    
+const adminNotificationsRoutes =
+    require('./routes/adminNotificationsRoutes');    
 
 const {
   startReviewReminderService
@@ -186,6 +189,11 @@ app.use(
 app.use(
     '/cash',
     cashRoutes,
+);
+
+app.use(
+    '/admin-notifications',
+    adminNotificationsRoutes,
 );
 
 /// 🚀 SERVIDOR
