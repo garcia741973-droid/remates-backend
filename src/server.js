@@ -165,6 +165,11 @@ app.use(
   savedSearchesRoutes
 );
 
+app.use(
+  '/operation-events',
+  operationEventsRoutes
+);
+
 //app.use(
 //  '/featured-requests',
 //  featuredRoutes
