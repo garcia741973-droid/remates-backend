@@ -106,7 +106,7 @@ exports.approvePromotion = async (
       UPDATE promotion_requests
       SET
 
-        status = 'active',
+        status = 'approved',
 
         is_visible = true,
 

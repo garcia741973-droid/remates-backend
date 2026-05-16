@@ -385,7 +385,7 @@ exports.approvePromotion =
                 UPDATE promotion_requests
                 SET
 
-                    status = 'active',
+                    status = 'approved',
 
                     is_visible = true,
 
@@ -1942,7 +1942,7 @@ exports.cleanExpiredCampaigns =
 
                     entity_type = 'advertising'
 
-                    AND status = 'active'
+                    AND status = 'approved'
 
                     AND is_visible = true
 
