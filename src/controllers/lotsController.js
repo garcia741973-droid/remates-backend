@@ -31,6 +31,8 @@ exports.createLot = async (req, res) => {
       weight,
       sale_type,
       base_price,
+      has_destare,
+      destare_percent,      
       department,
       province,
       municipality,
@@ -100,6 +102,9 @@ exports.createLot = async (req, res) => {
         images,
         video_url,
 
+        has_destare,
+        destare_percent,
+
         featured
       )
       VALUES
@@ -121,6 +126,8 @@ exports.createLot = async (req, res) => {
         $15,
         $16,
         $17,
+        $18,
+        $19,
         false
       )
       RETURNING *
@@ -149,6 +156,9 @@ exports.createLot = async (req, res) => {
 
         images || [],
         video || null,
+
+        has_destare || false,
+        destare_percent || 5,
       ]
     );
 
@@ -410,6 +420,9 @@ exports.updateLot = async (req, res) => {
 
       class: lot_class,
 
+      has_destare,
+      destare_percent,      
+      
       breed,
 
       weight,
@@ -505,9 +518,13 @@ exports.updateLot = async (req, res) => {
 
         images = $12,
 
-        video_url = $13
+        video_url = $13,
 
-      WHERE id = $14
+        has_destare = $14,
+
+        destare_percent = $15
+
+      WHERE id = $16
 
       RETURNING *
       `,
@@ -538,6 +555,10 @@ exports.updateLot = async (req, res) => {
         images || [],
 
         video || null,
+
+        has_destare || false,
+
+        destare_percent || 5,
 
         id,
       ]
