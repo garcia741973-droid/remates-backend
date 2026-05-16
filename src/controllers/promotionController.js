@@ -1920,7 +1920,6 @@ exports.incrementClick =
         });
     }
 };
-
 /// 🧹 CLEAN EXPIRED CAMPAIGNS
 exports.cleanExpiredCampaigns =
     async () => {
@@ -1933,13 +1932,21 @@ exports.cleanExpiredCampaigns =
                 `
                 UPDATE promotion_requests
 
-                SET is_visible = false
+                SET
+
+                    is_visible = false,
+
+                    status = 'expired'
 
                 WHERE
 
                     entity_type = 'advertising'
 
+                    AND status = 'active'
+
                     AND is_visible = true
+
+                    AND ends_at IS NOT NULL
 
                     AND ends_at < NOW()
 

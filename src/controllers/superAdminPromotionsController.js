@@ -105,8 +105,13 @@ exports.approvePromotion = async (
     await pool.query(`
       UPDATE promotion_requests
       SET
-        status = 'approved',
+
+        status = 'active',
+
+        is_visible = true,
+
         approved_at = NOW()
+
       WHERE id = $1
     `, [id]);
 
