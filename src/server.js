@@ -85,6 +85,9 @@ const sellerReviewsRoutes =
 
 const searchAlertsRoutes =
   require('./routes/searchAlertsRoutes');
+
+const operationEventsRoutes =
+  require('./routes/operationEventsRoutes');  
   
 const savedSearchesRoutes =
   require('./routes/savedSearchesRoutes');
