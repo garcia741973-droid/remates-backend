@@ -4,7 +4,7 @@ const router = express.Router();
 
 const {
   requireAuth,
-} = require('../middlewares/requireAuth');
+} = require('../middleware/authMiddleware');
 
 const {
   getOperationEvents,
