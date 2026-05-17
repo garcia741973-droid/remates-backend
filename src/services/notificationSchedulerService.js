@@ -281,6 +281,58 @@ const startNotificationScheduler =
                                 'weekly'
                             ) {
 
+                                const days =
+                                    campaign.repeat_days || [];
+
+                                const map = {
+
+                                    sunday: 0,
+                                    monday: 1,
+                                    tuesday: 2,
+                                    wednesday: 3,
+                                    thursday: 4,
+                                    friday: 5,
+                                    saturday: 6,
+                                };
+
+                                let found = false;
+
+                                for (let i = 1; i <= 7; i++) {
+
+                                    const test =
+                                        new Date();
+
+                                    test.setDate(
+                                        test.getDate() + i
+                                    );
+
+                                    const day =
+                                        test.getDay();
+
+                                    const matches =
+                                        days.some(
+                                            d => map[d] === day
+                                        );
+
+                                    if (matches) {
+
+                                        nextDate = test;
+
+                                        found = true;
+
+                                        break;
+                                    }
+                                }
+
+                                /// 🔥 FALLBACK
+                                if (!found) {
+
+                                    nextDate.setDate(
+                                        nextDate.getDate() + 7
+                                    );
+                                }
+                            } {
+
                                 nextDate.setDate(
                                     nextDate.getDate() + 7
                                 );
