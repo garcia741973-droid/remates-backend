@@ -52,13 +52,56 @@ exports.sendNotification = async (
             target_type === 'company'
         ) {
 
-            usersQuery = `
-                SELECT DISTINCT user_id as id
-                FROM user_companies
-                WHERE company_id = $1
-            `;
+            const parts =
+                target_value
+                    ? target_value
+                        .toString()
+                        .split('|')
+                    : [];
 
-            values.push(target_value);
+            const companyId =
+                parts[0];
+
+            const companyRole =
+                parts[1];
+
+            if (!companyId) {
+
+                return res.status(400).json({
+
+                    error:
+                        'Empresa inválida',
+                });
+            }
+
+            /// 🔥 EMPRESA + ROL
+            if (companyRole) {
+
+                usersQuery = `
+                    SELECT DISTINCT user_id as id
+                    FROM user_companies
+                    WHERE company_id = $1
+                    AND role = $2
+                `;
+
+                values.push(
+                    companyId,
+                    companyRole,
+                );
+
+            }
+
+            /// 🔥 TODOS EMPRESA
+            else {
+
+                usersQuery = `
+                    SELECT DISTINCT user_id as id
+                    FROM user_companies
+                    WHERE company_id = $1
+                `;
+
+                values.push(companyId);
+            }
         }
 
         /// 🎯 USUARIO INDIVIDUAL
