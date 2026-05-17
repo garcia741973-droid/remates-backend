@@ -219,6 +219,33 @@ const startNotificationScheduler =
                         response.successCount,
                     );
 
+                    /// 🔥 MÉTRICAS
+                    await pool.query(
+
+                        `
+                        UPDATE notification_campaigns
+                        SET
+
+                            total_sent =
+                                COALESCE(total_sent,0) + $1,
+
+                            total_failed =
+                                COALESCE(total_failed,0) + $2,
+
+                            last_executed_at = NOW()
+
+                        WHERE id = $3
+                        `,
+                        [
+
+                            success,
+
+                            failed,
+
+                            campaign.id,
+                        ]
+                    );
+
                     /// ======================================================
                     /// 🔥 REPETICIÓN
                     /// ======================================================
@@ -261,8 +288,10 @@ const startNotificationScheduler =
 
                         } else {
 
-                            let nextDate =
-                                new Date();
+                        let nextDate =
+                            new Date(
+                                campaign.scheduled_at
+                            );
 
                             /// 🔥 DAILY
                             if (
@@ -297,10 +326,15 @@ const startNotificationScheduler =
 
                                 let found = false;
 
+                                const baseDate =
+                                    new Date(
+                                        campaign.scheduled_at
+                                    );
+
                                 for (let i = 1; i <= 7; i++) {
 
                                     const test =
-                                        new Date();
+                                        new Date(baseDate);
 
                                     test.setDate(
                                         test.getDate() + i

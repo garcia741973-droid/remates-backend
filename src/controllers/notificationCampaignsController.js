@@ -394,3 +394,127 @@ exports.getCampaigns =
         });
     }
 };
+
+/// ======================================================
+/// 🔥 LISTAR CAMPAÑAS
+/// ======================================================
+exports.getCampaigns =
+    async (req, res) => {
+
+    try {
+
+        const result =
+            await pool.query(
+
+                `
+                SELECT *
+                FROM notification_campaigns
+                WHERE is_visible = true
+                ORDER BY created_at DESC
+                `
+            );
+
+        res.json(
+            result.rows
+        );
+
+    } catch (err) {
+
+        console.log(
+            '❌ GET CAMPAIGNS ERROR',
+            err,
+        );
+
+        res.status(500).json({
+
+            error:
+                'Error obteniendo campañas',
+        });
+    }
+};
+
+/// ======================================================
+/// 🔥 OCULTAR CAMPAÑA
+/// ======================================================
+exports.hideCampaign =
+    async (req, res) => {
+
+    try {
+
+        const { id } =
+            req.params;
+
+        await pool.query(
+
+            `
+            UPDATE notification_campaigns
+            SET is_visible = false
+            WHERE id = $1
+            `,
+            [id]
+        );
+
+        res.json({
+            success: true,
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ HIDE CAMPAIGN ERROR',
+            err,
+        );
+
+        res.status(500).json({
+
+            error:
+                'Error ocultando campaña',
+        });
+    }
+};
+
+/// ======================================================
+/// 🔥 UPDATE STATUS
+/// ======================================================
+exports.updateCampaignStatus =
+    async (req, res) => {
+
+    try {
+
+        const { id } =
+            req.params;
+
+        const { status } =
+            req.body;
+
+        await pool.query(
+
+            `
+            UPDATE notification_campaigns
+            SET status = $1
+            WHERE id = $2
+            `,
+            [
+                status,
+                id,
+            ]
+        );
+
+        res.json({
+            success: true,
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ UPDATE STATUS ERROR',
+            err,
+        );
+
+        res.status(500).json({
+
+            error:
+                'Error actualizando status',
+        });
+    }
+};
