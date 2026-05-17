@@ -392,8 +392,6 @@ const startNotificationScheduler =
                             total_failed =
                                 COALESCE(total_failed,0) + $3,
 
-                            status = 'sent',
-
                             sent_at = NOW(),
 
                             last_executed_at = NOW()
