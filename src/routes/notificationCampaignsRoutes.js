@@ -16,6 +16,10 @@ const {
 
     getCampaigns,
 
+    hideCampaign,
+
+    updateCampaignStatus,
+
 } = require(
     '../controllers/notificationCampaignsController'
 );
@@ -32,6 +36,20 @@ router.get(
     '/',
     requireAuth,
     getCampaigns,
+);
+
+/// 🔥 UPDATE STATUS
+router.patch(
+    '/:id/status',
+    requireAuth,
+    updateCampaignStatus,
+);
+
+/// 🔥 OCULTAR
+router.delete(
+    '/:id',
+    requireAuth,
+    hideCampaign,
 );
 
 module.exports =
