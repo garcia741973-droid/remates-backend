@@ -249,4 +249,3 @@ exports.startAuction = async (req, res) => {
     res.status(500).json({ error: 'Error iniciando remate' });
   }
 };
-

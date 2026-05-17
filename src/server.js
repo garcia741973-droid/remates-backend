@@ -75,6 +75,8 @@ const lotsRoutes = require('./routes/lotsRoutes');
 const auctionsRoutes = require('./routes/auctionsRoutes');
 const livekitRoutes = require('./routes/livekitRoutes');
 const auctionLotsRoutes = require('./routes/auctionLotsRoutes');
+const auctionLiveLotsRoutes =
+  require('./routes/auctionLiveLotsRoutes');
 const bidsRoutes = require('./routes/bidsRoutes');
 const operatorRoutes = require('./routes/operatorRoutes');
 const companyRoutes = require('./routes/companyRoutes');
@@ -164,6 +166,10 @@ app.use('/lots', lotsRoutes);
 app.use('/auctions', auctionsRoutes);
 app.use('/livekit', livekitRoutes);
 app.use('/auction-lots', auctionLotsRoutes);
+app.use(
+  '/auction-live-lots',
+  auctionLiveLotsRoutes
+);
 app.use('/bids', bidsRoutes);
 app.use('/operator', operatorRoutes);
 app.use('/company', companyRoutes);
