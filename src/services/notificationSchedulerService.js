@@ -219,6 +219,12 @@ const startNotificationScheduler =
                         response.successCount,
                     );
 
+                    const success =
+                        response.successCount || 0;
+
+                    const failed =
+                        response.failureCount || 0;                    
+
                     /// 🔥 MÉTRICAS
                     await pool.query(
 
@@ -358,19 +364,15 @@ const startNotificationScheduler =
                                     }
                                 }
 
-                                /// 🔥 FALLBACK
-                                if (!found) {
-
-                                    nextDate.setDate(
-                                        nextDate.getDate() + 7
-                                    );
-                                }
-                            } {
+                            /// 🔥 FALLBACK
+                            if (!found) {
 
                                 nextDate.setDate(
                                     nextDate.getDate() + 7
                                 );
                             }
+
+                            } // ✅ cierre weekly
 
                             await pool.query(
 
