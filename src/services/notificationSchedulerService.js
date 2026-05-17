@@ -225,33 +225,6 @@ const startNotificationScheduler =
                     const failed =
                         response.failureCount || 0;                    
 
-                    /// 🔥 MÉTRICAS
-                    await pool.query(
-
-                        `
-                        UPDATE notification_campaigns
-                        SET
-
-                            total_sent =
-                                COALESCE(total_sent,0) + $1,
-
-                            total_failed =
-                                COALESCE(total_failed,0) + $2,
-
-                            last_executed_at = NOW()
-
-                        WHERE id = $3
-                        `,
-                        [
-
-                            success,
-
-                            failed,
-
-                            campaign.id,
-                        ]
-                    );
-
                     /// ======================================================
                     /// 🔥 REPETICIÓN
                     /// ======================================================
@@ -413,13 +386,17 @@ const startNotificationScheduler =
 
                             total_users = $1,
 
-                            success_count = $2,
+                            total_sent =
+                                COALESCE(total_sent,0) + $2,
 
-                            failed_count = $3,
+                            total_failed =
+                                COALESCE(total_failed,0) + $3,
 
                             status = 'sent',
 
-                            sent_at = NOW()
+                            sent_at = NOW(),
+
+                            last_executed_at = NOW()
 
                         WHERE id = $4
                         `,
@@ -427,9 +404,9 @@ const startNotificationScheduler =
 
                             userIds.length,
 
-                            response.successCount,
+                            success,
 
-                            response.failureCount,
+                            failed,
 
                             campaign.id,
                         ]
