@@ -15,25 +15,25 @@ exports.createCampaign =
         const created_by =
             req.user.user_id;
 
-            const {
+        const {
 
-                title,
-                body,
-                type,
-                target_type,
-                target_value,
+            title,
+            body,
+            type,
+            target_type,
+            target_value,
 
-                scheduled_at,
+            scheduled_at,
 
-                template_id,
+            template_id,
 
-                repeat_type,
+            repeat_type,
 
-                repeat_days,
+            repeat_days,
 
-                repeat_count,
+            repeat_count,
 
-            } = req.body;
+        } = req.body;
 
         /// 🔥 CREAR CAMPAÑA
         const campaignRes =
@@ -61,7 +61,7 @@ exports.createCampaign =
                     repeat_type,
                     repeat_days,
                     repeat_count,
-                    repeat_current                    
+                    repeat_current
 
                 )
 
@@ -79,7 +79,8 @@ exports.createCampaign =
                     $10,
                     $11,
                     $12,
-                    $13                    
+                    $13
+
                 )
 
                 RETURNING *
@@ -114,7 +115,6 @@ exports.createCampaign =
                     repeat_count || 1,
 
                     0,
-
                 ]
             );
 
@@ -281,6 +281,17 @@ exports.createCampaign =
                 t => t.fcm_token
             );
 
+        if (
+            tokens.length === 0
+        ) {
+
+            return res.status(400).json({
+
+                error:
+                    'No hay tokens',
+            });
+        }
+
         /// 🔥 PUSH
         const response =
             await admin.messaging()
@@ -311,11 +322,15 @@ exports.createCampaign =
 
                 total_users = $1,
 
-                success_count = $2,
+                total_sent = $2,
 
-                failed_count = $3,
+                total_failed = $3,
 
-                sent_at = NOW()
+                sent_at = NOW(),
+
+                last_executed_at = NOW(),
+
+                repeat_current = 1
 
             WHERE id = $4
             `,
@@ -362,41 +377,6 @@ exports.createCampaign =
 
 /// ======================================================
 /// 🔥 HISTORIAL
-/// ======================================================
-exports.getCampaigns =
-    async (req, res) => {
-
-    try {
-
-        const result =
-            await pool.query(
-
-                `
-                SELECT *
-                FROM notification_campaigns
-                ORDER BY created_at DESC
-                `
-            );
-
-        res.json(result.rows);
-
-    } catch (err) {
-
-        console.log(
-            '❌ GET CAMPAIGNS ERROR',
-            err,
-        );
-
-        res.status(500).json({
-
-            error:
-                'Error obteniendo campañas',
-        });
-    }
-};
-
-/// ======================================================
-/// 🔥 LISTAR CAMPAÑAS
 /// ======================================================
 exports.getCampaigns =
     async (req, res) => {
