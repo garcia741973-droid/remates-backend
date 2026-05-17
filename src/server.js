@@ -114,6 +114,10 @@ const {
   startQrExpirationService
 } = require('./services/qrExpirationService');
 
+const {
+  startNotificationScheduler
+} = require('./services/notificationSchedulerService');
+
 const app = express();
 
 app.use(cors());
@@ -223,6 +227,8 @@ app.set('io', io);
 startReviewReminderService();
 
 startQrExpirationService();
+
+startNotificationScheduler();
 
 /// 🧹 LIMPIEZA PROMOCIONES VENCIDAS
 setInterval(() => {
