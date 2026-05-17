@@ -8,37 +8,61 @@ exports.createAuctionLiveLot = async (req, res) => {
     const company_id =
         req.user.company_id;
 
-    const {
+        const {
 
-      auction_id,
+        auction_id,
 
-      seller_user_id,
+        seller_user_id,
 
-      lot_number,
+        lot_number,
 
-      position,
+        position,
 
-      title,
+        title,
 
-      breed,
+        category,
 
-      quantity,
+        cattle_type,
 
-      weight,
+        gender,
 
-      sale_type,
+        age,
 
-      base_price,
+        breed,
 
-      opening_price,
+        quantity,
 
-      reserve_price,
+        weight,
 
-      increment_value,
+        average_weight,
 
-      notes,
+        estimated_total_weight,
 
-    } = req.body;
+        sale_type,
+
+        department,
+
+        province,
+
+        municipality,
+
+        arrival_time,
+
+        images,
+
+        videos,
+
+        base_price,
+
+        opening_price,
+
+        reserve_price,
+
+        increment_value,
+
+        notes,
+
+        } = req.body;
 
     /// 🔒 VALIDAR REMATE
     const auctionResult =
@@ -63,11 +87,36 @@ exports.createAuctionLiveLot = async (req, res) => {
       });
     }
 
+    /// 🔥 AUTO NUMERO LOTE
+    let finalLotNumber = lot_number;
+
+    if (!finalLotNumber) {
+
+    const nextResult =
+        await pool.query(
+        `
+        SELECT COALESCE(
+        MAX(lot_number),
+        0
+        ) + 1 AS next_number
+
+        FROM auction_live_lots
+
+        WHERE auction_id = $1
+        `,
+        [auction_id]
+    );
+
+    finalLotNumber =
+        nextResult.rows[0]
+            .next_number;
+    }
+
     /// 🔥 CREAR LOTE OPERATIVO
     const result =
         await pool.query(
       `
-      INSERT INTO auction_live_lots (
+        INSERT INTO auction_live_lots (
 
         company_id,
 
@@ -81,13 +130,37 @@ exports.createAuctionLiveLot = async (req, res) => {
 
         title,
 
+        category,
+
+        cattle_type,
+
+        gender,
+
+        age,
+
         breed,
 
         quantity,
 
         weight,
 
+        average_weight,
+
+        estimated_total_weight,
+
         sale_type,
+
+        department,
+
+        province,
+
+        municipality,
+
+        arrival_time,
+
+        images,
+
+        videos,
 
         base_price,
 
@@ -101,9 +174,9 @@ exports.createAuctionLiveLot = async (req, res) => {
 
         notes
 
-      )
+        )
 
-      VALUES (
+        VALUES (
 
         $1,$2,$3,$4,$5,
 
@@ -111,8 +184,12 @@ exports.createAuctionLiveLot = async (req, res) => {
 
         $11,$12,$13,$14,$15,
 
-        $16
-      )
+        $16,$17,$18,$19,$20,
+
+        $21,$22,$23,$24,$25,
+
+        $26,$27,$28
+        )
 
       RETURNING *
       `,
@@ -124,11 +201,19 @@ exports.createAuctionLiveLot = async (req, res) => {
 
         seller_user_id,
 
-        lot_number,
+        finalLotNumber,
 
         position,
 
         title,
+
+        category,
+
+        cattle_type,
+
+        gender,
+
+        age,
 
         breed,
 
@@ -136,7 +221,23 @@ exports.createAuctionLiveLot = async (req, res) => {
 
         weight,
 
+        average_weight,
+
+        estimated_total_weight,
+
         sale_type,
+
+        department,
+
+        province,
+
+        municipality,
+
+        arrival_time,
+
+        images,
+
+        videos,
 
         base_price,
 
