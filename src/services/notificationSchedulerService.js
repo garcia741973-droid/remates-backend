@@ -219,6 +219,103 @@ const startNotificationScheduler =
                         response.successCount,
                     );
 
+                    /// ======================================================
+                    /// 🔥 REPETICIÓN
+                    /// ======================================================
+
+                    if (
+                        campaign.repeat_type &&
+                        campaign.repeat_type !== 'once'
+                    ) {
+
+                        const current =
+                            (campaign.repeat_current || 0) + 1;
+
+                        /// 🔥 YA TERMINÓ
+                        if (
+                            current >=
+                            campaign.repeat_count
+                        ) {
+
+                            await pool.query(
+
+                                `
+                                UPDATE notification_campaigns
+                                SET
+
+                                    status = 'completed',
+
+                                    repeat_current = $1
+
+                                WHERE id = $2
+                                `,
+                                [
+                                    current,
+                                    campaign.id,
+                                ]
+                            );
+
+                            console.log(
+                                `✅ CAMPAIGN COMPLETED: ${campaign.id}`
+                            );
+
+                        } else {
+
+                            let nextDate =
+                                new Date();
+
+                            /// 🔥 DAILY
+                            if (
+                                campaign.repeat_type ===
+                                'daily'
+                            ) {
+
+                                nextDate.setDate(
+                                    nextDate.getDate() + 1
+                                );
+                            }
+
+                            /// 🔥 WEEKLY
+                            else if (
+                                campaign.repeat_type ===
+                                'weekly'
+                            ) {
+
+                                nextDate.setDate(
+                                    nextDate.getDate() + 7
+                                );
+                            }
+
+                            await pool.query(
+
+                                `
+                                UPDATE notification_campaigns
+                                SET
+
+                                    scheduled_at = $1,
+
+                                    repeat_current = $2,
+
+                                    status = 'scheduled'
+
+                                WHERE id = $3
+                                `,
+                                [
+
+                                    nextDate,
+
+                                    current,
+
+                                    campaign.id,
+                                ]
+                            );
+
+                            console.log(
+                                `🔁 CAMPAIGN RESCHEDULED: ${campaign.id}`
+                            );
+                        }
+                    }                    
+
                     /// 🔥 UPDATE CAMPAÑA
                     await pool.query(
 
