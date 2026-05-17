@@ -1,0 +1,372 @@
+const { pool } =
+    require('../config/db');
+
+const admin =
+    require('firebase-admin');
+
+/// ======================================================
+/// 🔥 ENVIAR O PROGRAMAR CAMPAÑA
+/// ======================================================
+exports.createCampaign =
+    async (req, res) => {
+
+    try {
+
+        const created_by =
+            req.user.user_id;
+
+        const {
+
+            title,
+            body,
+            type,
+            target_type,
+            target_value,
+
+            scheduled_at,
+
+            template_id,
+
+        } = req.body;
+
+        /// 🔥 CREAR CAMPAÑA
+        const campaignRes =
+            await pool.query(
+
+                `
+                INSERT INTO notification_campaigns (
+
+                    created_by,
+
+                    title,
+                    body,
+
+                    type,
+
+                    target_type,
+                    target_value,
+
+                    status,
+
+                    scheduled_at,
+
+                    template_id
+
+                )
+
+                VALUES (
+
+                    $1,
+                    $2,
+                    $3,
+                    $4,
+                    $5,
+                    $6,
+                    $7,
+                    $8,
+                    $9
+                )
+
+                RETURNING *
+                `,
+                [
+
+                    created_by,
+
+                    title,
+                    body,
+
+                    type ||
+                        'announcement',
+
+                    target_type ||
+                        'all',
+
+                    target_value || null,
+
+                    scheduled_at
+                        ? 'scheduled'
+                        : 'sent',
+
+                    scheduled_at || null,
+
+                    template_id || null,
+                ]
+            );
+
+        const campaign =
+            campaignRes.rows[0];
+
+        /// ======================================================
+        /// 🔥 PROGRAMADA
+        /// ======================================================
+        if (scheduled_at) {
+
+            await pool.query(
+
+                `
+                INSERT INTO scheduled_notifications (
+
+                    campaign_id,
+                    scheduled_for
+
+                )
+
+                VALUES ($1,$2)
+                `,
+                [
+                    campaign.id,
+                    scheduled_at,
+                ]
+            );
+
+            return res.json({
+
+                success: true,
+
+                scheduled: true,
+
+                campaign,
+            });
+        }
+
+        /// ======================================================
+        /// 🔥 ENVÍO INMEDIATO
+        /// ======================================================
+
+        let usersQuery = '';
+        let values = [];
+
+        /// 🔥 TODOS
+        if (
+            target_type === 'all'
+        ) {
+
+            usersQuery = `
+                SELECT id
+                FROM users
+            `;
+        }
+
+        /// 🔥 ROLE
+        else if (
+            target_type === 'role'
+        ) {
+
+            usersQuery = `
+                SELECT DISTINCT user_id as id
+                FROM user_companies
+                WHERE role = $1
+            `;
+
+            values.push(target_value);
+        }
+
+        /// 🔥 COMPANY
+        else if (
+            target_type === 'company'
+        ) {
+
+            const parts =
+                target_value
+                    .toString()
+                    .split('|');
+
+            const companyId =
+                parts[0];
+
+            const companyRole =
+                parts[1];
+
+            if (companyRole) {
+
+                usersQuery = `
+                    SELECT DISTINCT user_id as id
+                    FROM user_companies
+                    WHERE company_id = $1
+                    AND role = $2
+                `;
+
+                values.push(
+                    companyId,
+                    companyRole,
+                );
+
+            } else {
+
+                usersQuery = `
+                    SELECT DISTINCT user_id as id
+                    FROM user_companies
+                    WHERE company_id = $1
+                `;
+
+                values.push(companyId);
+            }
+        }
+
+        /// 🔥 USER
+        else if (
+            target_type === 'user'
+        ) {
+
+            usersQuery = `
+                SELECT id
+                FROM users
+                WHERE id = $1
+            `;
+
+            values.push(target_value);
+        }
+
+        const users =
+            await pool.query(
+                usersQuery,
+                values,
+            );
+
+        const userIds =
+            users.rows.map(
+                u => u.id
+            );
+
+        if (
+            userIds.length === 0
+        ) {
+
+            return res.status(400).json({
+
+                error:
+                    'No hay usuarios',
+            });
+        }
+
+        /// 🔥 TOKENS
+        const tokensRes =
+            await pool.query(
+
+                `
+                SELECT DISTINCT fcm_token
+                FROM devices
+                WHERE user_id = ANY($1)
+                `,
+                [userIds]
+            );
+
+        const tokens =
+            tokensRes.rows.map(
+                t => t.fcm_token
+            );
+
+        /// 🔥 PUSH
+        const response =
+            await admin.messaging()
+                .sendEachForMulticast({
+
+            tokens,
+
+            notification: {
+
+                title,
+                body,
+            },
+
+            data: {
+
+                type:
+                    type ||
+                    'announcement',
+            },
+        });
+
+        /// 🔥 UPDATE MÉTRICAS
+        await pool.query(
+
+            `
+            UPDATE notification_campaigns
+            SET
+
+                total_users = $1,
+
+                success_count = $2,
+
+                failed_count = $3,
+
+                sent_at = NOW()
+
+            WHERE id = $4
+            `,
+            [
+
+                userIds.length,
+
+                response.successCount,
+
+                response.failureCount,
+
+                campaign.id,
+            ]
+        );
+
+        res.json({
+
+            success: true,
+
+            campaign_id:
+                campaign.id,
+
+            success_count:
+                response.successCount,
+
+            failed_count:
+                response.failureCount,
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ CREATE CAMPAIGN ERROR',
+            err,
+        );
+
+        res.status(500).json({
+
+            error:
+                'Error creando campaña',
+        });
+    }
+};
+
+/// ======================================================
+/// 🔥 HISTORIAL
+/// ======================================================
+exports.getCampaigns =
+    async (req, res) => {
+
+    try {
+
+        const result =
+            await pool.query(
+
+                `
+                SELECT *
+                FROM notification_campaigns
+                ORDER BY created_at DESC
+                `
+            );
+
+        res.json(result.rows);
+
+    } catch (err) {
+
+        console.log(
+            '❌ GET CAMPAIGNS ERROR',
+            err,
+        );
+
+        res.status(500).json({
+
+            error:
+                'Error obteniendo campañas',
+        });
+    }
+};
