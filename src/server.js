@@ -86,6 +86,11 @@ const sellerReviewsRoutes =
 const searchAlertsRoutes =
   require('./routes/searchAlertsRoutes');
 
+const adminNotificationsMetaRoutes =
+    require(
+      './routes/adminNotificationsMetaRoutes'
+    );
+
 const operationEventsRoutes =
   require('./routes/operationEventsRoutes');  
   
@@ -189,6 +194,11 @@ app.use(
 app.use(
     '/cash',
     cashRoutes,
+);
+
+app.use(
+    '/admin-notifications-meta',
+    adminNotificationsMetaRoutes,
 );
 
 app.use(
