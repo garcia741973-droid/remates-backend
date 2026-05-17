@@ -9,6 +9,15 @@ const {
 
 require('dotenv').config();
 
+/// 🇧🇴 TIMEZONE BOLIVIA
+process.env.TZ =
+    'America/La_Paz';
+
+console.log(
+    '🕒 SERVER TIME 👉',
+    new Date(),
+);    
+
 console.log(
   "ENV FIREBASE:",
   process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 ? "OK" : "NO EXISTE"
