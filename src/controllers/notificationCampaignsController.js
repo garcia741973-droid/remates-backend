@@ -15,19 +15,25 @@ exports.createCampaign =
         const created_by =
             req.user.user_id;
 
-        const {
+            const {
 
-            title,
-            body,
-            type,
-            target_type,
-            target_value,
+                title,
+                body,
+                type,
+                target_type,
+                target_value,
 
-            scheduled_at,
+                scheduled_at,
 
-            template_id,
+                template_id,
 
-        } = req.body;
+                repeat_type,
+
+                repeat_days,
+
+                repeat_count,
+
+            } = req.body;
 
         /// 🔥 CREAR CAMPAÑA
         const campaignRes =
@@ -50,7 +56,12 @@ exports.createCampaign =
 
                     scheduled_at,
 
-                    template_id
+                    template_id,
+
+                    repeat_type,
+                    repeat_days,
+                    repeat_count,
+                    repeat_current                    
 
                 )
 
@@ -64,7 +75,11 @@ exports.createCampaign =
                     $6,
                     $7,
                     $8,
-                    $9
+                    $9,
+                    $10,
+                    $11,
+                    $12,
+                    $13                    
                 )
 
                 RETURNING *
@@ -91,6 +106,15 @@ exports.createCampaign =
                     scheduled_at || null,
 
                     template_id || null,
+
+                    repeat_type || 'once',
+
+                    repeat_days || [],
+
+                    repeat_count || 1,
+
+                    0,
+
                 ]
             );
 
