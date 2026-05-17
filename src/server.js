@@ -104,7 +104,10 @@ const cashRoutes =
     require('./routes/cashRoutes');
 
 const notificationCampaignsRoutes =
-    require('./routes/notificationCampaignsRoutes');    
+    require('./routes/notificationCampaignsRoutes');
+    
+const notificationTemplatesRoutes =
+    require('./routes/notificationTemplatesRoutes');    
     
 const adminNotificationsRoutes =
     require('./routes/adminNotificationsRoutes');    
@@ -206,6 +209,11 @@ app.use(
 app.use(
     '/notification-campaigns',
     notificationCampaignsRoutes,
+);
+
+app.use(
+    '/notification-templates',
+    notificationTemplatesRoutes,
 );
 
 app.use(
