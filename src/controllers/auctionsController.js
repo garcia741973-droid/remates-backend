@@ -64,8 +64,10 @@ exports.setCurrentLot = async (req, res) => {
     // 🔥 validar que el lote pertenece al remate
     const check = await pool.query(
       `
-      SELECT * FROM auction_lots
-      WHERE auction_id = $1 AND lot_id = $2
+    SELECT *
+    FROM auction_live_lots
+    WHERE auction_id = $1
+    AND id = $2
       `,
       [auction_id, lot_id]
     );
@@ -127,7 +129,7 @@ exports.getAuctionById = async (req, res) => {
       const lotResult = await pool.query(
         `
         SELECT *
-        FROM lots
+        FROM auction_live_lots
         WHERE id = $1
         `,
         [auction.current_lot_id]
