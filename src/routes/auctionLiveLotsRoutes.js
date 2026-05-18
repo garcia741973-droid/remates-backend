@@ -10,6 +10,8 @@ const {
 
   getAuctionLiveLotById,
 
+  getAvailableLotNumbers,
+
 } = require(
   '../controllers/auctionLiveLotsController'
 );
@@ -42,7 +44,7 @@ router.get(
 
   requireAuth,
 
-  controller.getAvailableLotNumbers,
+  getAvailableLotNumbers,
 );
 
 /// 🔥 LOTE INDIVIDUAL
