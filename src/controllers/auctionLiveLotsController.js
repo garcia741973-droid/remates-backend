@@ -426,3 +426,38 @@ exports.getAvailableLotNumbers =
     });
   }
 };
+
+/// 🔥 REORDENAR LOTES
+exports.reorderAuctionLiveLots =
+  async (req, res) => {
+
+  try {
+
+    const { lots } = req.body;
+
+    for (const lot of lots) {
+
+      await pool.query(`
+        UPDATE auction_live_lots
+        SET display_order = $1
+        WHERE id = $2
+      `, [
+        lot.display_order,
+        lot.id,
+      ]);
+    }
+
+    res.json({
+      success: true,
+    });
+
+  } catch (e) {
+
+    console.log(e);
+
+    res.status(500).json({
+      error:
+        'Error reordering lots',
+    });
+  }
+};

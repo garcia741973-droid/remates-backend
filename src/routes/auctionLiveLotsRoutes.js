@@ -24,6 +24,15 @@ const {
   '../middleware/authMiddleware'
 );
 
+const {
+  createAuctionLiveLot,
+  getAuctionLiveLots,
+  getAuctionLiveLotById,
+  reorderAuctionLiveLots,
+} = require(
+  '../controllers/auctionLiveLotsController'
+);
+
 /// 🔥 CREAR LOTE REMATE
 router.post(
   '/',
@@ -45,6 +54,12 @@ router.get(
   requireAuth,
 
   getAvailableLotNumbers,
+);
+
+router.put(
+  '/reorder',
+  requireAuth,
+  reorderAuctionLiveLots,
 );
 
 /// 🔥 LOTE INDIVIDUAL
