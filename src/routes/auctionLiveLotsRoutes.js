@@ -36,6 +36,15 @@ router.get(
   getAuctionLiveLots,
 );
 
+router.get(
+
+  '/available-numbers/:auction_id',
+
+  requireAuth,
+
+  controller.getAvailableLotNumbers,
+);
+
 /// 🔥 LOTE INDIVIDUAL
 router.get(
   '/:id',

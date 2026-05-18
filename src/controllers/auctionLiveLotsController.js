@@ -367,3 +367,62 @@ exports.getAuctionLiveLotById =
     });
   }
 };
+
+/// 🔥 NÚMEROS DISPONIBLES
+exports.getAvailableLotNumbers =
+    async (req, res) => {
+
+  try {
+
+    const { auction_id } =
+        req.params;
+
+    /// 🔥 LOTES YA USADOS
+    const usedResult =
+        await pool.query(
+      `
+      SELECT lot_number
+      FROM auction_live_lots
+      WHERE auction_id = $1
+      `,
+      [auction_id]
+    );
+
+    const usedNumbers =
+        usedResult.rows.map(
+      (e) => e.lot_number,
+    );
+
+    /// 🔥 GENERAR 1 → 500
+    const available = [];
+
+    for (
+      let i = 1;
+      i <= 500;
+      i++
+    ) {
+
+      if (
+        !usedNumbers.includes(i)
+      ) {
+
+        available.push(i);
+      }
+    }
+
+    res.json(available);
+
+  } catch (error) {
+
+    console.log(
+      'ERROR AVAILABLE LOT NUMBERS:',
+      error,
+    );
+
+    res.status(500).json({
+
+      error:
+          'Error obteniendo números',
+    });
+  }
+};
