@@ -147,3 +147,280 @@ exports.placeBid = async (req, res) => {
     client.release();
   }
 };
+
+exports.placeFloorBid = async (
+  req,
+  res,
+) => {
+
+  const client =
+      await pool.connect();
+
+  try {
+
+    const user = req.user;
+
+    const {
+
+      auction_id,
+
+      lot_id,
+
+      amount,
+
+    } = req.body;
+
+    /// 🔒 SOLO OPERADOR/ADMIN
+    if (
+
+      user.role !==
+        'operator_sala' &&
+
+      user.role !== 'admin'
+    ) {
+
+      return res.status(403).json({
+
+        error:
+          'No autorizado',
+      });
+    }
+
+    await client.query('BEGIN');
+
+    /// 🔒 VALIDAR REMATE
+    const auctionResult =
+        await client.query(
+
+      `
+      SELECT *
+      FROM auctions
+      WHERE id = $1
+      `,
+      [auction_id]
+    );
+
+    const auction =
+        auctionResult.rows[0];
+
+    if (
+
+      !auction ||
+
+      auction.status !== 'live'
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(400).json({
+
+        error:
+          'El remate no está activo',
+      });
+    }
+
+    /// 🔒 LOCK LOTE
+    const lotResult =
+        await client.query(
+
+      `
+      SELECT *
+      FROM auction_live_lots
+      WHERE id = $1
+      FOR UPDATE
+      `,
+      [lot_id]
+    );
+
+    const lot =
+        lotResult.rows[0];
+
+    if (!lot) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(404).json({
+
+        error:
+          'Lote no existe',
+      });
+    }
+
+    /// 🔒 VALIDAR LOTE ACTIVO
+    if (
+
+      auction.current_lot_id !==
+      lot_id
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(400).json({
+
+        error:
+          'Este lote no está activo',
+      });
+    }
+
+    /// 🔒 VALIDAR STATUS
+    if (
+
+      lot.status === 'sold'
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(400).json({
+
+        error:
+          'Lote cerrado',
+      });
+    }
+
+    /// 🔒 VALIDAR MONTO
+    if (
+
+      Number(amount) <=
+      Number(lot.current_price)
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(400).json({
+
+        error:
+          'La puja debe ser mayor',
+      });
+    }
+
+    /// 💰 INSERT BID FLOOR
+    await client.query(
+
+      `
+      INSERT INTO bids (
+
+        auction_id,
+
+        lot_id,
+
+        user_id,
+
+        amount,
+
+        bid_source,
+
+        operator_user_id,
+
+        bidder_label
+
+      )
+      VALUES (
+        $1,$2,$3,$4,$5,$6,$7
+      )
+      `,
+      [
+
+        auction_id,
+
+        lot_id,
+
+        null,
+
+        amount,
+
+        'floor',
+
+        user.user_id,
+
+        'SALA',
+      ]
+    );
+
+    /// 🔄 UPDATE PRECIO
+    await client.query(
+
+      `
+      UPDATE auction_live_lots
+      SET current_price = $1
+      WHERE id = $2
+      `,
+      [
+        amount,
+        lot_id,
+      ]
+    );
+
+    await client.query(
+      'COMMIT'
+    );
+
+    /// ⚡ SOCKET
+    const io =
+        req.app.get('io');
+
+    io.to(
+      `auction_${auction_id}`
+    ).emit(
+
+      'newBid',
+
+      {
+
+        lot_id,
+
+        amount,
+
+        user_id: null,
+
+        bid_source: 'floor',
+
+        bidder_label: 'SALA',
+
+        created_at:
+            new Date(),
+      }
+    );
+
+    res.json({
+
+      success: true,
+
+      message:
+        'Puja sala registrada',
+
+      amount,
+    });
+
+  } catch (error) {
+
+    await client.query(
+      'ROLLBACK'
+    );
+
+    console.error(
+      'ERROR FLOOR BID:',
+      error
+    );
+
+    res.status(500).json({
+
+      error:
+        'Error registrando puja sala',
+    });
+
+  } finally {
+
+    client.release();
+  }
+};
+
