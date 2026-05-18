@@ -48,6 +48,10 @@ exports.createAuctionLiveLot = async (req, res) => {
 
         arrival_time,
 
+        nearby_town,
+
+        nearby_km,
+
         images,
 
         videos,
@@ -154,15 +158,19 @@ exports.createAuctionLiveLot = async (req, res) => {
 
         province,
 
-        municipality,
+      municipality,
 
-        arrival_time,
+      arrival_time,
 
-        images,
+      nearby_town,
 
-        videos,
+      nearby_km,
 
-        base_price,
+      images,
+
+      videos,
+
+      base_price,
 
         opening_price,
 
@@ -186,9 +194,11 @@ exports.createAuctionLiveLot = async (req, res) => {
 
         $16,$17,$18,$19,$20,
 
-        $21,$22,$23,$24,$25,
+        $21,$22,$23,$24,
 
-        $26,$27,$28
+        $25,$26,$27,$28,
+
+        $29,$30
         )
 
       RETURNING *
@@ -234,6 +244,10 @@ exports.createAuctionLiveLot = async (req, res) => {
         municipality,
 
         arrival_time,
+
+        nearby_town,
+
+        nearby_km,
 
         images,
 
