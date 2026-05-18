@@ -13,17 +13,30 @@ exports.placeBid = async (req, res) => {
     if (user.role === 'client') {
 
       const kycResult = await client.query(
-        `SELECT kyc_status FROM user_companies
-        WHERE user_id = $1 AND company_id = $2`,
-        [user.user_id, user.company_id]
+
+        `
+        SELECT kyc_status
+        FROM users
+        WHERE id = $1
+        `,
+        [user.user_id]
       );
 
       const kyc = kycResult.rows[0];
 
-      if (!kyc || kyc.kyc_status !== 'approved') {
+      if (
+
+        !kyc ||
+
+        kyc.kyc_status !== 'approved'
+      ) {
+
         await client.query('ROLLBACK');
+
         return res.status(403).json({
-          error: 'Debes estar aprobado en esta empresa para pujar'
+
+          error:
+            'Debes estar aprobado para pujar',
         });
       }
     }
