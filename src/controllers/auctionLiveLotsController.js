@@ -665,3 +665,39 @@ exports.updateAuctionLiveLot =
     });
   }
 };
+
+/// 🔥 ELIMINAR LOTE
+exports.deleteAuctionLiveLot =
+  async (req, res) => {
+
+  try {
+
+    const { id } =
+        req.params;
+
+    await pool.query(
+      `
+      DELETE FROM auction_live_lots
+      WHERE id = $1
+      `,
+      [id]
+    );
+
+    res.json({
+      success: true,
+    });
+
+  } catch (e) {
+
+    console.log(
+      'DELETE LOT ERROR:',
+      e,
+    );
+
+    res.status(500).json({
+
+      error:
+          'Error eliminando lote',
+    });
+  }
+};

@@ -16,6 +16,8 @@ const {
 
   updateAuctionLiveLot,
 
+  deleteAuctionLiveLot,
+
 } = require(
   '../controllers/auctionLiveLotsController'
 );
@@ -61,6 +63,13 @@ router.put(
   '/:id',
   requireAuth,
   updateAuctionLiveLot,
+);
+
+/// 🔥 DELETE LOTE
+router.delete(
+  '/:id',
+  requireAuth,
+  deleteAuctionLiveLot,
 );
 
 /// 🔥 LOTE INDIVIDUAL
