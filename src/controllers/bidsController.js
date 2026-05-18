@@ -45,7 +45,10 @@ exports.placeBid = async (req, res) => {
 
     // 🔒 3. BLOQUEAR LOTE (ANTI RACE CONDITION)
     const lotResult = await client.query(
-      `SELECT * FROM lots WHERE id = $1 FOR UPDATE`,
+      `SELECT *
+        FROM auction_live_lots
+        WHERE id = $1
+        FOR UPDATE`,
       [lot_id]
     );
 
@@ -102,7 +105,7 @@ exports.placeBid = async (req, res) => {
     // 🔄 7. UPDATE PRECIO
     await client.query(
       `
-      UPDATE lots
+      UPDATE auction_live_lots
       SET current_price = $1
       WHERE id = $2
       `,
