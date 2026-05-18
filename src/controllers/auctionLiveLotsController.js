@@ -461,3 +461,207 @@ exports.reorderAuctionLiveLots =
     });
   }
 };
+
+/// 🔥 ACTUALIZAR LOTE
+exports.updateAuctionLiveLot =
+  async (req, res) => {
+
+  try {
+
+    const { id } =
+        req.params;
+
+    const {
+
+      lot_number,
+
+      position,
+
+      title,
+
+      category,
+
+      cattle_type,
+
+      gender,
+
+      age,
+
+      breed,
+
+      quantity,
+
+      weight,
+
+      average_weight,
+
+      estimated_total_weight,
+
+      sale_type,
+
+      department,
+
+      province,
+
+      municipality,
+
+      arrival_time,
+
+      nearby_town,
+
+      nearby_km,
+
+      images,
+
+      videos,
+
+      base_price,
+
+      opening_price,
+
+      reserve_price,
+
+      increment_value,
+
+      notes,
+
+    } = req.body;
+
+    const result =
+        await pool.query(
+      `
+      UPDATE auction_live_lots
+      SET
+
+        lot_number = $1,
+
+        position = $2,
+
+        title = $3,
+
+        category = $4,
+
+        cattle_type = $5,
+
+        gender = $6,
+
+        age = $7,
+
+        breed = $8,
+
+        quantity = $9,
+
+        weight = $10,
+
+        average_weight = $11,
+
+        estimated_total_weight = $12,
+
+        sale_type = $13,
+
+        department = $14,
+
+        province = $15,
+
+        municipality = $16,
+
+        arrival_time = $17,
+
+        nearby_town = $18,
+
+        nearby_km = $19,
+
+        images = $20,
+
+        videos = $21,
+
+        base_price = $22,
+
+        opening_price = $23,
+
+        reserve_price = $24,
+
+        increment_value = $25,
+
+        notes = $26
+
+      WHERE id = $27
+
+      RETURNING *
+      `,
+      [
+
+        lot_number,
+
+        position,
+
+        title,
+
+        category,
+
+        cattle_type,
+
+        gender,
+
+        age,
+
+        breed,
+
+        quantity,
+
+        weight,
+
+        average_weight,
+
+        estimated_total_weight,
+
+        sale_type,
+
+        department,
+
+        province,
+
+        municipality,
+
+        arrival_time,
+
+        nearby_town,
+
+        nearby_km,
+
+        images,
+
+        videos,
+
+        base_price,
+
+        opening_price,
+
+        reserve_price,
+
+        increment_value,
+
+        notes,
+
+        id,
+      ]
+    );
+
+    res.json(
+      result.rows[0],
+    );
+
+  } catch (e) {
+
+    console.log(
+      'UPDATE LOT ERROR:',
+      e,
+    );
+
+    res.status(500).json({
+
+      error:
+          'Error actualizando lote',
+    });
+  }
+};

@@ -14,6 +14,8 @@ const {
 
   reorderAuctionLiveLots,
 
+  updateAuctionLiveLot,
+
 } = require(
   '../controllers/auctionLiveLotsController'
 );
@@ -52,6 +54,13 @@ router.put(
   '/reorder',
   requireAuth,
   reorderAuctionLiveLots,
+);
+
+/// 🔥 UPDATE LOTE
+router.put(
+  '/:id',
+  requireAuth,
+  updateAuctionLiveLot,
 );
 
 /// 🔥 LOTE INDIVIDUAL
