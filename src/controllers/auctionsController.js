@@ -76,6 +76,16 @@ exports.setCurrentLot = async (req, res) => {
       return res.status(400).json({ error: 'Lote no pertenece a este remate' });
     }
 
+    // 🔥 inicializar current_price desde base_price
+    await pool.query(
+      `
+      UPDATE auction_live_lots
+      SET current_price = base_price
+      WHERE id = $1
+      `,
+      [lot_id]
+    );
+
     // 🔄 actualizar lote activo
     await pool.query(
       `
