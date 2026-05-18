@@ -12,6 +12,8 @@ const {
 
   getAvailableLotNumbers,
 
+  reorderAuctionLiveLots,
+
 } = require(
   '../controllers/auctionLiveLotsController'
 );
@@ -22,15 +24,6 @@ const {
 
 } = require(
   '../middleware/authMiddleware'
-);
-
-const {
-  createAuctionLiveLot,
-  getAuctionLiveLots,
-  getAuctionLiveLotById,
-  reorderAuctionLiveLots,
-} = require(
-  '../controllers/auctionLiveLotsController'
 );
 
 /// 🔥 CREAR LOTE REMATE
@@ -47,15 +40,14 @@ router.get(
   getAuctionLiveLots,
 );
 
+/// 🔥 NUMEROS DISPONIBLES
 router.get(
-
   '/available-numbers/:auction_id',
-
   requireAuth,
-
   getAvailableLotNumbers,
 );
 
+/// 🔥 REORDENAR
 router.put(
   '/reorder',
   requireAuth,
