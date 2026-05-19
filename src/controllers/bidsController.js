@@ -112,10 +112,36 @@ exports.placeBid = async (req, res) => {
     // 💰 6. INSERT BID
     await client.query(
       `
-      INSERT INTO bids (auction_id, lot_id, user_id, amount)
-      VALUES ($1,$2,$3,$4)
+        INSERT INTO bids (
+
+          auction_id,
+
+          lot_id,
+
+          user_id,
+
+          amount,
+
+          bid_source
+
+        )
+
+        VALUES (
+
+          $1,$2,$3,$4,$5
+        )
       `,
-      [auction_id, lot_id, user.user_id, amount]
+        [
+          auction_id,
+
+          lot_id,
+
+          user.user_id,
+
+          amount,
+
+          'online',
+        ]
     );
 
     // 🔄 7. UPDATE PRECIO
