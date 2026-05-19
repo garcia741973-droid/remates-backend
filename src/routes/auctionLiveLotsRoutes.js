@@ -18,6 +18,8 @@ const {
 
   deleteAuctionLiveLot,
 
+  openLiveLot,
+
 } = require(
   '../controllers/auctionLiveLotsController'
 );
@@ -70,6 +72,13 @@ router.delete(
   '/:id',
   requireAuth,
   deleteAuctionLiveLot,
+);
+
+/// 🔥 ABRIR LOTE
+router.post(
+  '/open-lot',
+  requireAuth,
+  openLiveLot,
 );
 
 /// 🔥 LOTE INDIVIDUAL

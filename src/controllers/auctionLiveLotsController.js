@@ -701,3 +701,125 @@ exports.deleteAuctionLiveLot =
     });
   }
 };
+
+/// 🔥 ABRIR LOTE EN VIVO
+exports.openLiveLot =
+  async (req, res) => {
+
+  try {
+
+    const user = req.user;
+
+    const {
+
+      auction_id,
+
+      lot_id,
+
+    } = req.body;
+
+    /// 🔒 SOLO OPERADOR / ADMIN
+    if (
+
+      user.role !==
+        'operator_sala' &&
+
+      user.role !== 'admin'
+    ) {
+
+      return res.status(403).json({
+
+        error:
+          'No autorizado',
+      });
+    }
+
+    /// 🔥 VALIDAR LOTE
+    const lotResult =
+        await pool.query(
+      `
+      SELECT *
+      FROM auction_live_lots
+      WHERE id = $1
+      `,
+      [lot_id]
+    );
+
+    const lot =
+        lotResult.rows[0];
+
+    if (!lot) {
+
+      return res.status(404).json({
+
+        error:
+          'Lote no encontrado',
+      });
+    }
+
+    /// 🔥 MARCAR LIVE
+    await pool.query(
+      `
+      UPDATE auction_live_lots
+      SET
+
+        status = 'live',
+
+        started_at = NOW()
+
+      WHERE id = $1
+      `,
+      [lot_id]
+    );
+
+    /// 🔥 ACTIVAR EN REMATE
+    await pool.query(
+      `
+      UPDATE auctions
+      SET current_lot_id = $1
+      WHERE id = $2
+      `,
+      [
+        lot_id,
+        auction_id,
+      ]
+    );
+
+    /// 🔥 SOCKET
+    const io =
+        req.app.get('io');
+
+    io.to(
+      `auction_${auction_id}`
+    ).emit(
+
+      'lotChanged',
+
+      {
+
+        current_lot_id:
+            lot_id,
+      }
+    );
+
+    res.json({
+
+      success: true,
+
+      lot_id,
+    });
+
+  } catch (e) {
+
+    console.log(
+      'OPEN LIVE LOT ERROR:',
+      e,
+    );
+
+    res.status(500).json({
+
+      error:
+        'Error abriendo lote',
+    });
+  }
+};
