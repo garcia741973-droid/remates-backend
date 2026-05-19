@@ -335,6 +335,18 @@ exports.closeAuction = async (req, res) => {
       });
     }
 
+    /// 🔥 LIMPIAR LOTES LIVE
+    await pool.query(
+
+      `
+      UPDATE auction_live_lots
+      SET status = 'queued'
+      WHERE auction_id = $1
+      AND status = 'live'
+      `,
+      [auction_id]
+    );
+
     /// 🔥 CERRAR REMATE
     await pool.query(
 
