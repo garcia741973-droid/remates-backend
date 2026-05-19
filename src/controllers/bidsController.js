@@ -496,6 +496,23 @@ exports.hammerLot = async (
       });
     }
 
+    /// 🔒 SOLO LOTES LIVE
+    if (
+
+      lot.status !== 'live'
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(400).json({
+
+        error:
+          'El lote no está activo',
+      });
+    }
+
     /// 🔥 ÚLTIMA PUJA
     const bidResult =
         await client.query(
@@ -596,6 +613,10 @@ exports.hammerLot = async (
       `,
       [auction_id]
     );
+
+    await client.query(
+      'COMMIT'
+    );    
 
     /// 🔥 SOCKETS
     const io =
