@@ -7,7 +7,8 @@ const {
   createAuction,
   setCurrentLot,
   getAuctionById,
-  getAuctions // 🔥 NUEVO
+  getAuctions,
+  closeAuction,
 } = require('../controllers/auctionsController');
 
 const { requireAuth } = require('../middleware/authMiddleware');
@@ -29,5 +30,11 @@ router.get('/:id', requireAuth, getAuctionById);
 router.post('/current-lot', requireAuth, setCurrentLot);
 
 router.post('/start', requireAuth, auctionsController.startAuction);
+
+router.post(
+  '/close',
+  requireAuth,
+  closeAuction,
+);
 
 module.exports = router;

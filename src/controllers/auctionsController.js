@@ -261,3 +261,154 @@ exports.startAuction = async (req, res) => {
     res.status(500).json({ error: 'Error iniciando remate' });
   }
 };
+
+exports.closeAuction = async (req, res) => {
+
+  try {
+
+    const { auction_id } =
+        req.body;
+
+    /// 🔥 VALIDAR REMATE
+    const result =
+        await pool.query(
+
+      `
+      SELECT company_id, status
+      FROM auctions
+      WHERE id = $1
+      `,
+      [auction_id]
+    );
+
+    const auction =
+        result.rows[0];
+
+    if (!auction) {
+
+      return res.status(404).json({
+
+        error:
+          'Remate no existe',
+      });
+    }
+
+    /// 🔥 SEGURIDAD EMPRESA
+    if (
+
+      auction.company_id !==
+      req.user.company_id
+    ) {
+
+      return res.status(403).json({
+
+        error:
+          'No autorizado',
+      });
+    }
+
+    /// 🔥 YA CERRADO
+    if (
+      auction.status === 'closed'
+    ) {
+
+      return res.json({
+
+        message:
+          'Remate ya cerrado',
+      });
+    }
+
+    /// 🔥 CERRAR REMATE
+    await pool.query(
+
+      `
+      UPDATE auctions
+      SET
+
+        status = 'closed',
+
+        ended_at = NOW(),
+
+        current_lot_id = NULL
+
+      WHERE id = $1
+      `,
+      [auction_id]
+    );
+
+    /// 🔥 SOCKET
+    const io =
+        req.app.get('io');
+
+    io.to(
+      `auction_${auction_id}`
+    ).emit(
+
+      'auctionClosed',
+
+      {
+
+        auction_id,
+      }
+    );
+
+    /// 🔥 EVENTO OPERATIVO
+    await createOperationEvent({
+
+      type:
+          'auction_closed',
+
+      title:
+          '🔴 Remate finalizado',
+
+      message:
+          `El remate ${auction_id} finalizó`,
+
+      priority:
+          'high',
+
+      data: {
+
+        auction_id,
+      },
+    });
+
+    /// 🔥 PUSH ADMIN
+    await sendAdminNotification({
+
+      title:
+          '🔴 Remate finalizado',
+
+      body:
+          `El remate ${auction_id} fue cerrado`,
+
+      data: {
+
+        type:
+            'auction_closed',
+
+        auction_id:
+            auction_id.toString(),
+      },
+    });
+
+    res.json({
+
+      success: true,
+    });
+
+  } catch (error) {
+
+    console.error(
+      'ERROR CLOSE AUCTION:',
+      error,
+    );
+
+    res.status(500).json({
+
+      error:
+          'Error cerrando remate',
+    });
+  }
+};
