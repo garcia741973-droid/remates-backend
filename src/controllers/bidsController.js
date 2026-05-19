@@ -603,6 +603,78 @@ exports.hammerLot = async (
       ]
     );
 
+    /// 🔥 CREAR REGISTRO VENTA ONLINE
+    if (
+
+      sold &&
+
+      winnerUserId != null
+    ) {
+
+      let totalAmount =
+          finalPrice;
+
+      /// 🔥 SI ES POR KILO
+      if (
+        lot.sale_type === 'kilo'
+      ) {
+
+        totalAmount =
+
+            Number(finalPrice) *
+
+            Number(lot.weight || 0);
+      }
+
+      /// 🔥 SI ES POR BULTO
+      else {
+
+        totalAmount =
+
+            Number(finalPrice) *
+
+            Number(lot.quantity || 0);
+      }
+
+      await client.query(
+
+        `
+        INSERT INTO auction_sales (
+
+          auction_id,
+
+          lot_id,
+
+          buyer_user_id,
+
+          final_price,
+
+          sale_type,
+
+          total_amount
+
+        )
+        VALUES (
+          $1,$2,$3,$4,$5,$6
+        )
+        `,
+        [
+
+          auction_id,
+
+          lot_id,
+
+          winnerUserId,
+
+          finalPrice,
+
+          lot.sale_type,
+
+          totalAmount,
+        ]
+      );
+    }
+
     /// 🔥 SIN LOTE ACTIVO
     await client.query(
 
