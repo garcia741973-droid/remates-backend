@@ -20,6 +20,8 @@ const {
 
   openLiveLot,
 
+  returnLotToQueue,
+
 } = require(
   '../controllers/auctionLiveLotsController'
 );
@@ -79,6 +81,13 @@ router.post(
   '/open-lot',
   requireAuth,
   openLiveLot,
+);
+
+/// 🔥 VOLVER A COLA
+router.post(
+  '/return-to-queue',
+  requireAuth,
+  returnLotToQueue,
 );
 
 /// 🔥 LOTE INDIVIDUAL
