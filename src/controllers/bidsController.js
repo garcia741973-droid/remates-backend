@@ -665,39 +665,42 @@ exports.hammerLot = async (
       await client.query(
 
         `
-        INSERT INTO auction_sales (
+          INSERT INTO auction_sales (
 
-          auction_id,
+            auction_id,
 
-          lot_id,
+            lot_id,
 
-          buyer_user_id,
+            buyer_user_id,
 
-          final_price,
+            final_price,
 
-          sale_type,
+            sale_type,
 
-          total_amount
+            total_amount,
 
-        )
-        VALUES (
-          $1,$2,$3,$4,$5,$6
-        )
+            certificate_generated
+
+          )
+          VALUES (
+            $1,$2,$3,$4,$5,$6,$7
+          )
         `,
-        [
+          [
+            auction_id,
 
-          auction_id,
+            lot_id,
 
-          lot_id,
+            winnerUserId,
 
-          winnerUserId,
+            finalPrice,
 
-          finalPrice,
+            lot.sale_type,
 
-          lot.sale_type,
+            totalAmount,
 
-          totalAmount,
-        ]
+            false,
+          ]
       );
     }
 
