@@ -950,3 +950,94 @@ exports.returnLotToQueue =
     });
   }
 };
+
+/// 🔥 RESULTADOS REMATE
+exports.getAuctionResults =
+  async (req, res) => {
+
+  try {
+
+    const { auction_id } =
+        req.params;
+
+    const result =
+        await pool.query(
+
+      `
+      SELECT
+
+        l.id,
+
+        l.lot_number,
+
+        l.title,
+
+        l.quantity,
+
+        l.weight,
+
+        l.sale_type,
+
+        l.status,
+
+        l.final_price,
+
+        l.closed_at,
+
+        l.sold_at,
+
+        l.passed_at,
+
+        l.winner_user_id,
+
+        u.full_name AS winner_name,
+
+        b.bid_source,
+
+        b.bidder_label
+
+      FROM auction_live_lots l
+
+      LEFT JOIN users u
+      ON u.id = l.winner_user_id
+
+      LEFT JOIN bids b
+      ON b.id = (
+
+        SELECT id
+        FROM bids
+        WHERE lot_id = l.id
+        ORDER BY id DESC
+        LIMIT 1
+      )
+
+      WHERE l.auction_id = $1
+
+      AND l.status IN (
+        'sold',
+        'passed'
+      )
+
+      ORDER BY l.closed_at ASC
+      `,
+      [auction_id]
+    );
+
+    res.json(
+      result.rows,
+    );
+
+  } catch (e) {
+
+    console.log(
+      'GET RESULTS ERROR:',
+      e,
+    );
+
+    res.status(500).json({
+
+      error:
+        'Error obteniendo resultados',
+    });
+  }
+};

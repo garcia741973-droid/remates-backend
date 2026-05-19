@@ -22,6 +22,8 @@ const {
 
   returnLotToQueue,
 
+  getAuctionResults,
+
 } = require(
   '../controllers/auctionLiveLotsController'
 );
@@ -88,6 +90,13 @@ router.post(
   '/return-to-queue',
   requireAuth,
   returnLotToQueue,
+);
+
+/// 🔥 RESULTADOS REMATE
+router.get(
+  '/results/:auction_id',
+  requireAuth,
+  getAuctionResults,
 );
 
 /// 🔥 LOTE INDIVIDUAL
