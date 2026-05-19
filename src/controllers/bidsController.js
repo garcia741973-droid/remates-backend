@@ -557,17 +557,17 @@ exports.hammerLot = async (
 
         closed_at = NOW(),
 
-        sold_at = CASE
-          WHEN $1 = 'sold'
-          THEN NOW()
-          ELSE sold_at
-        END,
+      sold_at = CASE
+        WHEN $1::varchar = 'sold'
+        THEN NOW()
+        ELSE sold_at
+      END,
 
-        passed_at = CASE
-          WHEN $1 = 'passed'
-          THEN NOW()
-          ELSE passed_at
-        END
+      passed_at = CASE
+        WHEN $1::varchar = 'passed'
+        THEN NOW()
+        ELSE passed_at
+      END
 
       WHERE id = $4
       `,
