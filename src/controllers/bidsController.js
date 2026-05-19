@@ -583,53 +583,15 @@ exports.hammerLot = async (
       ]
     );
 
-    /// 🔥 SIGUIENTE LOTE
-    const nextLotResult =
-        await client.query(
-
-      `
-      SELECT id
-      FROM auction_live_lots
-      WHERE
-
-        auction_id = $1
-
-        AND status = 'queued'
-
-        AND position > $2
-
-      ORDER BY position ASC
-
-      LIMIT 1
-      `,
-      [
-        auction_id,
-        lot.position,
-      ]
-    );
-
-    const nextLot =
-        nextLotResult.rows[0];
-
-    /// 🔥 UPDATE REMATE
+    /// 🔥 SIN LOTE ACTIVO
     await client.query(
 
       `
       UPDATE auctions
-      SET current_lot_id = $1
-      WHERE id = $2
+      SET current_lot_id = NULL
+      WHERE id = $1
       `,
-      [
-        nextLot
-            ? nextLot.id
-            : null,
-
-        auction_id,
-      ]
-    );
-
-    await client.query(
-      'COMMIT'
+      [auction_id]
     );
 
     /// 🔥 SOCKETS
@@ -658,7 +620,7 @@ exports.hammerLot = async (
       }
     );
 
-    /// 🔥 NUEVO LOTE
+    /// 🔥 REMATE SIN LOTE ACTIVO
     io.to(
       `auction_${auction_id}`
     ).emit(
@@ -671,9 +633,7 @@ exports.hammerLot = async (
             lot_id,
 
         current_lot_id:
-            nextLot
-                ? nextLot.id
-                : null,
+            null,
       }
     );
 
@@ -690,31 +650,28 @@ exports.hammerLot = async (
       winner_user_id:
           winnerUserId,
 
-      next_lot_id:
-          nextLot
-              ? nextLot.id
-              : null,
+      next_lot_id: null,
     });
 
-  } catch (error) {
+    } catch (error) {
 
-    await client.query(
-      'ROLLBACK'
-    );
+      await client.query(
+        'ROLLBACK'
+      );
 
-    console.error(
-      'ERROR HAMMER:',
-      error
-    );
+      console.error(
+        'ERROR HAMMER:',
+        error
+      );
 
-    res.status(500).json({
+      res.status(500).json({
 
-      error:
-          'Error cerrando lote',
-    });
+        error:
+            'Error cerrando lote',
+      });
 
-  } finally {
+    } finally {
 
-    client.release();
-  }
+      client.release();
+    }
 };
