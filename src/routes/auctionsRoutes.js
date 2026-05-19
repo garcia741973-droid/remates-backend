@@ -9,6 +9,7 @@ const {
   getAuctionById,
   getAuctions,
   closeAuction,
+  getAuctionReports,
 } = require('../controllers/auctionsController');
 
 const { requireAuth } = require('../middleware/authMiddleware');
@@ -21,6 +22,12 @@ router.post('/', requireAuth, createAuction);
 // 🔥 LISTAR REMATES (IMPORTANTE: VA ANTES DE /:id)
 router.get('/', requireAuth, getAuctions);
 
+/// 🔥 REPORTES REMATES
+router.get(
+  '/report-list',
+  requireAuth,
+  getAuctionReports,
+);
 
 // 🟢 OBTENER REMATE POR ID
 router.get('/:id', requireAuth, getAuctionById);

@@ -428,3 +428,127 @@ exports.closeAuction = async (req, res) => {
     });
   }
 };
+
+/// 🔥 REPORTES REMATES
+exports.getAuctionReports =
+  async (req, res) => {
+
+  try {
+
+    const company_id =
+        req.user.company_id;
+
+    const {
+
+      from,
+
+      to,
+
+    } = req.query;
+
+    let query = `
+      SELECT
+
+        a.id,
+
+        a.name,
+
+        a.status,
+
+        a.scheduled_at,
+
+        a.started_at,
+
+        a.ended_at,
+
+        COUNT(l.id) AS total_lots,
+
+        COUNT(
+          CASE
+            WHEN l.status = 'sold'
+            THEN 1
+          END
+        ) AS sold_lots,
+
+        COUNT(
+          CASE
+            WHEN l.status = 'passed'
+            THEN 1
+          END
+        ) AS passed_lots,
+
+        COALESCE(
+          SUM(
+            CASE
+              WHEN l.status = 'sold'
+              THEN l.final_price
+              ELSE 0
+            END
+          ),
+          0
+        ) AS total_sold_amount
+
+      FROM auctions a
+
+      LEFT JOIN auction_live_lots l
+      ON l.auction_id = a.id
+
+      WHERE a.company_id = $1
+    `;
+
+    const params = [company_id];
+
+    /// 🔥 FILTRO FECHAS
+    if (from) {
+
+      query += `
+        AND DATE(
+          a.scheduled_at
+        ) >= $2
+      `;
+
+      params.push(from);
+    }
+
+    if (to) {
+
+      query += `
+        AND DATE(
+          a.scheduled_at
+        ) <= $${params.length + 1}
+      `;
+
+      params.push(to);
+    }
+
+    query += `
+      GROUP BY a.id
+
+      ORDER BY
+      a.scheduled_at DESC
+    `;
+
+    const result =
+        await pool.query(
+      query,
+      params,
+    );
+
+    res.json(
+      result.rows,
+    );
+
+  } catch (e) {
+
+    console.log(
+      'GET AUCTION REPORTS ERROR:',
+      e,
+    );
+
+    res.status(500).json({
+
+      error:
+          'Error obteniendo reportes',
+    });
+  }
+};
