@@ -150,11 +150,27 @@ exports.getAuctionById = async (req, res) => {
 
     // 🎯 RESPUESTA LIMPIA
     res.json({
+
       id: auction.id,
+
       name: auction.name,
-      scheduled_at: auction.scheduled_at,
-      current_lot_id: auction.current_lot_id,
-      current_lot: currentLot
+
+      status: auction.status,
+
+      scheduled_at:
+          auction.scheduled_at,
+
+      started_at:
+          auction.started_at,
+
+      ended_at:
+          auction.ended_at,
+
+      current_lot_id:
+          auction.current_lot_id,
+
+      current_lot:
+          currentLot,
     });
 
   } catch (error) {
