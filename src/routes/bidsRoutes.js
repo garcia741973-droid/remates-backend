@@ -7,6 +7,8 @@ const {
 
   placeFloorBid,
 
+  hammerLot,
+
 } = require(
   '../controllers/bidsController'
 );
@@ -19,6 +21,12 @@ router.post(
   '/floor',
   requireAuth,
   placeFloorBid,
+);
+
+router.post(
+  '/hammer',
+  requireAuth,
+  hammerLot,
 );
 
 module.exports = router;

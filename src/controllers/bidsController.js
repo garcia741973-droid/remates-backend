@@ -424,3 +424,297 @@ exports.placeFloorBid = async (
   }
 };
 
+exports.hammerLot = async (
+  req,
+  res,
+) => {
+
+  const client =
+      await pool.connect();
+
+  try {
+
+    const user = req.user;
+
+    const {
+
+      auction_id,
+
+      lot_id,
+
+      sold = true,
+
+    } = req.body;
+
+    /// 🔒 SOLO ADMIN / OPERADOR
+    if (
+
+      user.role !==
+        'operator_sala' &&
+
+      user.role !== 'admin'
+    ) {
+
+      return res.status(403).json({
+
+        error:
+          'No autorizado',
+      });
+    }
+
+    await client.query('BEGIN');
+
+    /// 🔥 LOCK LOTE
+    const lotResult =
+        await client.query(
+
+      `
+      SELECT *
+      FROM auction_live_lots
+      WHERE id = $1
+      FOR UPDATE
+      `,
+      [lot_id]
+    );
+
+    const lot =
+        lotResult.rows[0];
+
+    if (!lot) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(404).json({
+
+        error:
+          'Lote no existe',
+      });
+    }
+
+    /// 🔥 ÚLTIMA PUJA
+    const bidResult =
+        await client.query(
+
+      `
+      SELECT *
+      FROM bids
+      WHERE lot_id = $1
+      ORDER BY id DESC
+      LIMIT 1
+      `,
+      [lot_id]
+    );
+
+    const lastBid =
+        bidResult.rows[0];
+
+    /// 🔥 DATOS CIERRE
+    let winnerUserId = null;
+
+    let finalPrice =
+        lot.current_price;
+
+    if (lastBid) {
+
+      finalPrice =
+          lastBid.amount;
+
+      /// 🔥 SOLO ONLINE
+      if (
+
+        lastBid.bid_source ===
+        'online'
+      ) {
+
+        winnerUserId =
+            lastBid.user_id;
+      }
+    }
+
+    /// 🔥 STATUS FINAL
+    const finalStatus =
+
+        sold
+
+            ? 'sold'
+
+            : 'passed';
+
+    /// 🔥 UPDATE LOTE
+    await client.query(
+
+      `
+      UPDATE auction_live_lots
+      SET
+
+        status = $1,
+
+        final_price = $2,
+
+        winner_user_id = $3,
+
+        closed_at = NOW(),
+
+        sold_at = CASE
+          WHEN $1 = 'sold'
+          THEN NOW()
+          ELSE sold_at
+        END,
+
+        passed_at = CASE
+          WHEN $1 = 'passed'
+          THEN NOW()
+          ELSE passed_at
+        END
+
+      WHERE id = $4
+      `,
+      [
+
+        finalStatus,
+
+        finalPrice,
+
+        winnerUserId,
+
+        lot_id,
+      ]
+    );
+
+    /// 🔥 SIGUIENTE LOTE
+    const nextLotResult =
+        await client.query(
+
+      `
+      SELECT id
+      FROM auction_live_lots
+      WHERE
+
+        auction_id = $1
+
+        AND status = 'queued'
+
+        AND position > $2
+
+      ORDER BY position ASC
+
+      LIMIT 1
+      `,
+      [
+        auction_id,
+        lot.position,
+      ]
+    );
+
+    const nextLot =
+        nextLotResult.rows[0];
+
+    /// 🔥 UPDATE REMATE
+    await client.query(
+
+      `
+      UPDATE auctions
+      SET current_lot_id = $1
+      WHERE id = $2
+      `,
+      [
+        nextLot
+            ? nextLot.id
+            : null,
+
+        auction_id,
+      ]
+    );
+
+    await client.query(
+      'COMMIT'
+    );
+
+    /// 🔥 SOCKETS
+    const io =
+        req.app.get('io');
+
+    /// 🔥 LOTE CERRADO
+    io.to(
+      `auction_${auction_id}`
+    ).emit(
+
+      'lotHammered',
+
+      {
+
+        lot_id,
+
+        status:
+            finalStatus,
+
+        final_price:
+            finalPrice,
+
+        winner_user_id:
+            winnerUserId,
+      }
+    );
+
+    /// 🔥 NUEVO LOTE
+    io.to(
+      `auction_${auction_id}`
+    ).emit(
+
+      'lotChanged',
+
+      {
+
+        previous_lot_id:
+            lot_id,
+
+        current_lot_id:
+            nextLot
+                ? nextLot.id
+                : null,
+      }
+    );
+
+    res.json({
+
+      success: true,
+
+      status:
+          finalStatus,
+
+      final_price:
+          finalPrice,
+
+      winner_user_id:
+          winnerUserId,
+
+      next_lot_id:
+          nextLot
+              ? nextLot.id
+              : null,
+    });
+
+  } catch (error) {
+
+    await client.query(
+      'ROLLBACK'
+    );
+
+    console.error(
+      'ERROR HAMMER:',
+      error
+    );
+
+    res.status(500).json({
+
+      error:
+          'Error cerrando lote',
+    });
+
+  } finally {
+
+    client.release();
+  }
+};
