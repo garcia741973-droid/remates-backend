@@ -994,12 +994,21 @@ exports.getAuctionResults =
 
         b.bid_source,
 
-        b.bidder_label
+        b.bidder_label,
+
+        s.id AS sale_id,
+
+        s.certificate_generated,
+
+        s.certificate_url
 
       FROM auction_live_lots l
 
       LEFT JOIN users u
       ON u.id = l.winner_user_id
+
+      LEFT JOIN auction_sales s
+      ON s.lot_id = l.id
 
       LEFT JOIN bids b
       ON b.id = (
