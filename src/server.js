@@ -135,6 +135,9 @@ const {
   startNotificationScheduler
 } = require('./services/notificationSchedulerService');
 
+const auctionSalesRoutes =
+require('./routes/auctionSalesRoutes');
+
 const app = express();
 
 app.use(cors());
@@ -203,10 +206,10 @@ app.use(
   operationEventsRoutes
 );
 
-//app.use(
-//  '/featured-requests',
-//  featuredRoutes
-//);
+app.use(
+  '/auction-sales',
+  auctionSalesRoutes
+);
 
 const promotionRoutes =
     require('./routes/promotionRoutes');
