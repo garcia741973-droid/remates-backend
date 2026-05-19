@@ -88,10 +88,13 @@ exports.placeBid = async (req, res) => {
     }    
 
     // 🔒 4. VALIDAR ESTADO LOTE
-    if (lot.status === 'sold') {
+    if (lot.status !== 'live') {
+
       await client.query('ROLLBACK');
+
       return res.status(400).json({
-        error: 'El lote ya está cerrado'
+
+        error: 'El lote no está activo',
       });
     }
 
@@ -271,7 +274,7 @@ exports.placeFloorBid = async (
     /// 🔒 VALIDAR STATUS
     if (
 
-      lot.status === 'sold'
+      lot.status !== 'live'
     ) {
 
       await client.query(
@@ -281,7 +284,7 @@ exports.placeFloorBid = async (
       return res.status(400).json({
 
         error:
-          'Lote cerrado',
+          'El lote no está activo',
       });
     }
 
