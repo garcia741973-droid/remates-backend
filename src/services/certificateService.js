@@ -250,7 +250,7 @@ async function generateCertificatePdf(
         doc.fontSize(24);
 
         doc.text(
-          `Bs ${sale.total_amount}`,
+          `Bs ${formatAmount(sale.total_amount)}`,
           320,
           432,
         );
@@ -261,7 +261,21 @@ async function generateCertificatePdf(
         /// 🔥 QR VALIDACIÓN
 
         const qrData =
-            `CERTIFICADO:${certificateCode}`;
+            `
+        Plaza Ganadera
+
+        Código:
+        ${certificateCode}
+
+        Comprador:
+        ${sale.buyer_name || '-'}
+
+        Lote:
+        ${sale.lot_number}
+
+        Monto:
+        Bs ${formatAmount(sale.total_amount)}
+        `;
 
         const qrImage =
             await QRCode.toDataURL(
