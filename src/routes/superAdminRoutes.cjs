@@ -11,6 +11,7 @@ const {
 const {
   getAllUsers,
   createRemateCompany,
+  updateRemateCompany,
 } = require(
   "../controllers/superAdminController.cjs"
 );
@@ -68,6 +69,16 @@ router.post(
   requireAuth,
 
   createRemateCompany
+);
+
+/// ✏️ UPDATE EMPRESA REMATERA
+router.put(
+
+  "/remate-companies/:id",
+
+  requireAuth,
+
+  updateRemateCompany
 );
 
 /// 📢 PROMOCIONES

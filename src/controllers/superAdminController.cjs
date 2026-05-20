@@ -97,3 +97,79 @@ exports.createRemateCompany =
       });
     }
   };
+
+/// 🔥 UPDATE EMPRESA REMATERA
+exports.updateRemateCompany =
+  async (req, res) => {
+
+    try {
+
+      const { id } =
+          req.params;
+
+      const {
+
+        name,
+
+        logo_url,
+
+        lobby_banner_url,
+
+        mini_plaza_background_url,
+
+      } = req.body;
+
+      const result =
+          await pool.query(
+
+        `
+        UPDATE companies
+        SET
+
+          name = COALESCE($1, name),
+
+          logo_url = COALESCE($2, logo_url),
+
+          lobby_banner_url =
+            COALESCE($3, lobby_banner_url),
+
+          mini_plaza_background_url =
+            COALESCE($4, mini_plaza_background_url)
+
+        WHERE id = $5
+
+        RETURNING *
+        `,
+
+        [
+
+          name,
+
+          logo_url,
+
+          lobby_banner_url,
+
+          mini_plaza_background_url,
+
+          id,
+        ],
+      );
+
+      res.json(
+        result.rows[0],
+      );
+
+    } catch (e) {
+
+      console.log(
+        'UPDATE REMATE COMPANY ERROR:',
+        e,
+      );
+
+      res.status(500).json({
+
+        error:
+          'Error actualizando empresa',
+      });
+    }
+  };
