@@ -222,6 +222,32 @@ async function generateCertificatePdf(
           400,
         );
 
+        doc.text(
+
+          `Tipo Venta: ${
+            sale.sale_type === 'kilo'
+
+              ? 'Por Kilo'
+
+              : 'Por Bulto'
+          }`,
+
+          70,
+          425,
+        );
+
+        doc.text(
+
+          sale.sale_type === 'kilo'
+
+              ? `Precio por Kg: Bs ${formatAmount(sale.final_price)}`
+
+              : `Precio por Bulto: Bs ${formatAmount(sale.final_price)}`,
+
+          70,
+          450,
+        );        
+
         /// 🔥 COMPRADOR
         doc.fillColor('#111111');
 
