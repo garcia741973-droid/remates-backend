@@ -21,7 +21,7 @@ async function uploadBufferToCloudinary(
           folder:
               'auction_certificates',
 
-          public_id: filename,
+          public_id: `${filename}.pdf`,
         },
 
         (error, result) => {
