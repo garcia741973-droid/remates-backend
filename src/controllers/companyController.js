@@ -131,3 +131,166 @@ exports.getRemateCompanies =
       });
     }
   };
+
+/// 🔥 SUBIR BANNER LOBBY
+exports.uploadLobbyBanner =
+  async (req, res) => {
+
+    try {
+
+      const { company_id } =
+          req.params;
+
+      if (!req.file) {
+
+        return res.status(400).json({
+
+          error:
+            'No se envió archivo',
+        });
+      }
+
+      const result =
+          await new Promise(
+
+        (resolve, reject) => {
+
+          cloudinary.uploader.upload_stream(
+
+            {
+
+              folder:
+                'remates/lobby_banners',
+            },
+
+            (error, result) => {
+
+              if (error)
+                reject(error);
+
+              else
+                resolve(result);
+            }
+
+          ).end(req.file.buffer);
+        }
+      );
+
+      await pool.query(
+
+        `
+        UPDATE companies
+        SET lobby_banner_url = $1
+        WHERE id = $2
+        `,
+
+        [
+          result.secure_url,
+          company_id,
+        ],
+      );
+
+      res.json({
+
+        success: true,
+
+        lobby_banner_url:
+            result.secure_url,
+      });
+
+    } catch (e) {
+
+      console.log(
+        'UPLOAD LOBBY BANNER ERROR:',
+        e,
+      );
+
+      res.status(500).json({
+
+        error:
+          'Error subiendo banner',
+      });
+    }
+  };
+
+
+/// 🔥 SUBIR FONDO MINI PLAZA
+exports.uploadMiniPlazaBackground =
+  async (req, res) => {
+
+    try {
+
+      const { company_id } =
+          req.params;
+
+      if (!req.file) {
+
+        return res.status(400).json({
+
+          error:
+            'No se envió archivo',
+        });
+      }
+
+      const result =
+          await new Promise(
+
+        (resolve, reject) => {
+
+          cloudinary.uploader.upload_stream(
+
+            {
+
+              folder:
+                'remates/mini_plazas',
+            },
+
+            (error, result) => {
+
+              if (error)
+                reject(error);
+
+              else
+                resolve(result);
+            }
+
+          ).end(req.file.buffer);
+        }
+      );
+
+      await pool.query(
+
+        `
+        UPDATE companies
+        SET mini_plaza_background_url = $1
+        WHERE id = $2
+        `,
+
+        [
+          result.secure_url,
+          company_id,
+        ],
+      );
+
+      res.json({
+
+        success: true,
+
+        mini_plaza_background_url:
+            result.secure_url,
+      });
+
+    } catch (e) {
+
+      console.log(
+        'UPLOAD MINI PLAZA ERROR:',
+        e,
+      );
+
+      res.status(500).json({
+
+        error:
+          'Error subiendo fondo',
+      });
+    }
+  };  

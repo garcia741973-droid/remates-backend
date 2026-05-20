@@ -14,7 +14,18 @@ const {
 const { requireAuth } = require('../middleware/authMiddleware');
 
 const upload = require('../middleware/uploadMiddleware');
-const { uploadLogo } = require('../controllers/companyController');
+
+const {
+
+  uploadLogo,
+
+  uploadLobbyBanner,
+
+  uploadMiniPlazaBackground,
+
+} = require(
+  '../controllers/companyController'
+);
 
 router.get('/me', requireAuth, getMyCompany);
 
@@ -29,5 +40,29 @@ router.get(
 );
 
 router.post('/logo', requireAuth, upload.single('logo'), uploadLogo);
+
+/// 🔥 BANNER LOBBY
+router.post(
+
+  '/:company_id/lobby-banner',
+
+  requireAuth,
+
+  upload.single('banner'),
+
+  uploadLobbyBanner,
+);
+
+/// 🔥 FONDO MINI PLAZA
+router.post(
+
+  '/:company_id/mini-plaza-background',
+
+  requireAuth,
+
+  upload.single('background'),
+
+  uploadMiniPlazaBackground,
+);
 
 module.exports = router;
