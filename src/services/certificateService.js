@@ -16,7 +16,7 @@ async function uploadBufferToCloudinary(
           cloudinary.uploader.upload_stream(
 
         {
-          resource_type: 'raw',
+          resource_type: 'image',
 
           type: 'upload',
           access_mode: 'public',
