@@ -677,13 +677,14 @@ exports.hammerLot = async (
 
             sale_type,
 
+            sale_source,
+
             total_amount,
 
             certificate_generated
-
           )
           VALUES (
-            $1,$2,$3,$4,$5,$6,$7
+            $1,$2,$3,$4,$5,$6,$7,$8
           )
         `,
           [
@@ -696,6 +697,8 @@ exports.hammerLot = async (
             finalPrice,
 
             lot.sale_type,
+
+            lastBid?.bid_source || 'online',
 
             totalAmount,
 
