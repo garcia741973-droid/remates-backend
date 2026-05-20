@@ -80,19 +80,23 @@ exports.getRemateCompanies =
       const result =
           await pool.query(`
 
-        SELECT
+          SELECT
 
-          c.id,
+            c.id,
 
-          c.name,
+            c.name,
 
-          c.logo_url,
+            c.logo_url,
 
-          c.primary_color,
+            c.lobby_banner_url,
 
-          c.secondary_color,
+            c.mini_plaza_background_url,
 
-          c.background_color,
+            c.primary_color,
+
+            c.secondary_color,
+
+            c.background_color,
 
           EXISTS (
 
