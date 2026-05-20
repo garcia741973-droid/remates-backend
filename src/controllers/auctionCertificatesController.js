@@ -101,7 +101,7 @@ exports.generateCertificate =
       sale,
     );
 
-    /// 🔥 GUARDAR
+    /// 🔥 MARCAR GENERADO
     await client.query(
 
       `
@@ -110,17 +110,13 @@ exports.generateCertificate =
 
         certificate_generated = true,
 
-        certificate_url = $1,
-
         certificate_generated_at = NOW(),
 
-        certificate_generated_by = $2
+        certificate_generated_by = $1
 
-      WHERE id = $3
+      WHERE id = $2
       `,
       [
-
-        pdf.url,
 
         req.user.user_id,
 
@@ -128,12 +124,20 @@ exports.generateCertificate =
       ]
     );
 
-    res.json({
+    /// 🔥 RESPUESTA PDF DIRECTA
+    res.setHeader(
+      'Content-Type',
+      'application/pdf'
+    );
 
-      success: true,
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=certificado_venta_${id}.pdf`
+    );
 
-      url: pdf.url,
-    });
+    return res.send(
+      pdf.buffer
+    );
 
   } catch (e) {
 
