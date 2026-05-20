@@ -1,5 +1,6 @@
 const PDFDocument = require('pdfkit');
 
+const QRCode = require('qrcode');
 
 async function generateCertificatePdf(
   sale,
@@ -9,6 +10,9 @@ async function generateCertificatePdf(
     (resolve, reject) => {
 
       try {
+
+        const certificateCode =
+            `PG-${sale.sale_id}-${Date.now()}`;        
 
         const doc =
             new PDFDocument({
@@ -91,79 +95,228 @@ async function generateCertificatePdf(
 
         doc.fillColor('black');
 
-        /// 🔥 INFO REMATE
-        doc.fontSize(14);
+        /// 🔥 INFO REMATE BOX
+
+        doc.roundedRect(
+          50,
+          140,
+          500,
+          90,
+          10,
+        )
+        .stroke('#D4AF37');
+
+        doc.fontSize(12);
+
+        doc.fillColor('#666666');
 
         doc.text(
-          `Empresa: ${sale.company_name}`,
+          'EMPRESA',
+          70,
+          160,
         );
 
         doc.text(
-          `Remate: ${sale.auction_name}`,
+          'REMATE',
+          250,
+          160,
         );
 
         doc.text(
-          `Fecha: ${sale.sale_date}`,
+          'FECHA',
+          430,
+          160,
         );
 
-        doc.moveDown();
+        doc.fillColor('black');
 
-        /// 🔥 LOTE
-        doc.fontSize(18);
+        doc.fontSize(15);
 
         doc.text(
-          `Lote #${sale.lot_number}`,
+          sale.company_name,
+          70,
+          180,
         );
 
-        doc.moveDown();
+        doc.text(
+          sale.auction_name,
+          250,
+          180,
+        );
 
-        doc.fontSize(14);
+        doc.text(
+          sale.sale_date,
+          430,
+          180,
+        );
+
+        /// 🔥 BLOQUE LOTE
+
+        doc.roundedRect(
+          50,
+          260,
+          500,
+          230,
+          12,
+        )
+        .fillAndStroke(
+          '#FAFAFA',
+          '#DDDDDD',
+        );
+
+        /// 🔥 TÍTULO LOTE
+        doc.fillColor('#111111');
+
+        doc.fontSize(22);
+
+        doc.text(
+          `LOTE #${sale.lot_number}`,
+          70,
+          285,
+        );
+
+        /// 🔥 INFO GENERAL
+        doc.fontSize(13);
+
+        doc.fillColor('#555555');
 
         doc.text(
           `Tipo: ${sale.cattle_type || '-'}`,
+          70,
+          325,
         );
 
         doc.text(
           `Raza: ${sale.breed || '-'}`,
+          70,
+          350,
         );
 
         doc.text(
           `Cantidad: ${sale.quantity || '-'}`,
+          70,
+          375,
         );
 
         doc.text(
           `Peso: ${sale.weight || '-'} kg`,
+          70,
+          400,
         );
 
-        doc.moveDown();
+        /// 🔥 COMPRADOR
+        doc.fillColor('#111111');
 
-        /// 🔥 VENTA
         doc.fontSize(16);
 
         doc.text(
-          `Comprador: ${sale.buyer_name || '-'}`,
+          `Comprador`,
+          320,
+          325,
         );
+
+        doc.fontSize(18);
 
         doc.text(
-          `Precio Final: Bs ${sale.final_price}`,
+          sale.buyer_name || '-',
+          320,
+          350,
         );
+
+        /// 🔥 PRECIO FINAL
+        doc.roundedRect(
+          300,
+          395,
+          210,
+          70,
+          10,
+        )
+        .fill('#111111');
+
+        doc.fillColor('#D4AF37');
+
+        doc.fontSize(14);
 
         doc.text(
-          `Monto Total: Bs ${sale.total_amount}`,
+          'MONTO TOTAL',
+          320,
+          412,
         );
+
+        doc.fontSize(24);
 
         doc.text(
-          `Tipo Venta: ${sale.sale_type}`,
+          `Bs ${sale.total_amount}`,
+          320,
+          432,
         );
 
-        doc.moveDown(3);
+        /// 🔥 RESTORE
+        doc.fillColor('black');
 
-        doc.fontSize(12);
+        /// 🔥 QR VALIDACIÓN
+
+        const qrData =
+            `CERTIFICADO:${certificateCode}`;
+
+        const qrImage =
+            await QRCode.toDataURL(
+          qrData,
+        );
+
+        const qrBase64 =
+            qrImage.replace(
+          /^data:image\/png;base64,/,
+          '',
+        );
+
+        const qrBuffer =
+            Buffer.from(
+          qrBase64,
+          'base64',
+        );
+
+        doc.image(
+          qrBuffer,
+          70,
+          530,
+          {
+            width: 90,
+          }
+        );
+
+        /// 🔥 CÓDIGO
+        doc.fillColor('#444444');
+
+        doc.fontSize(11);
+
+        doc.text(
+          'Código de Validación',
+          180,
+          550,
+        );
+
+        doc.fontSize(16);
+
+        doc.fillColor('#111111');
+
+        doc.text(
+          certificateCode,
+          180,
+          570,
+        );        
+
+        doc.fontSize(10);
+
+        doc.fillColor('#777777');
 
         doc.text(
           'Documento generado automáticamente por Plaza Ganadera.',
+          50,
+          760,
           {
             align: 'center',
+            width: 500,
           }
         );
 
