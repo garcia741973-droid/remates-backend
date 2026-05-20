@@ -227,6 +227,42 @@ exports.startAuction = async (req, res) => {
       return res.json({ message: 'Remate ya está en vivo' });
     }
 
+    /// 🔥 VALIDAR SI YA EXISTE
+    /// OTRO REMATE EN VIVO
+    const liveCheck =
+        await pool.query(
+
+      `
+      SELECT id, name
+      FROM auctions
+      WHERE
+
+        company_id = $1
+
+        AND status = 'live'
+
+        AND id != $2
+
+      LIMIT 1
+      `,
+
+      [
+        req.user.company_id,
+        auction_id,
+      ],
+    );
+
+    if (
+      liveCheck.rows.length > 0
+    ) {
+
+      return res.status(400).json({
+
+        error:
+          `Ya existe un remate en vivo: ${liveCheck.rows[0].name}`,
+      });
+    }
+
     // 🔥 activar remate
     await pool.query(
       `UPDATE auctions SET status = 'live' WHERE id = $1`,
