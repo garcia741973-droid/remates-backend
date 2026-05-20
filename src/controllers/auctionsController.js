@@ -304,7 +304,24 @@ exports.startAuction = async (req, res) => {
         auction_id:
             auction_id.toString(),
       },
-    });    
+    });
+    
+    /// 🔥 AVISAR A TODA LA APP
+    const io =
+        req.app.get('io');
+
+    io.emit(
+
+      'auctionStarted',
+
+      {
+
+        auction_id,
+
+        company_id:
+            req.user.company_id,
+      },
+    );    
 
     res.json({ message: 'Remate iniciado correctamente' });
 
@@ -415,6 +432,20 @@ exports.closeAuction = async (req, res) => {
 
         auction_id,
       }
+    );
+
+    /// 🔥 AVISO GLOBAL
+    io.emit(
+
+      'auctionClosedGlobal',
+
+      {
+
+        auction_id,
+
+        company_id:
+            req.user.company_id,
+      },
     );
 
     /// 🔥 EVENTO OPERATIVO
