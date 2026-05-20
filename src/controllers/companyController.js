@@ -70,3 +70,64 @@ exports.uploadLogo = async (req, res) => {
     res.status(500).json({ error: 'Error subiendo logo' });
   }
 };
+
+/// 🔥 EMPRESAS REMATERAS
+exports.getRemateCompanies =
+  async (req, res) => {
+
+    try {
+
+      const result =
+          await pool.query(`
+
+        SELECT
+
+          c.id,
+
+          c.name,
+
+          c.logo_url,
+
+          c.primary_color,
+
+          c.secondary_color,
+
+          c.background_color,
+
+          EXISTS (
+
+            SELECT 1
+            FROM auctions a
+            WHERE
+
+              a.company_id = c.id
+
+              AND a.status = 'live'
+
+          ) AS has_live
+
+        FROM companies c
+
+        WHERE c.is_active = true
+
+        ORDER BY has_live DESC, c.name ASC
+      `);
+
+      res.json(
+        result.rows,
+      );
+
+    } catch (e) {
+
+      console.log(
+        'GET REMATE COMPANIES ERROR:',
+        e,
+      );
+
+      res.status(500).json({
+
+        error:
+          'Error obteniendo empresas',
+      });
+    }
+  };
