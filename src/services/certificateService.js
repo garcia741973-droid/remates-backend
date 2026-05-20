@@ -1,51 +1,5 @@
 const PDFDocument = require('pdfkit');
 
-const streamifier = require('streamifier');
-
-const cloudinary = require('../config/cloudinary');
-
-async function uploadBufferToCloudinary(
-  buffer,
-  filename,
-) {
-
-  return new Promise(
-    (resolve, reject) => {
-
-      const stream =
-          cloudinary.uploader.upload_stream(
-
-        {
-          resource_type: 'image',
-
-          type: 'upload',
-          access_mode: 'public',
-
-          folder:
-              'auction_certificates',
-
-          public_id: filename,
-        },
-
-        (error, result) => {
-
-          if (error) {
-
-            reject(error);
-
-          } else {
-
-            resolve(result);
-          }
-        }
-      );
-
-      streamifier
-          .createReadStream(buffer)
-          .pipe(stream);
-    }
-  );
-}
 
 async function generateCertificatePdf(
   sale,
@@ -82,17 +36,10 @@ async function generateCertificatePdf(
                 buffers,
               );
 
-              const upload =
-                  await uploadBufferToCloudinary(
-
-                pdfBuffer,
-
-                `certificate_sale_${sale.sale_id}`,
-              );
-
               resolve({
-                url:
-                    upload.secure_url,
+
+                buffer:
+                    pdfBuffer,
               });
 
             } catch (e) {
