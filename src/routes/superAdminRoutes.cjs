@@ -10,6 +10,7 @@ const {
 
 const {
   getAllUsers,
+  createRemateCompany,
 } = require(
   "../controllers/superAdminController.cjs"
 );
@@ -57,6 +58,16 @@ router.get(
   "/users",
   requireAuth,
   getAllUsers
+);
+
+/// 🏢 CREAR EMPRESA REMATERA
+router.post(
+
+  "/remate-companies",
+
+  requireAuth,
+
+  createRemateCompany
 );
 
 /// 📢 PROMOCIONES

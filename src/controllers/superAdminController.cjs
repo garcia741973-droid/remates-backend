@@ -32,3 +32,68 @@ exports.getAllUsers = async (req, res) => {
     res.status(500).json({ error: "Error obteniendo usuarios" });
   }
 };
+
+/// 🔥 CREAR EMPRESA REMATERA
+exports.createRemateCompany =
+  async (req, res) => {
+
+    try {
+
+      const {
+
+        name,
+
+      } = req.body;
+
+      if (!name) {
+
+        return res.status(400).json({
+
+          error:
+            'Nombre requerido',
+        });
+      }
+
+      const result =
+          await pool.query(
+
+        `
+        INSERT INTO companies (
+
+          name,
+
+          is_active
+
+        )
+
+        VALUES (
+
+          $1,
+
+          true
+        )
+
+        RETURNING *
+        `,
+
+        [name],
+      );
+
+      res.json(
+        result.rows[0],
+      );
+
+    } catch (e) {
+
+      console.log(
+        'CREATE REMATE COMPANY ERROR:',
+        e,
+      );
+
+      res.status(500).json({
+
+        error:
+          'Error creando empresa',
+      });
+    }
+  };
