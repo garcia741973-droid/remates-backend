@@ -18,6 +18,9 @@ async function uploadBufferToCloudinary(
         {
           resource_type: 'raw',
 
+          type: 'upload',
+          access_mode: 'public',
+
           folder:
               'auction_certificates',
 
