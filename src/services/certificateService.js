@@ -49,17 +49,47 @@ async function generateCertificatePdf(
           }
         );
 
-        /// 🔥 HEADER
-        doc.fontSize(24);
+        /// 🔥 HEADER PREMIUM
+
+        doc.rect(
+          0,
+          0,
+          700,
+          110,
+        )
+        .fill('#111111');
+
+        doc.fillColor('white');
+
+        /// 🔥 TÍTULO
+        doc.fontSize(26);
 
         doc.text(
           'CERTIFICADO DE VENTA',
+          50,
+          40,
           {
             align: 'center',
           }
         );
 
-        doc.moveDown(2);
+        /// 🔥 SUBTÍTULO
+        doc.fontSize(11);
+
+        doc.fillColor('#CCCCCC');
+
+        doc.text(
+          'Plaza Ganadera • Sistema Oficial de Remates',
+          50,
+          75,
+          {
+            align: 'center',
+          }
+        );
+
+        doc.moveDown(5);
+
+        doc.fillColor('black');
 
         /// 🔥 INFO REMATE
         doc.fontSize(14);
