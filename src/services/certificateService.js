@@ -2,6 +2,20 @@ const PDFDocument = require('pdfkit');
 
 const QRCode = require('qrcode');
 
+function formatAmount(
+  value,
+) {
+
+  return Number(value || 0)
+      .toLocaleString(
+    'en-US',
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    },
+  );
+}
+
 async function generateCertificatePdf(
   sale,
 ) {
