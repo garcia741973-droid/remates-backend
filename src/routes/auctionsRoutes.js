@@ -22,6 +22,13 @@ router.post('/', requireAuth, createAuction);
 // 🔥 LISTAR REMATES (IMPORTANTE: VA ANTES DE /:id)
 router.get('/', requireAuth, getAuctions);
 
+/// 🔥 REMATE LIVE ACTUAL
+router.get(
+  '/current-live',
+  requireAuth,
+  auctionsController.getCurrentLiveAuction,
+);
+
 /// 🔥 REPORTES REMATES
 router.get(
   '/report-list',

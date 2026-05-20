@@ -600,3 +600,43 @@ exports.getAuctionReports =
     });
   }
 };
+
+/// 🔥 OBTENER REMATE LIVE ACTUAL
+exports.getCurrentLiveAuction =
+  async (req, res) => {
+
+    try {
+
+      const result =
+        await pool.query(`
+          SELECT *
+          FROM auctions
+          WHERE status = 'live'
+          ORDER BY started_at DESC
+          LIMIT 1
+        `);
+
+      if (
+        result.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+          error:
+            'No hay remate live',
+        });
+      }
+
+      res.json(
+        result.rows[0]
+      );
+
+    } catch (e) {
+
+      console.log(e);
+
+      res.status(500).json({
+        error:
+          'Error getting live auction',
+      });
+    }
+  };
