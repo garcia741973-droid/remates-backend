@@ -4,12 +4,12 @@ const { pool } = require('../config/db');
 exports.getAuctionSales =
   async (req, res) => {
 
+    const { auction_id } =
+        req.query;
+
   try {
 
-    const result =
-        await pool.query(
-
-      `
+    let query = `
       SELECT
 
         s.*,
@@ -31,9 +31,29 @@ exports.getAuctionSales =
 
       LEFT JOIN users u
       ON u.id = s.buyer_user_id
+    `;
 
+    const params = [];
+
+    if (auction_id) {
+
+      query += `
+        WHERE s.auction_id = $1
+      `;
+
+      params.push(
+        auction_id,
+      );
+    }
+
+    query += `
       ORDER BY s.id DESC
-      `
+    `;
+
+    const result =
+        await pool.query(
+      query,
+      params,
     );
 
     res.json(
