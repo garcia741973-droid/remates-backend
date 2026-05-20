@@ -29,6 +29,13 @@ router.get(
   auctionsController.getCurrentLiveAuction,
 );
 
+/// 🔥 REMATES LIVE GLOBAL
+router.get(
+  '/live',
+  requireAuth,
+  auctionsController.getLiveAuctions,
+);
+
 /// 🔥 REPORTES REMATES
 router.get(
   '/report-list',

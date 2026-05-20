@@ -671,3 +671,55 @@ exports.getCurrentLiveAuction =
       });
     }
   };
+
+/// 🔥 REMATES LIVE GLOBAL
+exports.getLiveAuctions =
+  async (req, res) => {
+
+    try {
+
+      const result =
+          await pool.query(`
+
+        SELECT
+
+          a.id,
+
+          a.name,
+
+          a.status,
+
+          a.started_at,
+
+          c.name AS company_name,
+
+          c.logo_url
+
+        FROM auctions a
+
+        INNER JOIN companies c
+        ON c.id = a.company_id
+
+        WHERE a.status = 'live'
+
+        ORDER BY a.started_at DESC
+      `);
+
+      res.json(
+        result.rows,
+      );
+
+    } catch (e) {
+
+      console.log(
+        'GET LIVE AUCTIONS ERROR:',
+        e,
+      );
+
+      res.status(500).json({
+
+        error:
+          'Error obteniendo remates live',
+      });
+    }
+  };  
