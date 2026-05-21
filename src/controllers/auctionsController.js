@@ -640,10 +640,29 @@ exports.getCurrentLiveAuction =
 
       const result =
         await pool.query(`
-          SELECT *
-          FROM auctions
-          WHERE status = 'live'
-          ORDER BY started_at DESC
+          SELECT
+
+            a.*,
+
+            c.name AS company_name,
+
+            c.logo_url,
+
+            c.primary_color,
+
+            c.secondary_color,
+
+            c.background_color
+
+          FROM auctions a
+
+          LEFT JOIN companies c
+          ON c.id = a.company_id
+
+          WHERE a.status = 'live'
+
+          ORDER BY a.created_at DESC
+
           LIMIT 1
         `);
 
