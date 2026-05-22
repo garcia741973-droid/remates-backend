@@ -11,8 +11,32 @@ exports.getAuctionAnalytics = async (
 
     const { id } = req.params;
 
+    const {
+
+    from,
+
+    to,
+
+    } = req.query;    
+
     const auctionId =
         parseInt(id);
+
+    let dateFilter = '';
+
+    const params = [auctionId];
+
+    if (from && to) {
+
+    dateFilter =
+
+        ` AND DATE(closed_at)
+            BETWEEN $2 AND $3`;
+
+    params.push(from);
+
+    params.push(to);
+    }        
 
     /// 🔥 REMATE
     const auctionResult =
@@ -285,8 +309,9 @@ const source =
         FROM auction_live_lots
 
         WHERE
-            auction_id = $1
-            AND status = 'sold'
+        auction_id = $1
+        AND status = 'sold'
+        ${dateFilter}
 
         GROUP BY
 
@@ -307,7 +332,7 @@ const source =
         ORDER BY
             avg_price DESC
         `,
-        [auctionId],
+        params,
         );
 
     return res.json({
