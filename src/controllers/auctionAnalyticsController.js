@@ -244,6 +244,72 @@ const source =
 
             .slice(0, 10);
 
+        /// 🔥 MERCADO
+        const marketResult =
+            await pool.query(
+
+        `
+        SELECT
+
+            sale_type,
+
+            cattle_type,
+
+            breed,
+
+            gender,
+
+            age,
+
+            department,
+
+            municipality,
+
+            COUNT(*) AS total_lots,
+
+            AVG(final_price)
+            AS avg_price,
+
+            AVG(
+            CASE
+
+                WHEN weight > 0
+
+                THEN final_price / weight
+
+                ELSE 0
+
+            END
+            ) AS avg_price_per_kg
+
+        FROM auction_live_lots
+
+        WHERE
+            auction_id = $1
+            AND status = 'sold'
+
+        GROUP BY
+
+            sale_type,
+
+            cattle_type,
+
+            breed,
+
+            gender,
+
+            age,
+
+            department,
+
+            municipality
+
+        ORDER BY
+            avg_price DESC
+        `,
+        [auctionId],
+        );
+
     return res.json({
 
       auction,
@@ -272,6 +338,9 @@ const source =
             Object.keys(
               buyersMap,
             ).length,
+
+        market:
+            marketResult.rows,            
 
         average_price:
 
