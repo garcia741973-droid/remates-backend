@@ -67,7 +67,9 @@ exports.getAuctionAnalytics = async (
         FROM auction_live_lots l
 
         LEFT JOIN auction_sales s
+
         ON s.lot_id = l.id
+        AND s.auction_id = l.auction_id
 
         WHERE l.auction_id = $1
       `,
@@ -76,6 +78,11 @@ exports.getAuctionAnalytics = async (
 
     const lots =
         lotsResult.rows;
+
+        console.log(
+        '🔥 LOTS ANALYTICS 👉',
+        lots,
+        );        
 
     /// 🔥 TOTALES
     let totalSold = 0;
