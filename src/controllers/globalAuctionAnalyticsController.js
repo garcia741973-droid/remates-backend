@@ -5,10 +5,15 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
     const companyId = req.user.company_id;
 
     const {
-      from,
-      to,
-      analysis = 'breed',
-      metric = 'price_kg',
+    from,
+    to,
+
+    analysis = 'breed',
+
+    metric = 'price_kg',
+
+    subgroup = 'none',
+
     } = req.query;
 
     const params = [companyId];
@@ -141,8 +146,26 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
       groupField = 'l.cattle_type';
     }
 
-    if (analysis === 'buyers') {
-      groupField = `COALESCE(b.bidder_label, u.full_name, 'SALA')`;
+    let subGroupField = null;
+
+    if (subgroup === 'breed') {
+      subGroupField = 'l.breed';
+    }
+
+    if (subgroup === 'municipality') {
+      subGroupField = 'l.municipality';
+    }
+
+    if (subgroup === 'age') {
+      subGroupField = 'l.age';
+    }
+
+    if (subgroup === 'category') {
+      subGroupField = 'l.cattle_type';
+    }
+
+    if (subgroup === 'gender') {
+      subGroupField = 'l.gender';
     }
 
     let metricField = `
@@ -189,8 +212,17 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
 
     const analyticsResult = await pool.query(
       `
-      SELECT
+        SELECT
+
         ${groupField} AS label,
+
+        ${
+            subGroupField
+
+            ? `${subGroupField} AS subgroup,`
+
+            : `'TOTAL' AS subgroup,`
+        }
 
         COUNT(*) AS total_lots,
 
@@ -247,8 +279,17 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
         ${dateFilter}
         AND ${groupField} IS NOT NULL
 
-      GROUP BY
+        GROUP BY
+
         ${groupField}
+
+        ${
+            subGroupField
+
+            ? `, ${subGroupField}`
+
+            : ''
+        }
 
       ORDER BY
         metric_value DESC NULLS LAST
