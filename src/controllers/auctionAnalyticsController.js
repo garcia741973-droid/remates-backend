@@ -50,17 +50,26 @@ exports.getAuctionAnalytics = async (
       `
         SELECT
 
-        id,
-        lot_number,
-        title,
-        status,
-        weight,
-        final_price,
-        winner_user_id
+        l.id,
+        l.lot_number,
+        l.title,
+        l.status,
+        l.weight,
+        l.final_price,
+        l.winner_user_id,
 
-        FROM auction_live_lots
+        s.sale_source,
 
-      WHERE auction_id = $1
+        s.total_amount,
+
+        s.sale_type
+
+        FROM auction_live_lots l
+
+        LEFT JOIN auction_sales s
+        ON s.lot_id = l.id
+
+        WHERE l.auction_id = $1
       `,
       [auctionId],
     );
@@ -111,10 +120,17 @@ exports.getAuctionAnalytics = async (
         passedCount++;
       }
 
-        /// 🔥 TEMPORAL
-        /// mientras no exista bid_source real
+        if (
+        lot.sale_source ===
+        'online'
+        ) {
+
+        onlineCount++;
+
+        } else {
 
         floorCount++;
+        }
 
       if (
         sold &&
