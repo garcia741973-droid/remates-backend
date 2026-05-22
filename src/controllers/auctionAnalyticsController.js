@@ -120,14 +120,32 @@ exports.getAuctionAnalytics = async (
         passedCount++;
       }
 
+const source =
+
+    lot.sale_source
+        ?.toString()
+        .toLowerCase();
+
         if (
-        lot.sale_source ===
-        'online'
+        source === 'online'
         ) {
 
         onlineCount++;
 
-        } else {
+        } else if (
+
+        source === 'floor' ||
+
+        source === 'sala' ||
+
+        source === 'operator' ||
+
+        source === null ||
+
+        source === undefined ||
+
+        source === ''
+        ) {
 
         floorCount++;
         }
