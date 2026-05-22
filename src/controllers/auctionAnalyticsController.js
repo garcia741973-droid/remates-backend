@@ -48,7 +48,7 @@ exports.getAuctionAnalytics = async (
         await pool.query(
 
       `
-      SELECT
+        SELECT
 
         id,
         lot_number,
@@ -56,10 +56,9 @@ exports.getAuctionAnalytics = async (
         status,
         weight,
         final_price,
-        winner_user_id,
-        bid_source
+        winner_user_id
 
-      FROM auction_live_lots
+        FROM auction_live_lots
 
       WHERE auction_id = $1
       `,
