@@ -112,17 +112,10 @@ exports.getAuctionAnalytics = async (
         passedCount++;
       }
 
-      if (
-        lot.bid_source ===
-        'online'
-      ) {
-
-        onlineCount++;
-
-      } else {
+        /// 🔥 TEMPORAL
+        /// mientras no exista bid_source real
 
         floorCount++;
-      }
 
       if (
         sold &&
