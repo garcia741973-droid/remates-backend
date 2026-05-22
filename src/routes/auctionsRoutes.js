@@ -14,6 +14,11 @@ const {
 
 const { requireAuth } = require('../middleware/authMiddleware');
 
+const {
+  getGlobalAuctionAnalytics,
+} = require(
+  '../controllers/globalAuctionAnalyticsController'
+);
 
 // 🟢 CREAR REMATE
 router.post('/', requireAuth, createAuction);
@@ -41,6 +46,12 @@ router.get(
   '/report-list',
   requireAuth,
   getAuctionReports,
+);
+
+router.get(
+  '/analytics/global',
+  requireAuth,
+  getGlobalAuctionAnalytics,
 );
 
 // 🟢 OBTENER REMATE POR ID
