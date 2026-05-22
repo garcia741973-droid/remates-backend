@@ -1,4 +1,6 @@
-const pool = require('../db');
+
+const { pool } = require('../config/db');
+
 
 exports.getAuctionAnalytics = async (
   req,
