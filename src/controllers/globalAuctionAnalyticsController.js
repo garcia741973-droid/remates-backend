@@ -9,8 +9,14 @@ exports.getGlobalAuctionAnalytics =
         req.user.company_id;
 
     const {
-      from,
-      to,
+
+    from,
+    to,
+
+    analysis = 'breed',
+
+    metric = 'price_kg',
+
     } = req.query;
 
     const params = [companyId];
@@ -265,28 +271,121 @@ exports.getGlobalAuctionAnalytics =
 
             .slice(0, 20);
 
-    /// 🔥 MERCADO GANADERO
-    const marketResult =
+    /// 🔥 ANALITICA DINAMICA
+
+    let groupField = 'l.breed';
+
+    if (
+      analysis === 'municipality'
+    ) {
+
+      groupField =
+          'l.municipality';
+    }
+
+    if (
+      analysis === 'age'
+    ) {
+
+      groupField =
+          'l.age';
+    }
+
+    if (
+      analysis === 'category'
+    ) {
+
+      groupField =
+          'l.cattle_type';
+    }
+
+    if (
+      analysis === 'buyers'
+    ) {
+
+      groupField =
+          'COALESCE(u.full_name, b.bidder_label, \'SALA\')';
+    }
+
+    let metricField = `AVG(
+
+      CASE
+
+        WHEN l.sale_type = 'kilo'
+
+        THEN l.final_price
+
+        ELSE NULL
+
+      END
+
+    )`;
+
+    if (
+      metric === 'revenue'
+    ) {
+
+      metricField = `SUM(
+
+        CASE
+
+          WHEN l.sale_type = 'kilo'
+
+          THEN l.weight * l.final_price
+
+          ELSE l.quantity * l.final_price
+
+        END
+
+      )`;
+    }
+
+    if (
+      metric === 'animals'
+    ) {
+
+      metricField =
+          'SUM(l.quantity)';
+    }
+
+    if (
+      metric === 'weight'
+    ) {
+
+      metricField =
+          'SUM(l.weight)';
+    }
+
+    if (
+      metric === 'price_animal'
+    ) {
+
+      metricField = `AVG(
+
+        CASE
+
+          WHEN l.sale_type = 'bulto'
+
+          THEN l.final_price
+
+          ELSE NULL
+
+        END
+
+      )`;
+    }
+
+    const analyticsResult =
         await pool.query(
 
       `
       SELECT
 
-        l.sale_type,
+        ${groupField}
+        AS label,
 
-        l.cattle_type,
-
-        l.breed,
-
-        l.gender,
-
-        l.age,
-
-        l.department,
-
-        l.municipality,
-
-        COUNT(*) AS total_lots,
+        COUNT(*)
+        AS total_lots,
 
         SUM(l.quantity)
         AS animals,
@@ -294,19 +393,19 @@ exports.getGlobalAuctionAnalytics =
         SUM(l.weight)
         AS total_weight,
 
-        AVG(
+        SUM(
 
           CASE
 
-            WHEN l.quantity > 0
+            WHEN l.sale_type = 'kilo'
 
-            THEN l.weight / l.quantity
+            THEN l.weight * l.final_price
 
-            ELSE 0
+            ELSE l.quantity * l.final_price
 
           END
 
-        ) AS avg_weight_per_animal,
+        ) AS total_revenue,
 
         AVG(
 
@@ -336,21 +435,32 @@ exports.getGlobalAuctionAnalytics =
 
         ) AS avg_price_animal,
 
-        SUM(
-
-          CASE
-
-            WHEN l.sale_type = 'kilo'
-
-            THEN l.weight * l.final_price
-
-            ELSE l.quantity * l.final_price
-
-          END
-
-        ) AS total_revenue
+        ${metricField}
+        AS metric_value
 
       FROM auction_live_lots l
+
+      LEFT JOIN users u
+      ON u.id = l.winner_user_id
+
+      LEFT JOIN LATERAL (
+
+        SELECT
+
+          bid_source,
+          bidder_label
+
+        FROM bids
+
+        WHERE bids.lot_id = l.id
+
+        ORDER BY
+          amount DESC,
+          created_at DESC
+
+        LIMIT 1
+
+      ) b ON true
 
       WHERE
 
@@ -361,98 +471,15 @@ exports.getGlobalAuctionAnalytics =
         ${dateFilter}
 
       GROUP BY
-
-        l.sale_type,
-        l.cattle_type,
-        l.breed,
-        l.gender,
-        l.age,
-        l.department,
-        l.municipality
+        ${groupField}
 
       ORDER BY
-        total_revenue DESC
+        metric_value DESC
+
+      LIMIT 20
       `,
       params,
     );
-
-        /// 🔥 TENDENCIA PRECIOS
-        const trendsResult =
-            await pool.query(
-
-        `
-        SELECT
-
-            DATE(l.closed_at) AS date,
-
-            COUNT(*) AS lots,
-
-            SUM(l.quantity)
-            AS animals,
-
-            SUM(l.weight)
-            AS total_weight,
-
-            SUM(
-
-            CASE
-
-                WHEN l.sale_type = 'kilo'
-
-                THEN l.weight * l.final_price
-
-                ELSE l.quantity * l.final_price
-
-            END
-
-            ) AS total_revenue,
-
-            AVG(
-
-            CASE
-
-                WHEN l.sale_type = 'kilo'
-
-                THEN l.final_price
-
-                ELSE NULL
-
-            END
-
-            ) AS avg_price_kg,
-
-            AVG(
-
-            CASE
-
-                WHEN l.sale_type = 'bulto'
-
-                THEN l.final_price
-
-                ELSE NULL
-
-            END
-
-            ) AS avg_price_animal
-
-        FROM auction_live_lots l
-
-        WHERE
-
-            l.company_id = $1
-
-            AND l.status = 'sold'
-
-            ${dateFilter}
-
-        GROUP BY
-            DATE(l.closed_at)
-
-        ORDER BY
-            DATE(l.closed_at) ASC
-        `,
-        params,
-        );
 
     res.json({
 
@@ -498,8 +525,8 @@ exports.getGlobalAuctionAnalytics =
       top_buyers:
           topBuyers,
 
-      market:
-          marketResult.rows,
+        analytics_results:
+            analyticsResult.rows,
 
       price_trends:
           trendsResult.rows,
