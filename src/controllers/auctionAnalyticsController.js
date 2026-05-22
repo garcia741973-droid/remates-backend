@@ -1,6 +1,4 @@
-
 const { pool } = require('../config/db');
-
 
 exports.getAuctionAnalytics = async (
   req,
@@ -12,31 +10,29 @@ exports.getAuctionAnalytics = async (
     const { id } = req.params;
 
     const {
-
-    from,
-
-    to,
-
-    } = req.query;    
+      from,
+      to,
+    } = req.query;
 
     const auctionId =
         parseInt(id);
 
+    /// 🔥 FILTRO FECHAS
     let dateFilter = '';
 
     const params = [auctionId];
 
     if (from && to) {
 
-    dateFilter =
+      dateFilter =
 
-        ` AND DATE(closed_at)
-            BETWEEN $2 AND $3`;
+          ` AND DATE(l.closed_at)
+              BETWEEN $2 AND $3`;
 
-    params.push(from);
+      params.push(from);
 
-    params.push(to);
-    }        
+      params.push(to);
+    }
 
     /// 🔥 REMATE
     const auctionResult =
@@ -72,7 +68,7 @@ exports.getAuctionAnalytics = async (
         await pool.query(
 
       `
-        SELECT
+      SELECT
 
         l.id,
         l.lot_number,
@@ -83,21 +79,21 @@ exports.getAuctionAnalytics = async (
         l.winner_user_id,
 
         s.sale_source,
-
         s.total_amount,
-
         s.sale_type
 
-        FROM auction_live_lots l
+      FROM auction_live_lots l
 
-        LEFT JOIN auction_sales s
+      LEFT JOIN auction_sales s
 
-        ON s.lot_id = l.id
-        AND s.auction_id = l.auction_id
+      ON s.lot_id = l.id
+      AND s.auction_id = l.auction_id
 
-        WHERE l.auction_id = $1
+      WHERE
+        l.auction_id = $1
+        ${dateFilter}
       `,
-      [auctionId],
+      params,
     );
 
     const lots =
@@ -106,32 +102,33 @@ exports.getAuctionAnalytics = async (
     /// 🔥 CARGAR BID GANADOR
     for (const lot of lots) {
 
-    const bidResult =
-        await pool.query(
+      const bidResult =
+          await pool.query(
 
         `
         SELECT
-        bid_source
+          bid_source
         FROM bids
         WHERE lot_id = $1
         ORDER BY amount DESC
         LIMIT 1
         `,
         [lot.id],
+      );
+
+      const winningBid =
+          bidResult.rows[0];
+
+      lot.bid_source =
+
+          winningBid?.bid_source ??
+          'floor';
+    }
+
+    console.log(
+      '🔥 LOTS ANALYTICS 👉',
+      lots,
     );
-
-    const winningBid =
-        bidResult.rows[0];
-
-    lot.bid_source =
-        winningBid?.bid_source ??
-        'floor';
-    }        
-
-        console.log(
-        '🔥 LOTS ANALYTICS 👉',
-        lots,
-        );        
 
     /// 🔥 TOTALES
     let totalSold = 0;
@@ -176,36 +173,25 @@ exports.getAuctionAnalytics = async (
         passedCount++;
       }
 
-const source =
+      /// 🔥 ORIGEN PUJA
+      const source =
 
-    lot.bid_source
-        ?.toString()
-        .toLowerCase();
+          lot.bid_source
+              ?.toString()
+              .toLowerCase();
 
-        if (
+      if (
         source === 'online'
-        ) {
+      ) {
 
         onlineCount++;
 
-        } else if (
-
-        source === 'floor' ||
-
-        source === 'sala' ||
-
-        source === 'operator' ||
-
-        source === null ||
-
-        source === undefined ||
-
-        source === ''
-        ) {
+      } else {
 
         floorCount++;
-        }
+      }
 
+      /// 🔥 TOP COMPRADORES
       if (
         sold &&
         lot.winner_user_id
@@ -268,72 +254,72 @@ const source =
 
             .slice(0, 10);
 
-        /// 🔥 MERCADO
-        const marketResult =
-            await pool.query(
+    /// 🔥 MERCADO GANADERO
+    const marketResult =
+        await pool.query(
 
-        `
-        SELECT
+      `
+      SELECT
 
-            sale_type,
+        sale_type,
 
-            cattle_type,
+        cattle_type,
 
-            breed,
+        breed,
 
-            gender,
+        gender,
 
-            age,
+        age,
 
-            department,
+        department,
 
-            municipality,
+        municipality,
 
-            COUNT(*) AS total_lots,
+        COUNT(*) AS total_lots,
 
-            AVG(final_price)
-            AS avg_price,
+        AVG(final_price)
+          AS avg_price,
 
-            AVG(
-            CASE
+        AVG(
+          CASE
 
-                WHEN weight > 0
+            WHEN weight > 0
 
-                THEN final_price / weight
+            THEN final_price / weight
 
-                ELSE 0
+            ELSE 0
 
-            END
-            ) AS avg_price_per_kg
+          END
+        ) AS avg_price_per_kg
 
-        FROM auction_live_lots
+      FROM auction_live_lots l
 
-        WHERE
-        auction_id = $1
-        AND status = 'sold'
+      WHERE
+        l.auction_id = $1
+        AND l.status = 'sold'
         ${dateFilter}
 
-        GROUP BY
+      GROUP BY
 
-            sale_type,
+        sale_type,
 
-            cattle_type,
+        cattle_type,
 
-            breed,
+        breed,
 
-            gender,
+        gender,
 
-            age,
+        age,
 
-            department,
+        department,
 
-            municipality
+        municipality
 
-        ORDER BY
-            avg_price DESC
-        `,
-        params,
-        );
+      ORDER BY
+        avg_price DESC
+      `,
+      params,
+    );
 
     return res.json({
 
@@ -364,9 +350,6 @@ const source =
               buyersMap,
             ).length,
 
-        market:
-            marketResult.rows,            
-
         average_price:
 
             soldCount > 0
@@ -377,16 +360,17 @@ const source =
                 : 0,
       },
 
+      market:
+          marketResult.rows,
+
       top_buyers:
           topBuyers,
-
-      lots,
     });
 
   } catch (e) {
 
     console.log(
-      'ANALYTICS ERROR',
+      '🔥 ANALYTICS ERROR 👉',
       e,
     );
 
