@@ -58,4 +58,16 @@ router.post(
   closeAuction,
 );
 
+const {
+  getAuctionAnalytics,
+} = require(
+  '../controllers/auctionAnalyticsController',
+);
+
+router.get(
+  '/:id/analytics',
+  requireAuth,
+  getAuctionAnalytics,
+);
+
 module.exports = router;
