@@ -79,6 +79,31 @@ exports.getAuctionAnalytics = async (
     const lots =
         lotsResult.rows;
 
+    /// 🔥 CARGAR BID GANADOR
+    for (const lot of lots) {
+
+    const bidResult =
+        await pool.query(
+
+        `
+        SELECT
+        bid_source
+        FROM bids
+        WHERE lot_id = $1
+        ORDER BY amount DESC
+        LIMIT 1
+        `,
+        [lot.id],
+    );
+
+    const winningBid =
+        bidResult.rows[0];
+
+    lot.bid_source =
+        winningBid?.bid_source ??
+        'floor';
+    }        
+
         console.log(
         '🔥 LOTS ANALYTICS 👉',
         lots,
@@ -129,7 +154,7 @@ exports.getAuctionAnalytics = async (
 
 const source =
 
-    lot.sale_source
+    lot.bid_source
         ?.toString()
         .toLowerCase();
 
