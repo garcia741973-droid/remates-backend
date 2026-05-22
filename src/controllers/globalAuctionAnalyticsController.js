@@ -376,6 +376,84 @@ exports.getGlobalAuctionAnalytics =
       params,
     );
 
+        /// 🔥 TENDENCIA PRECIOS
+        const trendsResult =
+            await pool.query(
+
+        `
+        SELECT
+
+            DATE(l.closed_at) AS date,
+
+            COUNT(*) AS lots,
+
+            SUM(l.quantity)
+            AS animals,
+
+            SUM(l.weight)
+            AS total_weight,
+
+            SUM(
+
+            CASE
+
+                WHEN l.sale_type = 'kilo'
+
+                THEN l.weight * l.final_price
+
+                ELSE l.quantity * l.final_price
+
+            END
+
+            ) AS total_revenue,
+
+            AVG(
+
+            CASE
+
+                WHEN l.sale_type = 'kilo'
+
+                THEN l.final_price
+
+                ELSE NULL
+
+            END
+
+            ) AS avg_price_kg,
+
+            AVG(
+
+            CASE
+
+                WHEN l.sale_type = 'bulto'
+
+                THEN l.final_price
+
+                ELSE NULL
+
+            END
+
+            ) AS avg_price_animal
+
+        FROM auction_live_lots l
+
+        WHERE
+
+            l.company_id = $1
+
+            AND l.status = 'sold'
+
+            ${dateFilter}
+
+        GROUP BY
+            DATE(l.closed_at)
+
+        ORDER BY
+            DATE(l.closed_at) ASC
+        `,
+        params,
+        );
+
     res.json({
 
       summary: {
@@ -422,6 +500,10 @@ exports.getGlobalAuctionAnalytics =
 
       market:
           marketResult.rows,
+
+      price_trends:
+          trendsResult.rows,
+          
     });
 
   } catch (e) {
