@@ -40,12 +40,15 @@ exports.getAuctionAnalytics = async (
 
       `
       SELECT
+
         id,
         name,
         status,
         started_at,
         ended_at
+
       FROM auctions
+
       WHERE id = $1
       `,
       [auctionId],
@@ -63,7 +66,7 @@ exports.getAuctionAnalytics = async (
       });
     }
 
-    /// 🔥 LOTES
+    /// 🔥 LOTES VENDIDOS
     const lotsResult =
         await pool.query(
 
@@ -72,25 +75,51 @@ exports.getAuctionAnalytics = async (
 
         l.id,
         l.lot_number,
-        l.title,
         l.status,
+        l.quantity,
         l.weight,
         l.final_price,
+        l.sale_type,
+
+        l.cattle_type,
+        l.breed,
+        l.gender,
+        l.age,
+
+        l.department,
+        l.municipality,
+
         l.winner_user_id,
 
-        s.sale_source,
-        s.total_amount,
-        s.sale_type
+        b.bid_source,
+        b.bidder_label
 
       FROM auction_live_lots l
 
-      LEFT JOIN auction_sales s
+      LEFT JOIN LATERAL (
 
-      ON s.lot_id = l.id
-      AND s.auction_id = l.auction_id
+        SELECT
+
+          bid_source,
+          bidder_label,
+          amount,
+          created_at
+
+        FROM bids
+
+        WHERE bids.lot_id = l.id
+
+        ORDER BY
+          amount DESC,
+          created_at DESC
+
+        LIMIT 1
+
+      ) b ON true
 
       WHERE
         l.auction_id = $1
+        AND l.status = 'sold'
         ${dateFilter}
       `,
       params,
@@ -99,60 +128,39 @@ exports.getAuctionAnalytics = async (
     const lots =
         lotsResult.rows;
 
-    /// 🔥 CARGAR BID GANADOR
-    for (const lot of lots) {
-
-      const bidResult =
-          await pool.query(
-
-        `
-        SELECT
-          bid_source
-        FROM bids
-        WHERE lot_id = $1
-        ORDER BY amount DESC
-        LIMIT 1
-        `,
-        [lot.id],
-      );
-
-      const winningBid =
-          bidResult.rows[0];
-
-      lot.bid_source =
-
-          winningBid?.bid_source ??
-          'floor';
-    }
-
     console.log(
       '🔥 LOTS ANALYTICS 👉',
       lots,
     );
 
     /// 🔥 TOTALES
-    let totalSold = 0;
+    let lotsSold = 0;
+
+    let animalsSold = 0;
 
     let totalWeight = 0;
 
-    let soldCount = 0;
+    let totalRevenue = 0;
 
-    let passedCount = 0;
+    let onlineSales = 0;
 
-    let onlineCount = 0;
+    let floorSales = 0;
 
-    let floorCount = 0;
+    let kiloRevenue = 0;
+
+    let kiloWeight = 0;
+
+    let bultoRevenue = 0;
+
+    let bultoAnimals = 0;
 
     const buyersMap = {};
 
     for (const lot of lots) {
 
-      const sold =
-          lot.status === 'sold';
-
-      const price =
+      const quantity =
           parseFloat(
-            lot.final_price || 0,
+            lot.quantity || 0,
           );
 
       const weight =
@@ -160,40 +168,72 @@ exports.getAuctionAnalytics = async (
             lot.weight || 0,
           );
 
-      if (sold) {
+      const finalPrice =
+          parseFloat(
+            lot.final_price || 0,
+          );
 
-        soldCount++;
+      const saleType =
+          lot.sale_type
+              ?.toString()
+              .toLowerCase();
 
-        totalSold += price;
-
-        totalWeight += weight;
-
-      } else {
-
-        passedCount++;
-      }
-
-      /// 🔥 ORIGEN PUJA
       const source =
-
           lot.bid_source
               ?.toString()
               .toLowerCase();
 
+      lotsSold++;
+
+      animalsSold += quantity;
+
+      totalWeight += weight;
+
+      /// 🔥 FACTURACIÓN REAL
+      let revenue = 0;
+
+      if (
+        saleType === 'kilo'
+      ) {
+
+        revenue =
+            weight *
+            finalPrice;
+
+        kiloRevenue += revenue;
+
+        kiloWeight += weight;
+
+      } else {
+
+        revenue =
+            quantity *
+            finalPrice;
+
+        bultoRevenue += revenue;
+
+        bultoAnimals += quantity;
+      }
+
+      totalRevenue += revenue;
+
+      /// 🔥 ONLINE / SALA
       if (
         source === 'online'
       ) {
 
-        onlineCount++;
+        onlineSales++;
 
       } else {
 
-        floorCount++;
+        floorSales++;
       }
 
       /// 🔥 TOP COMPRADORES
+      let buyerName =
+          'SALA';
+
       if (
-        sold &&
         lot.winner_user_id
       ) {
 
@@ -211,25 +251,45 @@ exports.getAuctionAnalytics = async (
           ],
         );
 
-        const user =
-            userResult.rows[0];
+        buyerName =
 
-        const buyerName =
+            userResult.rows[0]
+                ?.full_name ??
 
-            user?.full_name ??
             'Comprador';
+      }
 
-        if (!buyersMap[buyerName]) {
+      if (
+        lot.bidder_label
+      ) {
 
-          buyersMap[
-              buyerName
-          ] = 0;
-        }
+        buyerName =
+            lot.bidder_label;
+      }
+
+      if (!buyersMap[buyerName]) {
 
         buyersMap[
             buyerName
-        ] += price;
+        ] = {
+
+          total: 0,
+          lots: 0,
+          animals: 0,
+        };
       }
+
+      buyersMap[
+          buyerName
+      ].total += revenue;
+
+      buyersMap[
+          buyerName
+      ].lots += 1;
+
+      buyersMap[
+          buyerName
+      ].animals += quantity;
     }
 
     /// 🔥 TOP COMPRADORES
@@ -240,10 +300,18 @@ exports.getAuctionAnalytics = async (
     )
 
             .map(
-      ([name, total]) => ({
+      ([name, data]) => ({
 
         name,
-        total,
+
+        total:
+            data.total,
+
+        lots:
+            data.lots,
+
+        animals:
+            data.animals,
       }),
     )
 
@@ -261,36 +329,85 @@ exports.getAuctionAnalytics = async (
       `
       SELECT
 
-        sale_type,
+        l.sale_type,
 
-        cattle_type,
+        l.cattle_type,
 
-        breed,
+        l.breed,
 
-        gender,
+        l.gender,
 
-        age,
+        l.age,
 
-        department,
+        l.department,
 
-        municipality,
+        l.municipality,
 
         COUNT(*) AS total_lots,
 
-        AVG(final_price)
-          AS avg_price,
+        SUM(
+          l.quantity
+        ) AS animals,
+
+        SUM(
+          l.weight
+        ) AS total_weight,
 
         AVG(
+
           CASE
 
-            WHEN weight > 0
+            WHEN l.quantity > 0
 
-            THEN final_price / weight
+            THEN l.weight / l.quantity
 
             ELSE 0
 
           END
-        ) AS avg_price_per_kg
+
+        ) AS avg_weight_per_animal,
+
+        AVG(
+
+          CASE
+
+            WHEN l.sale_type = 'kilo'
+
+            THEN l.final_price
+
+            ELSE 0
+
+          END
+
+        ) AS avg_price_kg,
+
+        AVG(
+
+          CASE
+
+            WHEN l.sale_type = 'bulto'
+
+            THEN l.final_price
+
+            ELSE 0
+
+          END
+
+        ) AS avg_price_animal,
+
+        SUM(
+
+          CASE
+
+            WHEN l.sale_type = 'kilo'
+
+            THEN l.weight * l.final_price
+
+            ELSE l.quantity * l.final_price
+
+          END
+
+        ) AS total_revenue
 
       FROM auction_live_lots l
 
@@ -301,22 +418,22 @@ exports.getAuctionAnalytics = async (
 
       GROUP BY
 
-        sale_type,
+        l.sale_type,
 
-        cattle_type,
+        l.cattle_type,
 
-        breed,
+        l.breed,
 
-        gender,
+        l.gender,
 
-        age,
+        l.age,
 
-        department,
+        l.department,
 
-        municipality
+        l.municipality
 
       ORDER BY
-        avg_price DESC
+        total_revenue DESC
       `,
       params,
     );
@@ -327,44 +444,48 @@ exports.getAuctionAnalytics = async (
 
       summary: {
 
-        total_sold:
-            totalSold,
+        lots_sold:
+            lotsSold,
+
+        animals_sold:
+            animalsSold,
 
         total_weight:
             totalWeight,
 
-        sold_count:
-            soldCount,
+        total_revenue:
+            totalRevenue,
 
-        passed_count:
-            passedCount,
+        online_sales:
+            onlineSales,
 
-        online_count:
-            onlineCount,
+        floor_sales:
+            floorSales,
 
-        floor_count:
-            floorCount,
+        avg_price_kg:
 
-        buyers_count:
-            Object.keys(
-              buyersMap,
-            ).length,
+            kiloWeight > 0
 
-        average_price:
+                ? kiloRevenue /
+                    kiloWeight
 
-            soldCount > 0
+                : 0,
 
-                ? totalSold /
-                    soldCount
+        avg_price_animal:
+
+            bultoAnimals > 0
+
+                ? bultoRevenue /
+                    bultoAnimals
 
                 : 0,
       },
 
-      market:
-          marketResult.rows,
-
       top_buyers:
           topBuyers,
+
+      market:
+          marketResult.rows,
     });
 
   } catch (e) {
