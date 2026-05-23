@@ -326,3 +326,189 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
     });
   }
 };
+
+exports.exportGlobalAuctionAnalytics =
+  async (req, res) => {
+
+  try {
+
+    const companyId =
+        req.user.company_id;
+
+    const {
+      from,
+      to,
+    } = req.query;
+
+    const params = [companyId];
+
+    let dateFilter = '';
+
+    if (from && to) {
+
+      dateFilter = `
+        AND DATE(l.closed_at)
+        BETWEEN $2 AND $3
+      `;
+
+      params.push(from);
+      params.push(to);
+    }
+
+    const result =
+        await pool.query(
+
+      `
+      SELECT
+
+        DATE(l.closed_at)
+        AS sale_date,
+
+        a.name
+        AS auction_name,
+
+        l.lot_number,
+
+        l.cattle_type,
+
+        l.breed,
+
+        l.gender,
+
+        l.age,
+
+        l.department,
+
+        l.municipality,
+
+        l.sale_type,
+
+        l.quantity
+        AS animals,
+
+        l.weight
+        AS total_weight,
+
+        CASE
+
+          WHEN l.quantity > 0
+
+          THEN l.weight / l.quantity
+
+          ELSE 0
+
+        END
+
+        AS avg_weight,
+
+        CASE
+
+          WHEN l.sale_type = 'kilo'
+
+          THEN l.final_price
+
+          ELSE NULL
+
+        END
+
+        AS price_kg,
+
+        CASE
+
+          WHEN l.sale_type = 'bulto'
+
+          THEN l.final_price
+
+          ELSE NULL
+
+        END
+
+        AS price_animal,
+
+        CASE
+
+          WHEN l.sale_type = 'kilo'
+
+          THEN l.weight * l.final_price
+
+          ELSE l.quantity * l.final_price
+
+        END
+
+        AS total_revenue,
+
+        COALESCE(
+
+          b.bidder_label,
+
+          u.full_name,
+
+          'SALA'
+
+        )
+
+        AS buyer_name,
+
+        b.bid_source
+
+      FROM auction_live_lots l
+
+      INNER JOIN auctions a
+      ON a.id = l.auction_id
+
+      LEFT JOIN users u
+      ON u.id = l.winner_user_id
+
+      LEFT JOIN LATERAL (
+
+        SELECT
+
+          bid_source,
+          bidder_label,
+          amount,
+          created_at
+
+        FROM bids
+
+        WHERE bids.lot_id = l.id
+
+        ORDER BY
+          amount DESC,
+          created_at DESC
+
+        LIMIT 1
+
+      ) b ON true
+
+      WHERE
+
+        l.company_id = $1
+
+        AND l.status = 'sold'
+
+        ${dateFilter}
+
+      ORDER BY
+        l.closed_at DESC
+      `,
+      params,
+    );
+
+    return res.json(
+      result.rows,
+    );
+
+  } catch (e) {
+
+    console.log(
+      'EXPORT ANALYTICS ERROR 👉',
+      e,
+    );
+
+    return res.status(500).json({
+
+      error:
+          'Export analytics error',
+    });
+  }
+};

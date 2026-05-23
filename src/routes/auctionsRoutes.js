@@ -20,6 +20,12 @@ const {
   '../controllers/globalAuctionAnalyticsController'
 );
 
+const {
+  exportGlobalAuctionAnalytics,
+} = require(
+  '../controllers/globalAuctionAnalyticsController'
+);
+
 // 🟢 CREAR REMATE
 router.post('/', requireAuth, createAuction);
 
@@ -52,6 +58,12 @@ router.get(
   '/analytics/global',
   requireAuth,
   getGlobalAuctionAnalytics,
+);
+
+router.get(
+  '/analytics/export',
+  requireAuth,
+  exportGlobalAuctionAnalytics,
 );
 
 // 🟢 OBTENER REMATE POR ID
