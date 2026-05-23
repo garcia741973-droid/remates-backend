@@ -1050,3 +1050,116 @@ exports.getAuctionResults =
     });
   }
 };
+
+/// 🔥 MINI PLAZA LOTES ACTIVOS
+exports.getMiniPlazaLots =
+  async (req, res) => {
+
+  try {
+
+    const { company_id } =
+        req.params;
+
+    const result =
+        await pool.query(
+
+      `
+      SELECT
+
+        l.id,
+
+        l.company_id,
+
+        l.auction_id,
+
+        l.lot_number,
+
+        l.title,
+
+        l.breed,
+
+        l.quantity,
+
+        l.weight,
+
+        l.average_weight,
+
+        l.current_price,
+
+        l.sale_type,
+
+        l.status,
+
+        l.images,
+
+        l.videos,
+
+        l.category,
+
+        l.cattle_type,
+
+        l.gender,
+
+        l.age,
+
+        l.department,
+
+        l.province,
+
+        l.municipality,
+
+        l.display_order,
+
+        a.name AS auction_name
+
+      FROM auction_live_lots l
+
+      JOIN auctions a
+      ON a.id = l.auction_id
+
+      WHERE
+
+        l.company_id = $1
+
+        AND l.status IN (
+          'queued',
+          'live'
+        )
+
+        AND a.status != 'closed'
+
+      ORDER BY
+
+        CASE
+          WHEN l.status = 'live'
+          THEN 0
+          ELSE 1
+        END,
+
+        l.display_order ASC,
+
+        l.created_at DESC
+
+      LIMIT 30
+      `,
+      [company_id]
+    );
+
+    res.json(
+      result.rows,
+    );
+
+  } catch (e) {
+
+    console.log(
+      'MINI PLAZA LOTS ERROR:',
+      e,
+    );
+
+    res.status(500).json({
+
+      error:
+        'Error obteniendo lotes Mini Plaza',
+    });
+  }
+};

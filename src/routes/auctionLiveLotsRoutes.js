@@ -24,6 +24,8 @@ const {
 
   getAuctionResults,
 
+  getMiniPlazaLots,
+
 } = require(
   '../controllers/auctionLiveLotsController'
 );
@@ -62,6 +64,13 @@ router.put(
   '/reorder',
   requireAuth,
   reorderAuctionLiveLots,
+);
+
+/// 🔥 MINI PLAZA LOTES
+router.get(
+  '/mini-plaza/:company_id',
+  requireAuth,
+  getMiniPlazaLots,
 );
 
 /// 🔥 UPDATE LOTE
