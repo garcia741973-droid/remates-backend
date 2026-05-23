@@ -299,6 +299,50 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
       params,
     );
 
+    const trendsResult =
+        await pool.query(
+
+      `
+      SELECT
+
+        DATE(l.closed_at)
+        AS trend_date,
+
+        AVG(
+
+          CASE
+
+            WHEN l.sale_type = 'kilo'
+
+            THEN l.final_price
+
+            ELSE NULL
+
+          END
+
+        )
+
+        AS avg_price_kg
+
+      FROM auction_live_lots l
+
+      WHERE
+
+        l.company_id = $1
+
+        AND l.status = 'sold'
+
+        ${dateFilter}
+
+      GROUP BY
+        DATE(l.closed_at)
+
+      ORDER BY
+        trend_date ASC
+      `,
+      params,
+    );
+
     return res.json({
       summary: {
         lots_sold: lotsSold,
@@ -316,6 +360,8 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
       top_buyers: topBuyers,
 
       analytics_results: analyticsResult.rows,
+      price_trends:
+          trendsResult.rows,      
     });
 
   } catch (e) {
