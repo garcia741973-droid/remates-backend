@@ -267,6 +267,14 @@ exports.createAuctionLiveLot = async (req, res) => {
       ]
     );
 
+    /// 🔥 SOCKET MINI PLAZA
+    const io =
+        req.app.get('io');
+
+    io.emit(
+      'miniPlazaUpdated'
+    );
+
     res.json(result.rows[0]);
 
   } catch (error) {
@@ -446,6 +454,14 @@ exports.reorderAuctionLiveLots =
         lot.id,
       ]);
     }
+
+    /// 🔥 SOCKET MINI PLAZA
+    const io =
+        req.app.get('io');
+
+    io.emit(
+      'miniPlazaUpdated'
+    );
 
     res.json({
       success: true,
@@ -647,6 +663,14 @@ exports.updateAuctionLiveLot =
       ]
     );
 
+    /// 🔥 SOCKET MINI PLAZA
+    const io =
+        req.app.get('io');
+
+    io.emit(
+      'miniPlazaUpdated'
+    );
+
     res.json(
       result.rows[0],
     );
@@ -681,6 +705,14 @@ exports.deleteAuctionLiveLot =
       WHERE id = $1
       `,
       [id]
+    );
+
+    /// 🔥 SOCKET MINI PLAZA
+    const io =
+        req.app.get('io');
+
+    io.emit(
+      'miniPlazaUpdated'
     );
 
     res.json({
@@ -801,6 +833,12 @@ exports.openLiveLot =
             lot_id,
       }
     );
+
+    /// 🔥 MINI PLAZA REFRESH
+    io.emit(
+      'miniPlazaUpdated'
+    );    
+
 
     res.json({
 
@@ -930,6 +968,11 @@ exports.returnLotToQueue =
             null,
       }
     );
+
+    /// 🔥 MINI PLAZA REFRESH
+    io.emit(
+      'miniPlazaUpdated'
+    );    
 
     res.json({
 
