@@ -17,11 +17,29 @@ exports.createMiniPlazaAd =
 
       redirect_url,
 
+      whatsapp_number,
+
       starts_at,
 
       ends_at,
 
     } = req.body;
+
+    let finalRedirectUrl =
+      redirect_url;
+
+    if (
+      whatsapp_number &&
+      whatsapp_number.trim() !== ''
+    ) {
+
+      const cleanNumber =
+        whatsapp_number
+          .replace(/\D/g, '');
+
+      finalRedirectUrl =
+        `https://wa.me/${cleanNumber}`;
+    }
 
     const result =
       await pool.query(
@@ -35,7 +53,7 @@ exports.createMiniPlazaAd =
 
         image_url,
 
-        redirect_url,
+        finalRedirectUrl,
 
         starts_at,
 
