@@ -262,6 +262,15 @@ app.use(
   auctionCertificatesRoutes,
 );
 
+app.use(
+
+  '/company-notifications',
+
+  require(
+    './routes/companyNotificationsRoutes'
+  ),
+);
+
 /// 🚀 SERVIDOR
 const PORT = process.env.PORT || 3000;
 
