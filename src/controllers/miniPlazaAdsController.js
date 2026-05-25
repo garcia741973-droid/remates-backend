@@ -25,9 +25,11 @@ exports.createMiniPlazaAd =
 
     } = req.body;
 
+    /// 🔥 LINK FINAL
     let finalRedirectUrl =
       redirect_url;
 
+    /// 🔥 SI VIENE WHATSAPP
     if (
       whatsapp_number &&
       whatsapp_number.trim() !== ''
@@ -53,7 +55,7 @@ exports.createMiniPlazaAd =
 
         image_url,
 
-        finalRedirectUrl,
+        redirect_url,
 
         starts_at,
 
@@ -75,11 +77,11 @@ exports.createMiniPlazaAd =
 
         image_url,
 
-        redirect_url,
+        finalRedirectUrl,
 
-        starts_at,
+        starts_at || null,
 
-        ends_at,
+        ends_at || null,
       ]
     );
 
