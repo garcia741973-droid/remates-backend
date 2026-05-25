@@ -16,6 +16,7 @@ exports.sendCompanyBroadcast =
 
             title,
             body,
+            image_url,
 
         } = req.body;
 
@@ -46,6 +47,9 @@ exports.sendCompanyBroadcast =
 
                     body,
 
+                    image_url,
+
+
                     type,
 
                     target_type,
@@ -65,6 +69,8 @@ exports.sendCompanyBroadcast =
                     $1,
                     $2,
                     $3,
+                    $4,
+
 
                     'announcement',
 
@@ -88,6 +94,8 @@ exports.sendCompanyBroadcast =
                     title,
 
                     body,
+
+                    image_url,
 
                     `${companyId}|client`,
 

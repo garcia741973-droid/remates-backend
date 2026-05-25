@@ -204,6 +204,27 @@ const startNotificationScheduler =
 
                             body:
                                 campaign.body,
+
+                            imageUrl:
+                                campaign.image_url,
+                        },
+
+                        android: {
+
+                            notification: {
+
+                                imageUrl:
+                                    campaign.image_url,
+                            },
+                        },
+
+                        apns: {
+
+                            fcm_options: {
+
+                                image:
+                                    campaign.image_url,
+                            },
                         },
 
                         data: {
