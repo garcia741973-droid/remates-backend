@@ -81,6 +81,8 @@ const bidsRoutes = require('./routes/bidsRoutes');
 const operatorRoutes = require('./routes/operatorRoutes');
 const companyRoutes = require('./routes/companyRoutes');
 const firebaseRoutes = require('./routes/firebaseRoutes');
+const miniPlazaAdsRoutes =
+  require('./routes/miniPlazaAdsRoutes');
 
 const paymentQrRoutes =
   require('./routes/paymentQrRoutes');
@@ -182,6 +184,10 @@ app.use('/bids', bidsRoutes);
 app.use('/operator', operatorRoutes);
 app.use('/company', companyRoutes);
 app.use('/firebase', firebaseRoutes);
+app.use(
+  '/mini-plaza-ads',
+  miniPlazaAdsRoutes
+);
 
 app.use(
   '/payment-qrs',
