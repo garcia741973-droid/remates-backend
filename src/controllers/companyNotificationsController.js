@@ -71,18 +71,17 @@ exports.sendCompanyBroadcast =
                     $3,
                     $4,
 
-
                     'announcement',
 
                     'company',
 
-                    $4,
+                    $5,
 
                     'scheduled',
 
                     NOW(),
 
-                    $5
+                    $6
                 )
 
                 RETURNING *
