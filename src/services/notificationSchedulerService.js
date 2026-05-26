@@ -212,6 +212,8 @@ const startNotificationScheduler =
 
                         data: {
 
+                            click_action: 'FLUTTER_NOTIFICATION_CLICK',
+
                             type:
 
                                 campaign.image_url
