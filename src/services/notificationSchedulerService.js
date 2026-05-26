@@ -472,7 +472,7 @@ const startNotificationScheduler =
             );
         }
 
-    }, 1000 * 60);
+    }, 1000 * 10);
 };
 
 module.exports = {
