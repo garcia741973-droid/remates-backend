@@ -204,22 +204,20 @@ const startNotificationScheduler =
 
                             body:
                                 campaign.body,
-
-                            imageUrl:
-                                campaign.image_url,
                         },
 
                         data: {
 
                             type:
-                                campaign.type ||
-                                'announcement',
+                                String(
+                                    campaign.type ||
+                                    'announcement'
+                                ),
 
                             company_id:
-                                String(campaign.company_id),
-
-                            image_url:
-                                campaign.image_url || '',
+                                String(
+                                    campaign.company_id
+                                ),
                         },
                     });
 
