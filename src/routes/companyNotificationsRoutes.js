@@ -5,7 +5,11 @@ const router =
     express.Router();
 
 const {
+
     sendCompanyBroadcast,
+
+    getCampaignById,
+
 } = require(
     '../controllers/companyNotificationsController'
 );
@@ -23,6 +27,12 @@ router.post(
     requireAuth,
 
     sendCompanyBroadcast,
+);
+
+router.get(
+    '/:id',
+    requireAuth,
+    getCampaignById,
 );
 
 module.exports =
