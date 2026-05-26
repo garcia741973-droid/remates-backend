@@ -167,9 +167,23 @@ exports.getCampaignById =
             await pool.query(
 
                 `
-                SELECT *
-                FROM notification_campaigns
-                WHERE id = $1
+                SELECT
+
+                    nc.*,
+
+                    c.name AS company_name,
+
+                    c.logo_url,
+
+                    c.mini_plaza_background_url
+
+                FROM notification_campaigns nc
+
+                LEFT JOIN companies c
+                    ON c.id = nc.company_id
+
+                WHERE nc.id = $1
+
                 LIMIT 1
                 `,
                 [id]
