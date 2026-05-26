@@ -213,11 +213,21 @@ const startNotificationScheduler =
                         data: {
 
                             type:
-                                'mini_plaza',
+
+                                campaign.image_url
+
+                                    ? 'mini_plaza_campaign'
+
+                                    : 'mini_plaza',
 
                             company_id:
                                 String(
                                     campaign.company_id || ''
+                                ),
+
+                            campaign_id:
+                                String(
+                                    campaign.id || ''
                                 ),
                         },
                     });
