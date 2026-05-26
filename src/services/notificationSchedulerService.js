@@ -232,6 +232,12 @@ const startNotificationScheduler =
                             type:
                                 campaign.type ||
                                 'announcement',
+
+                            company_id:
+                                String(campaign.company_id),
+
+                            image_url:
+                                campaign.image_url || '',
                         },
                     });
 

@@ -71,7 +71,7 @@ exports.sendCompanyBroadcast =
                     $3,
                     $4,
 
-                    'announcement',
+                    'mini_plaza',
 
                     'company',
 
