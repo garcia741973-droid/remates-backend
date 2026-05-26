@@ -200,23 +200,24 @@ const startNotificationScheduler =
                         notification: {
 
                             title:
-                                campaign.title,
+                                String(
+                                    campaign.title || ''
+                                ),
 
                             body:
-                                campaign.body,
+                                String(
+                                    campaign.body || ''
+                                ),
                         },
 
                         data: {
 
                             type:
-                                String(
-                                    campaign.type ||
-                                    'announcement'
-                                ),
+                                'mini_plaza',
 
                             company_id:
                                 String(
-                                    campaign.company_id
+                                    campaign.company_id || ''
                                 ),
                         },
                     });
