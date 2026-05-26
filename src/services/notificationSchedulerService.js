@@ -229,6 +229,21 @@ const startNotificationScheduler =
                                 String(
                                     campaign.id || ''
                                 ),
+
+                            image_url:
+                                String(
+                                    campaign.image_url || ''
+                                ),
+
+                            title:
+                                String(
+                                    campaign.title || ''
+                                ),
+
+                            body:
+                                String(
+                                    campaign.body || ''
+                                ),
                         },
                     });
 
