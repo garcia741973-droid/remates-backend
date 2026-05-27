@@ -87,8 +87,14 @@ exports.login = async (req, res) => {
     // 🔥 VALIDAR QUE EL USUARIO PERTENECE A ESA EMPRESA
     const companyCheck = await pool.query(
       `
-      SELECT role FROM user_companies
-      WHERE user_id = $1 AND company_id = $2
+      SELECT
+        role,
+        company_status
+
+      FROM user_companies
+
+      WHERE user_id = $1
+      AND company_id = $2
       `,
       [user.id, company_id]
     );
@@ -96,6 +102,18 @@ exports.login = async (req, res) => {
     if (companyCheck.rows.length === 0) {
       return res.status(403).json({ error: 'No pertenece a esta empresa' });
     }
+
+    /// 🔥 VALIDAR AUTORIZACIÓN EMPRESA
+    if (
+      companyCheck.rows[0].company_status !== 'approved'
+    ) {
+
+      return res.status(403).json({
+
+        error:
+          'Pendiente de aprobación por la empresa',
+      });
+    }    
 
     const role = companyCheck.rows[0].role;
     const seller_status = user.seller_status || 'none';

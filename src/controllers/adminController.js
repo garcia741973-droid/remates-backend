@@ -51,20 +51,24 @@ exports.createUser = async (req, res) => {
       );
 
       if (checkRelation.rows.length === 0) {
-        // 🔥 CREAR RELACIÓN + KYC EMPRESA
+        // 🔥 CREAR RELACIÓN EMPRESA APROBADA
         await pool.query(
-          `INSERT INTO user_companies (
-            user_id, company_id, role,
-            kyc_status, kyc_level, kyc_verified_at
+          `
+          INSERT INTO user_companies (
+            user_id,
+            company_id,
+            role,
+            company_status,
+            approved_at
           )
-          VALUES ($1,$2,$3,$4,$5,$6)`,
+          VALUES ($1,$2,$3,$4,$5)
+          `,
           [
             user.id,
             company_id,
             role,
-            role === 'client' ? 'approved' : 'not_started',
-            role === 'client' ? 2 : 0,
-            role === 'client' ? new Date() : null
+            'approved',
+            new Date()
           ]
         );
       }
@@ -112,20 +116,22 @@ exports.createUser = async (req, res) => {
     // 🔗 RELACIÓN EMPRESA + KYC EMPRESA
     await pool.query(
       `
-      INSERT INTO user_companies (
-        user_id, company_id, role,
-        kyc_status, kyc_level, kyc_verified_at
-      )
-      VALUES ($1,$2,$3,$4,$5,$6)
+        INSERT INTO user_companies (
+          user_id,
+          company_id,
+          role,
+          company_status,
+          approved_at
+        )
+        VALUES ($1,$2,$3,$4,$5)
       `,
-      [
-        userId,
-        company_id,
-        role,
-        role === 'client' ? 'approved' : 'not_started',
-        role === 'client' ? 2 : 0,
-        role === 'client' ? new Date() : null
-      ]
+        [
+          userId,
+          company_id,
+          role,
+          'approved',
+          new Date()
+        ]
     );
 
     // 🔥 CREAR KYC GLOBAL
