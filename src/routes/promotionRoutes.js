@@ -26,7 +26,6 @@ router.get(
 /// 🏠 HOME BANNERS
 router.get(
     '/home-banners',
-    requireAuth,
     controller.getHomeBanners,
 );
 

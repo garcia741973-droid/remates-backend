@@ -36,14 +36,12 @@ router.get('/', requireAuth, getAuctions);
 /// 🔥 REMATE LIVE ACTUAL
 router.get(
   '/current-live',
-  requireAuth,
   auctionsController.getCurrentLiveAuction,
 );
 
 /// 🔥 REMATES LIVE GLOBAL
 router.get(
   '/live',
-  requireAuth,
   auctionsController.getLiveAuctions,
 );
 
