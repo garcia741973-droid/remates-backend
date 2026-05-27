@@ -36,8 +36,6 @@ router.get(
 
   '/remates',
 
-  requireAuth,
-
   getRemateCompanies,
 );
 
