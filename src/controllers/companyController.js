@@ -297,4 +297,87 @@ exports.uploadMiniPlazaBackground =
           'Error subiendo fondo',
       });
     }
+  };
+  
+/// 🔥 SUBIR HERO VIDEO
+exports.uploadHeroVideo =
+  async (req, res) => {
+
+    try {
+
+      const { company_id } =
+          req.params;
+
+      if (!req.file) {
+
+        return res.status(400).json({
+
+          error:
+            'No se envió archivo',
+        });
+      }
+
+      const result =
+          await new Promise(
+
+        (resolve, reject) => {
+
+          cloudinary.uploader.upload_stream(
+
+            {
+
+              resource_type: 'video',
+
+              folder:
+                'remates/hero_videos',
+            },
+
+            (error, result) => {
+
+              if (error)
+                reject(error);
+
+              else
+                resolve(result);
+            }
+
+          ).end(req.file.buffer);
+        }
+      );
+
+      await pool.query(
+
+        `
+        UPDATE companies
+        SET hero_video_url = $1
+        WHERE id = $2
+        `,
+
+        [
+          result.secure_url,
+          company_id,
+        ],
+      );
+
+      res.json({
+
+        success: true,
+
+        hero_video_url:
+            result.secure_url,
+      });
+
+    } catch (e) {
+
+      console.log(
+        'UPLOAD HERO VIDEO ERROR:',
+        e,
+      );
+
+      res.status(500).json({
+
+        error:
+          'Error subiendo hero video',
+      });
+    }
   };  

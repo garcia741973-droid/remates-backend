@@ -23,6 +23,8 @@ const {
 
   uploadMiniPlazaBackground,
 
+  uploadHeroVideo,
+
 } = require(
   '../controllers/companyController'
 );
@@ -63,6 +65,18 @@ router.post(
   upload.single('background'),
 
   uploadMiniPlazaBackground,
+);
+
+/// 🔥 HERO VIDEO
+router.post(
+
+  '/:company_id/hero-video',
+
+  requireAuth,
+
+  upload.single('video'),
+
+  uploadHeroVideo,
 );
 
 module.exports = router;
