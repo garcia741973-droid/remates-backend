@@ -197,3 +197,84 @@ exports.deleteUpcomingAuction =
         });
     }
 };
+
+/// ===========================================
+/// 🔥 EDITAR
+/// ===========================================
+exports.updateUpcomingAuction =
+    async (req, res) => {
+
+    try {
+
+        const { id } =
+            req.params;
+
+        const {
+
+            title,
+
+            description,
+
+            location,
+
+            start_date,
+
+        } = req.body;
+
+        const result =
+            await pool.query(
+
+            `
+            UPDATE upcoming_auctions
+
+            SET
+
+                title = $1,
+
+                description = $2,
+
+                location = $3,
+
+                start_date = $4
+
+            WHERE id = $5
+
+            RETURNING *
+            `,
+
+            [
+
+                title,
+
+                description,
+
+                location,
+
+                start_date,
+
+                id,
+            ],
+        );
+
+        res.json({
+
+            success: true,
+
+            auction:
+                result.rows[0],
+        });
+
+    } catch (e) {
+
+        console.log(
+            'UPDATE UPCOMING ERROR:',
+            e,
+        );
+
+        res.status(500).json({
+
+            error:
+                'Error actualizando remate',
+        });
+    }
+};

@@ -18,6 +18,8 @@ const {
 
     deleteUpcomingAuction,
 
+    updateUpcomingAuction,
+
 } = require(
     '../controllers/upcomingAuctionsController'
 );
@@ -38,6 +40,16 @@ router.get(
     '/:company_id',
 
     getUpcomingAuctions,
+);
+
+/// 🔥 EDITAR
+router.put(
+
+    '/:id',
+
+    requireAuth,
+
+    updateUpcomingAuction,
 );
 
 /// 🔥 ELIMINAR
