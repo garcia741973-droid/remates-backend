@@ -299,7 +299,7 @@ exports.uploadMiniPlazaBackground =
     }
   };
   
-/// 🔥 SUBIR HERO VIDEO
+/// 🔥 GUARDAR HERO VIDEO URL
 exports.uploadHeroVideo =
   async (req, res) => {
 
@@ -308,42 +308,18 @@ exports.uploadHeroVideo =
       const { company_id } =
           req.params;
 
-      if (!req.file) {
+      const {
+        video_url,
+      } = req.body;
+
+      if (!video_url) {
 
         return res.status(400).json({
 
           error:
-            'No se envió archivo',
+            'No se envió video_url',
         });
       }
-
-      const result =
-          await new Promise(
-
-        (resolve, reject) => {
-
-          cloudinary.uploader.upload_stream(
-
-            {
-
-              resource_type: 'video',
-
-              folder:
-                'remates/hero_videos',
-            },
-
-            (error, result) => {
-
-              if (error)
-                reject(error);
-
-              else
-                resolve(result);
-            }
-
-          ).end(req.file.buffer);
-        }
-      );
 
       await pool.query(
 
@@ -354,7 +330,7 @@ exports.uploadHeroVideo =
         `,
 
         [
-          result.secure_url,
+          video_url,
           company_id,
         ],
       );
@@ -364,7 +340,7 @@ exports.uploadHeroVideo =
         success: true,
 
         hero_video_url:
-            result.secure_url,
+            video_url,
       });
 
     } catch (e) {
@@ -377,7 +353,7 @@ exports.uploadHeroVideo =
       res.status(500).json({
 
         error:
-          'Error subiendo hero video',
+          'Error guardando hero video',
       });
     }
-  };  
+  };
