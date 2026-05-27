@@ -460,3 +460,113 @@ exports.registerParticipant =
     });
   }
 };
+
+/// 🔥 IDENTIFICAR PARTICIPANTE
+exports.checkParticipant =
+  async (req, res) => {
+
+  try {
+
+    const {
+      email,
+      company_id,
+    } = req.body;
+
+    if (!email) {
+
+      return res.status(400).json({
+
+        error: 'Email requerido',
+      });
+    }
+
+    /// 🔍 BUSCAR USER
+    const existing =
+        await pool.query(
+
+      `
+      SELECT
+
+        id,
+
+        email,
+
+        kyc_status
+
+      FROM users
+
+      WHERE email = $1
+      `,
+      [email]
+    );
+
+    /// ❌ NO EXISTE
+    if (
+      existing.rows.length === 0
+    ) {
+
+      return res.json({
+
+        exists: false,
+      });
+    }
+
+    const user =
+        existing.rows[0];
+
+    /// 🔍 COMPANY ACCESS
+    const companyCheck =
+        await pool.query(
+
+      `
+      SELECT
+        company_status
+      FROM user_companies
+      WHERE user_id = $1
+      AND company_id = $2
+      `,
+      [
+        user.id,
+        company_id,
+      ],
+    );
+
+    let company_access =
+        'none';
+
+    if (
+      companyCheck.rows.length > 0
+    ) {
+
+      company_access =
+          companyCheck.rows[0]
+              .company_status;
+    }
+
+    res.json({
+
+      exists: true,
+
+      email:
+          user.email,
+
+      kyc_status:
+          user.kyc_status,
+
+      company_access,
+    });
+
+  } catch (e) {
+
+    console.log(
+      'CHECK PARTICIPANT ERROR:',
+      e,
+    );
+
+    res.status(500).json({
+
+      error:
+        'Error verificando participante',
+    });
+  }
+};

@@ -5,7 +5,20 @@ const {
   registerParticipant,
 } = require('../controllers/authController');
 
-const { login, getUser, saveFcmToken } = require('../controllers/authController');
+const {
+
+  login,
+
+  getUser,
+
+  saveFcmToken,
+
+  checkParticipant,
+
+} = require(
+  '../controllers/authController'
+);
+
 router.post('/login', login);
 router.post(
   '/register-participant',
@@ -13,6 +26,11 @@ router.post(
 );
 
 router.post('/get-companies', getUser);
+
+router.post(
+  '/check-participant',
+  checkParticipant,
+);
 
 const { requireAuth } = require('../middleware/authMiddleware');
 
