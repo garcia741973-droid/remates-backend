@@ -42,15 +42,24 @@ exports.createRemateCompany =
       const {
 
         name,
+        country,
+        timezone,
+        currency,
+        language,
 
       } = req.body;
 
-      if (!name) {
+      if (
+        !name ||
+        !country ||
+        !timezone ||
+        !currency
+      ) {
 
         return res.status(400).json({
 
           error:
-            'Nombre requerido',
+            'Faltan campos requeridos',
         });
       }
 
@@ -61,7 +70,10 @@ exports.createRemateCompany =
         INSERT INTO companies (
 
           name,
-
+          country,
+          timezone,
+          currency,
+          language,
           is_active
 
         )
@@ -69,14 +81,25 @@ exports.createRemateCompany =
         VALUES (
 
           $1,
-
+          $2,
+          $3,
+          $4,
+          $5,
           true
+
         )
 
         RETURNING *
         `,
 
-        [name],
+        [
+
+          name,
+          country,
+          timezone,
+          currency,
+          language || 'es',
+        ],
       );
 
       res.json(
