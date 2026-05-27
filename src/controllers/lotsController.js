@@ -1296,7 +1296,7 @@ exports.getFeaturedLots =
   try {
 
     const company_id =
-      req.user.company_id;
+      req.user?.company_id || 1;
 
     const { rows } =
       await pool.query(
