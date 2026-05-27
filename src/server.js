@@ -147,6 +147,11 @@ const auctionCertificatesRoutes =
 
 const app = express();
 
+const upcomingAuctionsRoutes =
+    require(
+      './routes/upcomingAuctionsRoutes'
+    );
+
 app.use(cors());
 app.use(express.json());
 
@@ -269,6 +274,13 @@ app.use(
   require(
     './routes/companyNotificationsRoutes'
   ),
+);
+
+app.use(
+
+  '/upcoming-auctions',
+
+  upcomingAuctionsRoutes,
 );
 
 /// 🚀 SERVIDOR
