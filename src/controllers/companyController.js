@@ -88,6 +88,8 @@ exports.getRemateCompanies =
 
             c.logo_url,
 
+            c.hero_video_url,
+
             c.lobby_banner_url,
 
             c.mini_plaza_background_url,
