@@ -286,27 +286,11 @@ exports.registerParticipant =
 
       `
       SELECT
-
-        u.id,
-
-        u.email,
-
-        COALESCE(
-
-          uk.kyc_status,
-
-          u.kyc_status,
-
-          'not_started'
-
-        ) AS kyc_status
-
-      FROM users u
-
-      LEFT JOIN user_kyc uk
-      ON uk.user_id = u.id
-
-      WHERE u.email = $1
+        id,
+        email,
+        kyc_status
+      FROM users
+      WHERE email = $1
       `,
       [email]
     );
