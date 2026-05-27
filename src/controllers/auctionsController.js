@@ -652,7 +652,7 @@ exports.getCurrentLiveAuction =
 
             c.secondary_color,
 
-            c.background_color
+            c.background_color,
 
             c.lobby_banner_url,
 
