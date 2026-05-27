@@ -255,3 +255,176 @@ exports.saveFcmToken = async (req, res) => {
     res.status(500).json({ error: 'Error guardando token' });
   }
 };
+
+/// 🔥 REGISTER PARTICIPANT
+exports.registerParticipant =
+  async (req, res) => {
+
+  try {
+
+    const {
+      email,
+      password,
+    } = req.body;
+
+    if (
+      !email ||
+      !password
+    ) {
+
+      return res.status(400).json({
+
+        error:
+          'Email y password requeridos',
+      });
+    }
+
+    /// 🔍 BUSCAR EXISTENTE
+    const existing =
+        await pool.query(
+
+      `
+      SELECT
+        id,
+        email,
+        kyc_status
+      FROM users
+      WHERE email = $1
+      `,
+      [email]
+    );
+
+    /// 🔥 YA EXISTE
+    if (
+      existing.rows.length > 0
+    ) {
+
+      const user =
+          existing.rows[0];
+
+      /// 🔐 LOGIN DIRECTO
+      const token = jwt.sign(
+
+        {
+
+          user_id:
+              user.id,
+
+          role: 'client',
+        },
+
+        process.env.JWT_SECRET,
+
+        {
+          expiresIn: '7d',
+        },
+      );
+
+      return res.json({
+
+        token,
+
+        role: 'client',
+
+        existing_user: true,
+
+        kyc_status:
+            user.kyc_status,
+      });
+    }
+
+    /// 🔐 HASH PASSWORD
+    const hashed =
+        await bcrypt.hash(
+      password,
+      10,
+    );
+
+    /// 🔥 CREAR USER
+    const created =
+        await pool.query(
+
+      `
+      INSERT INTO users (
+
+        email,
+        password,
+        role,
+        kyc_status
+
+      )
+
+      VALUES (
+
+        $1,
+        $2,
+        'client',
+        'incomplete'
+
+      )
+
+      RETURNING
+        id,
+        email,
+        role,
+        kyc_status
+      `,
+
+      [
+        email,
+        hashed,
+      ],
+    );
+
+    const user =
+        created.rows[0];
+
+    /// 🔐 TOKEN
+    const token = jwt.sign(
+
+      {
+
+        user_id:
+            user.id,
+
+        role:
+            user.role,
+      },
+
+      process.env.JWT_SECRET,
+
+      {
+        expiresIn: '7d',
+      },
+    );
+
+    res.json({
+
+      token,
+
+      user_id:
+          user.id,
+
+      role:
+          user.role,
+
+      kyc_status:
+          user.kyc_status,
+
+      existing_user: false,
+    });
+
+  } catch (e) {
+
+    console.log(
+      'REGISTER PARTICIPANT ERROR:',
+      e,
+    );
+
+    res.status(500).json({
+
+      error:
+          'Error registrando participante',
+    });
+  }
+};
