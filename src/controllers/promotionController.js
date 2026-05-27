@@ -1469,7 +1469,7 @@ exports.getHomeBanners =
     try {
 
         const company_id =
-            req.user.company_id;
+            req.user?.company_id || 1;
 
         /// 🔥 MAIN BANNERS
         const mainResult =
