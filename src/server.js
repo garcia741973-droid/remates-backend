@@ -199,6 +199,14 @@ app.use(
   paymentQrRoutes
 );
 
+const companyAccessRoutes =
+  require('./routes/companyAccessRoutes');
+
+app.use(
+  '/company-access',
+  companyAccessRoutes,
+);
+
 app.use('/kyc', kycRoutes);
 app.use('/admin', adminRoutes);
 app.use('/seller', sellerRoutes);
