@@ -654,6 +654,10 @@ exports.getCurrentLiveAuction =
 
             c.background_color
 
+            c.lobby_banner_url,
+
+            c.mini_plaza_background_url            
+
           FROM auctions a
 
           LEFT JOIN companies c
