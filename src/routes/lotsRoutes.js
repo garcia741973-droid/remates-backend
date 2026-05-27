@@ -33,7 +33,6 @@ router.post(
 
 router.get(
   '/featured',
-  requireAuth,
   getFeaturedLots
 );
 
