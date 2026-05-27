@@ -39,7 +39,6 @@ router.get(
 /// 🔥 LISTAR LOTES
 router.get(
   '/',
-  requireAuth,
   getLots
 );
 
