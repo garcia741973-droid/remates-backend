@@ -309,12 +309,12 @@ exports.getLots = async (req, res) => {
 
   try {
 
+    /// 🔥 TOLERANTE A GUEST
     const company_id =
-        req.user.company_id;
+        req.user?.company_id ||
+        req.query.company_id;
 
-    const { rows } =
-        await pool.query(
-      `
+    let query = `
       SELECT
 
         l.*,
@@ -346,14 +346,25 @@ exports.getLots = async (req, res) => {
         ON u.id = l.seller_id
 
       WHERE
-
-        l.company_id = $1
-
-        AND (
+        (
           l.status IS NULL
           OR l.status != 'sold'
         )
+    `;
 
+    const params = [];
+
+    /// 🔥 SOLO FILTRAR SI EXISTE company_id
+    if (company_id) {
+
+      params.push(company_id);
+
+      query += `
+        AND l.company_id = $${params.length}
+      `;
+    }
+
+    query += `
       ORDER BY
 
         CASE
@@ -374,8 +385,12 @@ exports.getLots = async (req, res) => {
         u.successful_sales_count DESC,
 
         l.created_at DESC
-      `,
-      [company_id]
+    `;
+
+    const { rows } =
+        await pool.query(
+      query,
+      params
     );
 
     res.json(rows);
