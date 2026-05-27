@@ -265,6 +265,7 @@ exports.registerParticipant =
     const {
       email,
       password,
+      company_id,
     } = req.body;
 
     if (
@@ -302,7 +303,36 @@ exports.registerParticipant =
       const user =
           existing.rows[0];
 
-      /// 🔐 LOGIN DIRECTO
+      /// 🔍 VERIFICAR RELACIÓN EMPRESA
+      const companyCheck =
+          await pool.query(
+
+        `
+        SELECT
+          company_status
+        FROM user_companies
+        WHERE user_id = $1
+        AND company_id = $2
+        `,
+        [
+          user.id,
+          company_id,
+        ],
+      );
+
+      let company_access =
+          'none';
+
+      if (
+        companyCheck.rows.length > 0
+      ) {
+
+        company_access =
+            companyCheck.rows[0]
+                .company_status;
+      }
+
+      /// 🔐 TOKEN
       const token = jwt.sign(
 
         {
@@ -330,6 +360,8 @@ exports.registerParticipant =
 
         kyc_status:
             user.kyc_status,
+
+        company_access,
       });
     }
 
