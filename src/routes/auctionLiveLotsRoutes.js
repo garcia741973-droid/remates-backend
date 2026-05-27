@@ -69,7 +69,6 @@ router.put(
 /// 🔥 MINI PLAZA LOTES
 router.get(
   '/mini-plaza/:company_id',
-  requireAuth,
   getMiniPlazaLots,
 );
 
