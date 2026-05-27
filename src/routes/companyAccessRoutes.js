@@ -7,6 +7,7 @@ const {
   requestAccess,
   getPendingAccess,
   approveAccess,
+  getMyCompanyAccess,
 
 } = require(
   '../controllers/companyAccessController'
@@ -29,6 +30,12 @@ router.post(
   requestAccess,
 );
 
+/// 🔥 MI ESTADO EMPRESA
+router.get(
+  '/me',
+  requireAuth,
+  getMyCompanyAccess,
+);
 
 /// 🔥 PENDIENTES
 router.get(

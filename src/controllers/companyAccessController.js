@@ -185,3 +185,54 @@ exports.approveAccess =
     });
   }
 };
+
+/// 🔥 MI ESTADO EMPRESA
+exports.getMyCompanyAccess =
+  async (req, res) => {
+
+  try {
+
+    const user_id =
+      req.user.user_id;
+
+    const company_id =
+      req.user.company_id;
+
+    const result =
+      await pool.query(
+        `
+        SELECT
+          company_status
+        FROM user_companies
+        WHERE user_id = $1
+        AND company_id = $2
+        `,
+        [user_id, company_id]
+      );
+
+    if (
+      result.rows.length === 0
+    ) {
+
+      return res.status(404).json({
+
+        error:
+          'Sin relación empresa',
+      });
+    }
+
+    res.json(
+      result.rows[0],
+    );
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+
+      error:
+        'Error obteniendo estado',
+    });
+  }
+};
