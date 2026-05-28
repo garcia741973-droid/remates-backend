@@ -363,6 +363,23 @@ const rejectKyc = async (req, res) => {
       [reason, userId]
     );
 
+    /// 🔥 PUSH USUARIO
+    await sendUserNotification({
+
+        userId,
+
+        title:
+            '⚠️ KYC rechazado',
+
+        body:
+            'Tu verificación requiere correcciones. Revisa los detalles y vuelve a enviarla.',
+
+        data: {
+
+            type: 'kyc_rejected',
+        },
+    });
+
     res.json({ ok: true });
 
   } catch (err) {
