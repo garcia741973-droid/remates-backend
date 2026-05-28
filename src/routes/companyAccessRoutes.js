@@ -31,7 +31,7 @@ router.post(
 );
 
 /// 🔥 MI ESTADO EMPRESA
-router.get(
+router.post(
   '/me',
   requireAuth,
   getMyCompanyAccess,
