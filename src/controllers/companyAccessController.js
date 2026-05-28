@@ -203,10 +203,20 @@ exports.getMyCompanyAccess =
       await pool.query(
         `
         SELECT
-          company_status
-        FROM user_companies
-        WHERE user_id = $1
-        AND company_id = $2
+
+          uc.company_status,
+
+          u.kyc_status,
+
+          u.kyc_level
+
+        FROM user_companies uc
+
+        JOIN users u
+          ON u.id = uc.user_id
+
+        WHERE uc.user_id = $1
+        AND uc.company_id = $2
         `,
         [user_id, company_id]
       );
