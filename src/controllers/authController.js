@@ -411,6 +411,37 @@ exports.registerParticipant =
     const user =
         created.rows[0];
 
+    /// 🔥 RELACIÓN MULTIEMPRESA
+    await pool.query(
+
+      `
+      INSERT INTO user_companies (
+
+        user_id,
+        company_id,
+        role,
+        company_status,
+        created_at
+
+      )
+
+      VALUES (
+
+        $1,
+        $2,
+        'client',
+        'approved',
+        NOW()
+
+      )
+      `,
+
+      [
+        user.id,
+        company_id,
+      ],
+    );
+
     /// 🔐 TOKEN
     const token = jwt.sign(
 
