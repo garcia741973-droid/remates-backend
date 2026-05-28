@@ -93,22 +93,6 @@ const updateKyc = async (req, res) => {
       [userId]
     );
 
-    // 🔥 EMPRESA (FIX)
-    await pool.query(
-      `UPDATE user_companies
-       SET kyc_status = 'incomplete'
-       WHERE user_id = $1 AND company_id = $2`,
-      [userId, req.user.company_id]
-    );
-
-    // 🔥 LIMPIAR RECHAZO
-    await pool.query(
-      `UPDATE user_kyc
-       SET rejection_reason = null
-       WHERE user_id = $1`,
-      [userId]
-    );
-
     res.json(result.rows[0]);
 
   } catch (err) {
@@ -193,14 +177,6 @@ const submitKyc = async (req, res) => {
       [userId]
     );
 
-    // 🔥 EMPRESA (FIX)
-    await pool.query(
-      `UPDATE user_companies
-       SET kyc_status = 'submitted'
-       WHERE user_id = $1 AND company_id = $2`,
-      [userId, req.user.company_id]
-    );
-
     res.json({ ok: true });
 
   } catch (err) {
@@ -219,15 +195,17 @@ const getPendingKyc = async (req, res) => {
       SELECT 
         u.id,
         u.email,
-        uc.kyc_status,
+        u.kyc_status,
         k.*
       FROM user_companies uc
-      JOIN users u ON u.id = uc.user_id
-      JOIN user_kyc k ON k.user_id = u.id
+      JOIN users u
+        ON u.id = uc.user_id
+      JOIN user_kyc k
+        ON k.user_id = u.id
       WHERE uc.company_id = $1
         AND u.role = 'client'
         AND k.submitted_at IS NOT NULL
-        AND (uc.kyc_status IS NULL OR uc.kyc_status != 'approved')
+        AND (u.kyc_status IS NULL OR u.kyc_status != 'approved')
       ORDER BY k.submitted_at DESC
       `,
       [req.user.company_id]
@@ -249,12 +227,12 @@ const approveKyc = async (req, res) => {
     const userId = req.params.userId;
 
     await pool.query(
-      `UPDATE user_companies
+      `UPDATE users
        SET kyc_status = 'approved',
            kyc_level = 2,
            kyc_verified_at = now()
-       WHERE user_id = $1 AND company_id = $2`,
-      [userId, req.user.company_id]
+       WHERE id = $1`,
+      [userId]
     );
 
     await pool.query(
@@ -343,10 +321,10 @@ const rejectKyc = async (req, res) => {
     const { reason } = req.body;
 
     await pool.query(
-      `UPDATE user_companies
+      `UPDATE users
        SET kyc_status = 'rejected'
-       WHERE user_id = $1 AND company_id = $2`,
-      [userId, req.user.company_id]
+       WHERE id = $1`,
+      [userId]
     );
 
     await pool.query(
