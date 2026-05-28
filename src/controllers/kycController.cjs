@@ -5,7 +5,11 @@ const {
 } = require('../services/operationEventsService');
 
 const {
+
   sendAdminNotification,
+
+  sendUserNotification,
+
 } = require('../services/notificationService');
 
 //
@@ -287,6 +291,23 @@ const approveKyc = async (req, res) => {
     res.status(500).json({ error: "Error aprobando KYC" });
   }
 };
+
+/// 🔥 PUSH USUARIO
+await sendUserNotification({
+
+    userId,
+
+    title:
+        '✅ KYC aprobado',
+
+    body:
+        'Tu identidad fue verificada. Ya puedes participar en remates.',
+
+    data: {
+
+        type: 'kyc_approved',
+    },
+});
 
 //
 // 🧠 ADMIN: GET KYC POR USER

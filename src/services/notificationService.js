@@ -211,3 +211,42 @@ exports.sendAdminNotification = async ({
         );
     }
 };
+
+/// ======================================================
+/// 🔥 NOTIFICAR USUARIO
+/// ======================================================
+exports.sendUserNotification = async ({
+    userId,
+    title,
+    body,
+    data = {},
+}) => {
+
+    try {
+
+        if (!userId) {
+
+            console.log(
+                '⚠️ USER ID REQUIRED',
+            );
+
+            return;
+        }
+
+        await exports.sendPushNotification({
+
+            userIds: [userId],
+
+            title,
+            body,
+            data,
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ USER NOTIFICATION ERROR',
+            err,
+        );
+    }
+};
