@@ -293,8 +293,14 @@ const approveKyc = async (req, res) => {
 //
 const getKycByUser = async (req, res) => {
   try {
-    if (req.user.role !== 'super_admin') {
-      return res.status(403).json({ error: "No autorizado" });
+    if (
+      req.user.role !== 'super_admin' &&
+      req.user.role !== 'admin'
+    ) {
+
+      return res.status(403).json({
+        error: "No autorizado"
+      });
     }
 
     const { userId } = req.params;
