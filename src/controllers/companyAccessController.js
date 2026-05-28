@@ -195,8 +195,9 @@ exports.getMyCompanyAccess =
     const user_id =
       req.user.user_id;
 
-    const company_id =
-      req.user.company_id;
+    /// 🔥 AHORA VIENE DEL FRONT
+    const { company_id } =
+      req.body;
 
     const result =
       await pool.query(
