@@ -284,14 +284,6 @@ const approveKyc = async (req, res) => {
       },
     });
 
-    res.json({ ok: true });
-
-  } catch (err) {
-    console.error("APPROVE ERROR:", err);
-    res.status(500).json({ error: "Error aprobando KYC" });
-  }
-};
-
 /// 🔥 PUSH USUARIO
 await sendUserNotification({
 
@@ -308,6 +300,15 @@ await sendUserNotification({
         type: 'kyc_approved',
     },
 });
+
+
+    res.json({ ok: true });
+
+  } catch (err) {
+    console.error("APPROVE ERROR:", err);
+    res.status(500).json({ error: "Error aprobando KYC" });
+  }
+};
 
 //
 // 🧠 ADMIN: GET KYC POR USER
