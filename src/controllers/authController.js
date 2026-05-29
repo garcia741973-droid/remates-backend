@@ -340,6 +340,9 @@ exports.registerParticipant =
           user_id:
               user.id,
 
+          company_id:
+              company_id,
+
           role: 'client',
         },
 
@@ -449,6 +452,9 @@ exports.registerParticipant =
 
         user_id:
             user.id,
+
+        company_id:
+            company_id,
 
         role:
             user.role,
