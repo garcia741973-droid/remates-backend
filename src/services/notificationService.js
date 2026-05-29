@@ -260,3 +260,59 @@ exports.sendUserNotification = async ({
         );
     }
 };
+
+/// ======================================================
+/// 🔥 NOTIFICAR ADMIN DE EMPRESA
+/// ======================================================
+exports.sendCompanyAdminNotification = async ({
+    companyId,
+    title,
+    body,
+    data = {},
+}) => {
+
+    try {
+
+        const admins =
+            await pool.query(
+
+                `
+                SELECT DISTINCT u.id
+                FROM user_companies uc
+                JOIN users u
+                  ON u.id = uc.user_id
+                WHERE uc.company_id = $1
+                AND uc.role = 'admin'
+                `,
+                [companyId],
+            );
+
+        const adminIds =
+            admins.rows.map(
+                (r) => r.id,
+            );
+
+        console.log(
+            '🏢 COMPANY ADMINS:',
+            adminIds,
+        );
+
+        if (!adminIds.length) return;
+
+        await exports.sendPushNotification({
+
+            userIds: adminIds,
+
+            title,
+            body,
+            data,
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ COMPANY ADMIN NOTIFICATION ERROR',
+            err,
+        );
+    }
+};
