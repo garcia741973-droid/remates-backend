@@ -367,7 +367,7 @@ await sendUserNotification({
         '✅ KYC aprobado',
 
     body:
-        'Tu identidad fue verificada. Ya puedes participar en remates.',
+        'Tu identidad fue aprobada. Ingresa con tu cuenta para continuar.',
 
     data: {
 

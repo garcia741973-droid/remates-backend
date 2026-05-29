@@ -1,5 +1,9 @@
 const { pool } = require("../config/db");
 
+const {
+  sendAdminNotification,
+} = require('../services/notificationService');
+
 /// 🟢 SOLICITAR SER VENDEDOR
 exports.requestSeller = async (req, res) => {
   try {
@@ -42,6 +46,23 @@ exports.requestSeller = async (req, res) => {
       `,
       [userId]
     );
+
+    await sendAdminNotification({
+
+      title:
+          '🐄 Nuevo vendedor pendiente',
+
+      body:
+          `Usuario ${userId} solicitó autorización para vender ganado`,
+
+      data: {
+
+          type: 'seller_request',
+
+          user_id:
+              userId.toString(),
+      },
+    });    
 
     res.json({
       message: "Solicitud enviada"
