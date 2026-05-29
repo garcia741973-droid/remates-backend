@@ -37,8 +37,26 @@ const getMyKyc = async (req, res) => {
       result = insert;
     }
 
+    const userRes = await pool.query(
+      `
+      SELECT
+        kyc_status,
+        seller_status
+      FROM users
+      WHERE id = $1
+      `,
+      [userId]
+    );
+
     res.json({
-      kyc: result.rows[0]
+
+      kyc: result.rows[0],
+
+      kyc_status:
+          userRes.rows[0]?.kyc_status,
+
+      seller_status:
+          userRes.rows[0]?.seller_status,
     });
 
   } catch (err) {
