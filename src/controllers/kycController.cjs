@@ -168,8 +168,10 @@ const submitKyc = async (req, res) => {
 
     await pool.query(
       `UPDATE user_kyc
-       SET submitted_at = now()
-       WHERE user_id = $1`,
+      SET submitted_at = now(),
+          rejection_reason = null,
+          reviewed_at = null
+      WHERE user_id = $1`,
       [userId]
     );
 
