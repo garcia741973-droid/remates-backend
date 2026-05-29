@@ -48,6 +48,11 @@ exports.sendPushNotification = async ({
             tokens.length,
         );
 
+        console.log(
+            '📲 TOKENS:',
+            tokens,
+        );
+
         if (!tokens.length) {
 
             console.log(
@@ -111,6 +116,11 @@ exports.sendPushNotification = async ({
                         },
                     },
                 });
+
+        console.log(
+            '🔥 FULL RESPONSE:',
+            JSON.stringify(response),
+        );
 
         console.log(
             '🔥 PUSH SENT:',

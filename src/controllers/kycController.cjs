@@ -364,6 +364,11 @@ const rejectKyc = async (req, res) => {
     );
 
     /// 🔥 PUSH USUARIO
+
+    console.log(
+      '🚀 ENVIANDO PUSH REJECT',
+    );
+
     await sendUserNotification({
 
         userId,
