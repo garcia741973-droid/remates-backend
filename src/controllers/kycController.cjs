@@ -357,9 +357,10 @@ const rejectKyc = async (req, res) => {
 
     await pool.query(
       `UPDATE user_kyc
-       SET rejection_reason = $1,
-           reviewed_at = now()
-       WHERE user_id = $2`,
+      SET rejection_reason = $1,
+          reviewed_at = now(),
+          submitted_at = null
+      WHERE user_id = $2`,
       [reason, userId]
     );
 
