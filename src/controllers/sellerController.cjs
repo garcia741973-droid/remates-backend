@@ -140,6 +140,22 @@ exports.approveSeller = async (req, res) => {
       [id]
     );
 
+    await sendUserNotification({
+
+        userId: id,
+
+        title:
+            '🐄 Vendedor aprobado',
+
+        body:
+            'Tu solicitud fue aprobada. Ingresa con tu cuenta para comenzar a publicar ganado.',
+
+        data: {
+
+            type: 'seller_approved',
+        },
+    });
+
     res.json({ message: "Vendedor aprobado" });
 
   } catch (error) {
