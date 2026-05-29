@@ -10,6 +10,8 @@ const {
 
   sendUserNotification,
 
+  sendCompanyAdminNotification,
+
 } = require('../services/notificationService');
 
 //
@@ -166,6 +168,9 @@ const submitKyc = async (req, res) => {
   try {
     const userId = req.user.user_id;
 
+    const companyId =
+      req.user.company_id;
+
     await pool.query(
       `UPDATE user_kyc
       SET submitted_at = now(),
@@ -183,8 +188,10 @@ const submitKyc = async (req, res) => {
       [userId]
     );
 
-    /// 🔥 PUSH ADMIN
-    await sendAdminNotification({
+    /// 🔥 PUSH ADMIN EMPRESA
+    await sendCompanyAdminNotification({
+
+        companyId,
 
         title:
             '📋 Nuevo KYC enviado',
