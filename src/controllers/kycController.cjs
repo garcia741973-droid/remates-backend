@@ -183,6 +183,24 @@ const submitKyc = async (req, res) => {
       [userId]
     );
 
+    /// 🔥 PUSH ADMIN
+    await sendAdminNotification({
+
+        title:
+            '📋 Nuevo KYC enviado',
+
+        body:
+            `Usuario ${userId} envió documentación para revisión`,
+
+        data: {
+
+            type: 'kyc_submitted',
+
+            user_id:
+                userId.toString(),
+        },
+    });
+
     res.json({ ok: true });
 
   } catch (err) {
