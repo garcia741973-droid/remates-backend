@@ -359,3 +359,84 @@ exports.uploadHeroVideo =
       });
     }
   };
+
+/// 🔥 OBTENER EMPRESA POR ID
+exports.getCompanyById = async (req, res) => {
+
+  try {
+
+    const { company_id } =
+        req.params;
+
+    const result =
+        await pool.query(
+
+      `
+      SELECT
+
+        id,
+
+        name AS company_name,
+
+        logo_url,
+
+        hero_video_url,
+
+        lobby_banner_url,
+
+        mini_plaza_background_url,
+
+        primary_color,
+
+        secondary_color,
+
+        background_color,
+
+        EXISTS (
+
+          SELECT 1
+          FROM auctions a
+          WHERE
+
+            a.company_id = companies.id
+
+            AND a.status = 'live'
+
+        ) AS has_live
+
+      FROM companies
+
+      WHERE id = $1
+      `,
+      [company_id]
+    );
+
+    if (
+      result.rows.length === 0
+    ) {
+
+      return res.status(404).json({
+
+        error:
+          'Empresa no encontrada',
+      });
+    }
+
+    res.json(
+      result.rows[0],
+    );
+
+  } catch (e) {
+
+    console.log(
+      'GET COMPANY BY ID ERROR:',
+      e,
+    );
+
+    res.status(500).json({
+
+      error:
+        'Error obteniendo empresa',
+    });
+  }
+};  

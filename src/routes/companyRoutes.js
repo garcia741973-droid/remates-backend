@@ -7,6 +7,8 @@ const {
 
   getRemateCompanies,
 
+  getCompanyById,
+
 } = require(
   '../controllers/companyController'
 );
@@ -37,6 +39,14 @@ router.get(
   '/remates',
 
   getRemateCompanies,
+);
+
+/// 🔥 EMPRESA POR ID
+router.get(
+
+  '/:company_id',
+
+  getCompanyById,
 );
 
 router.post('/logo', requireAuth, upload.single('logo'), uploadLogo);
