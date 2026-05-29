@@ -211,25 +211,49 @@ const submitKyc = async (req, res) => {
       [userId]
     );
 
-    /// 🔥 PUSH ADMIN EMPRESA
-    await sendCompanyAdminNotification({
+    // 🔥 PLAZA GANADERA
+    if (companyId == 1) {
 
-        companyId,
+        await sendAdminNotification({
 
-        title:
-            '📋 Nuevo KYC enviado',
+            title:
+                '📋 Nuevo KYC Plaza Ganadera',
 
-        body:
-            `Usuario ${userId} envió documentación para revisión`,
+            body:
+                `Usuario ${userId} envió documentación para revisión`,
 
-        data: {
+            data: {
 
-            type: 'kyc_submitted',
+                type: 'kyc_submitted',
 
-            user_id:
-                userId.toString(),
-        },
-    });
+                user_id:
+                    userId.toString(),
+            },
+        });
+
+    }
+    // 🔥 EMPRESAS DE REMATE
+    else {
+
+        await sendCompanyAdminNotification({
+
+            companyId,
+
+            title:
+                '📋 Nuevo KYC enviado',
+
+            body:
+                `Usuario ${userId} envió documentación para revisión`,
+
+            data: {
+
+                type: 'kyc_submitted',
+
+                user_id:
+                    userId.toString(),
+            },
+        });
+    }
 
     res.json({ ok: true });
 
