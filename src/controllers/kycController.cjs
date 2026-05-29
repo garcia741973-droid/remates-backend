@@ -171,6 +171,11 @@ const submitKyc = async (req, res) => {
     const companyId =
       req.user.company_id;
 
+    console.log(
+      '🏢 COMPANY ID KYC:',
+      companyId,
+    );
+
     await pool.query(
       `UPDATE user_kyc
       SET submitted_at = now(),
