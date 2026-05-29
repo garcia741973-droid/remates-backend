@@ -372,25 +372,27 @@ exports.getCompanyById = async (req, res) => {
         await pool.query(
 
       `
-      SELECT
+        SELECT
 
-        id,
+          id,
 
-        name AS company_name,
+          id AS company_id,
 
-        logo_url,
+          name AS company_name,
 
-        hero_video_url,
+          logo_url,
 
-        lobby_banner_url,
+          hero_video_url,
 
-        mini_plaza_background_url,
+          lobby_banner_url,
 
-        primary_color,
+          mini_plaza_background_url,
 
-        secondary_color,
+          primary_color,
 
-        background_color,
+          secondary_color,
+
+          background_color,
 
         EXISTS (
 
