@@ -3,7 +3,36 @@ const { pool } = require("../config/db");
 /// 🟢 SOLICITAR SER VENDEDOR
 exports.requestSeller = async (req, res) => {
   try {
-    const userId = req.user.user_id; // 🔥 FIX CLAVE
+
+    const userId = req.user.user_id;
+
+    /// 🔥 VALIDAR KYC
+    const userRes = await pool.query(
+      `
+      SELECT
+        kyc_status
+      FROM users
+      WHERE id = $1
+      `,
+      [userId]
+    );
+
+    if (
+      userRes.rows.length === 0
+    ) {
+      return res.status(404).json({
+        error: "Usuario no encontrado"
+      });
+    }
+
+    if (
+      userRes.rows[0].kyc_status !== 'approved'
+    ) {
+      return res.status(403).json({
+        error:
+          "Debes completar tu verificación KYC para solicitar ser vendedor"
+      });
+    }
 
     await pool.query(
       `
@@ -14,11 +43,18 @@ exports.requestSeller = async (req, res) => {
       [userId]
     );
 
-    res.json({ message: "Solicitud enviada" });
+    res.json({
+      message: "Solicitud enviada"
+    });
 
   } catch (error) {
+
     console.error(error);
-    res.status(500).json({ error: "Error al solicitar vendedor" });
+
+    res.status(500).json({
+      error:
+        "Error al solicitar vendedor"
+    });
   }
 };
 
