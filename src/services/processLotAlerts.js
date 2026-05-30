@@ -8,6 +8,9 @@ const {
 
 async function processLotAlerts(lot) {
 
+  const source =
+    lot.source || 'plaza';
+
   try {
 
     console.log(
@@ -79,20 +82,22 @@ async function processLotAlerts(lot) {
       );
 
       /// 🔥 VERIFICAR SI YA EXISTE ALERTA PARA ESTE LOTE
-      const existingLotAlert =
-        await pool.query(
-          `
-          SELECT id
-          FROM search_alerts
-          WHERE user_id = $1
-          AND lot_id = $2
-          LIMIT 1
-          `,
-          [
-            search.user_id,
-            lot.id,
-          ]
-        );
+const existingLotAlert =
+  await pool.query(
+    `
+    SELECT id
+    FROM search_alerts
+    WHERE user_id = $1
+    AND lot_id = $2
+    AND source = $3
+    LIMIT 1
+    `,
+    [
+      search.user_id,
+      lot.id,
+      source,
+    ]
+  );
 
       const isFirstMatch =
         existingLotAlert.rows.length === 0;
@@ -123,11 +128,13 @@ async function processLotAlerts(lot) {
           FROM search_alerts
           WHERE user_id = $1
           AND lot_id = $2
-          AND saved_search_id = $3
+          AND source = $3
+          AND saved_search_id = $4
           `,
           [
             search.user_id,
             lot.id,
+            source,
             search.id,
           ]
         );
@@ -158,16 +165,18 @@ async function processLotAlerts(lot) {
           user_id,
           company_id,
           lot_id,
+          source,
           saved_search_id,
           score,
           reasons
         )
-        VALUES ($1,$2,$3,$4,$5,$6)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
         `,
         [
           search.user_id,
           search.company_id,
           lot.id,
+          source,
           search.id,
           result.score,
           JSON.stringify(result.reasons),
