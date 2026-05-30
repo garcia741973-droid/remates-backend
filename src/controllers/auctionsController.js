@@ -745,4 +745,83 @@ exports.getLiveAuctions =
           'Error obteniendo remates live',
       });
     }
+  };
+  
+/// 🔥 REMATE LIVE DE MI EMPRESA
+exports.getMyLiveAuction =
+  async (req, res) => {
+
+    try {
+
+      const company_id =
+          req.user.company_id;
+
+      const result =
+          await pool.query(
+
+        `
+        SELECT
+
+          a.*,
+
+          c.name AS company_name,
+
+          c.logo_url,
+
+          c.primary_color,
+
+          c.secondary_color,
+
+          c.background_color,
+
+          c.lobby_banner_url,
+
+          c.mini_plaza_background_url
+
+        FROM auctions a
+
+        LEFT JOIN companies c
+        ON c.id = a.company_id
+
+        WHERE
+
+          a.company_id = $1
+
+          AND a.status = 'live'
+
+        ORDER BY a.id DESC
+
+        LIMIT 1
+        `,
+        [company_id]
+      );
+
+      if (
+        result.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+
+          error:
+            'No hay remate live',
+        });
+      }
+
+      res.json(
+        result.rows[0],
+      );
+
+    } catch (e) {
+
+      console.log(
+        'GET MY LIVE AUCTION ERROR:',
+        e,
+      );
+
+      res.status(500).json({
+
+        error:
+          'Error obteniendo remate live',
+      });
+    }
   };  

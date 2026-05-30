@@ -94,7 +94,7 @@ router.get(
 router.get(
   '/my-live',
   requireAuth,
-  auctionController.getMyLiveAuction
+  auctionsController.getMyLiveAuction
 );
 
 module.exports = router;
