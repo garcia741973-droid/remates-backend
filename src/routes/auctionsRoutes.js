@@ -64,6 +64,12 @@ router.get(
   exportGlobalAuctionAnalytics,
 );
 
+router.get(
+  '/my-live',
+  requireAuth,
+  auctionsController.getMyLiveAuction
+);
+
 // 🟢 OBTENER REMATE POR ID
 router.get('/:id', requireAuth, getAuctionById);
 
@@ -91,10 +97,5 @@ router.get(
   getAuctionAnalytics,
 );
 
-router.get(
-  '/my-live',
-  requireAuth,
-  auctionsController.getMyLiveAuction
-);
 
 module.exports = router;
