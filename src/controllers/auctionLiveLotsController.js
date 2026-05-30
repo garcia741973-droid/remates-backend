@@ -1,6 +1,10 @@
 const { pool } = require('../config/db');
 
 const {
+  sendPushNotification,
+} = require('../services/notificationService');
+
+const {
   processLotAlerts,
 } = require('../services/processLotAlerts');
 
@@ -876,6 +880,68 @@ exports.openLiveLot =
       'miniPlazaUpdated'
     );    
 
+    /// 🔔 AVISAR WATCHERS
+    const watchersResult =
+        await pool.query(
+      `
+      SELECT user_id
+      FROM auction_lot_watchers
+      WHERE lot_id = $1
+      AND status = 'active'
+      AND notified_at IS NULL
+      `,
+      [lot_id]
+    );
+
+    const userIds =
+        watchersResult.rows.map(
+      w => w.user_id
+    );
+
+    console.log(
+      '🔔 WATCHERS:',
+      userIds
+    );
+
+    if (userIds.length > 0) {
+
+      await sendPushNotification({
+
+        userIds,
+
+        title:
+          '🔔 Tu lote ya está en remate',
+
+        body:
+          `Lote #${lot.lot_number} - ${lot.title}`,
+
+        data: {
+
+          type:
+            'auction_live_reminder',
+
+          lot_id:
+            String(lot_id),
+
+          auction_id:
+            String(auction_id),
+        },
+      });
+
+      await pool.query(
+        `
+        UPDATE auction_lot_watchers
+        SET notified_at = NOW()
+        WHERE lot_id = $1
+        AND notified_at IS NULL
+        `,
+        [lot_id]
+      );
+
+      console.log(
+        '✅ WATCHERS NOTIFICADOS'
+      );
+    }    
 
     res.json({
 
