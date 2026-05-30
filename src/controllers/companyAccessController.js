@@ -1,5 +1,13 @@
 const { pool } = require('../config/db');
 
+const {
+
+  sendCompanyAdminNotification,
+
+  sendUserNotification,
+
+} = require('../services/notificationService');
+
 /// 🔥 SOLICITAR ACCESO EMPRESA
 exports.requestAccess = async (
   req,
@@ -56,6 +64,29 @@ exports.requestAccess = async (
         'pending',
       ]
     );
+
+    await sendCompanyAdminNotification({
+
+      companyId: company_id,
+
+      title:
+          '👤 Nuevo acceso pendiente',
+
+      body:
+          `Usuario ${userId} solicitó acceso a la empresa`,
+
+      data: {
+
+        type:
+            'company_access_request',
+
+        user_id:
+            userId.toString(),
+
+        company_id:
+            company_id.toString(),
+      },
+    });    
 
     res.json({
       message:
@@ -150,6 +181,19 @@ exports.approveAccess =
     const { id } =
       req.params;
 
+    const access =
+        await pool.query(
+      `
+      SELECT user_id
+      FROM user_companies
+      WHERE id = $1
+      `,
+      [id]
+    );
+
+    const targetUserId =
+        access.rows[0]?.user_id;
+
     await pool.query(
       `
       UPDATE user_companies
@@ -168,6 +212,27 @@ exports.approveAccess =
         company_id,
       ]
     );
+
+    if (targetUserId) {
+
+      await sendUserNotification({
+
+        userId:
+            targetUserId,
+
+        title:
+            '✅ Acceso aprobado',
+
+        body:
+            'Tu acceso a la rematadora fue aprobado. Ya puedes ingresar.',
+
+        data: {
+
+          type:
+              'company_access_approved',
+        },
+      });
+    }
 
     res.json({
       message:
