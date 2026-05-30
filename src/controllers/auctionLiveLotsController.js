@@ -1,5 +1,9 @@
 const { pool } = require('../config/db');
 
+const {
+  processLotAlerts,
+} = require('../services/processLotAlerts');
+
 /// 🔥 CREAR LOTE VIVO REMATE
 exports.createAuctionLiveLot = async (req, res) => {
 
@@ -267,6 +271,25 @@ exports.createAuctionLiveLot = async (req, res) => {
       ]
     );
 
+    const createdLot =
+        result.rows[0];
+    
+    /// 🔥 NORMALIZAR PARA ALERTAS
+    const alertLot = {
+
+      ...createdLot,
+
+      class:
+          createdLot.cattle_type,
+
+      source:
+          'auction',
+    };
+
+    await processLotAlerts(
+      alertLot
+    );    
+
     /// 🔥 SOCKET MINI PLAZA
     const io =
         req.app.get('io');
@@ -275,7 +298,7 @@ exports.createAuctionLiveLot = async (req, res) => {
       'miniPlazaUpdated'
     );
 
-    res.json(result.rows[0]);
+    res.json(createdLot);
 
   } catch (error) {
 
