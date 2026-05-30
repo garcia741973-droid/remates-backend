@@ -364,9 +364,23 @@ exports.getAuctionLiveLotById =
     const result =
         await pool.query(
       `
-      SELECT *
-      FROM auction_live_lots
-      WHERE id = $1
+      SELECT
+
+        l.*,
+
+        c.name AS company_name,
+
+        a.name AS auction_name
+
+      FROM auction_live_lots l
+
+      JOIN companies c
+        ON c.id = l.company_id
+
+      JOIN auctions a
+        ON a.id = l.auction_id
+
+      WHERE l.id = $1
       `,
       [id]
     );
