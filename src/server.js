@@ -145,6 +145,11 @@ const auctionCertificatesRoutes =
       './routes/auctionCertificatesRoutes'
     );
 
+const lotWatchersRoutes =
+    require(
+      './routes/lotWatchersRoutes'
+    );    
+
 const app = express();
 
 const upcomingAuctionsRoutes =
@@ -223,6 +228,11 @@ app.use(
 app.use(
   '/saved-searches',
   savedSearchesRoutes
+);
+
+app.use(
+  '/lot-watchers',
+  lotWatchersRoutes
 );
 
 app.use(
