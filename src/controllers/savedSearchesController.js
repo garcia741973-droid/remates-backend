@@ -230,6 +230,8 @@ exports.getSavedSearchAlerts =
 
             sa.id as alert_id,
 
+            sa.source,
+
             sa.opened,
 
             sa.score,
@@ -238,14 +240,73 @@ exports.getSavedSearchAlerts =
 
             sa.created_at,
 
-            l.*
+            COALESCE(
+              p.id,
+              a.id
+            ) as lot_id,
+
+            COALESCE(
+              p.class,
+              a.cattle_type
+            ) as class,
+
+            COALESCE(
+              p.breed,
+              a.breed
+            ) as breed,
+
+            COALESCE(
+              p.department,
+              a.department
+            ) as department,
+
+            COALESCE(
+              p.province,
+              a.province
+            ) as province,
+
+            COALESCE(
+              p.municipality,
+              a.municipality
+            ) as municipality,
+
+            COALESCE(
+              p.quantity,
+              a.quantity
+            ) as quantity,
+
+            COALESCE(
+              p.weight,
+              a.weight
+            ) as weight,
+
+            COALESCE(
+              p.sale_type,
+              a.sale_type
+            ) as sale_type,
+
+            COALESCE(
+              p.current_price,
+              a.current_price
+            ) as current_price,
+
+            COALESCE(
+              p.images,
+              a.images
+            ) as images
 
           FROM search_alerts sa
 
-          JOIN lots l
-            ON l.id = sa.lot_id
+          LEFT JOIN lots p
+            ON sa.source = 'plaza'
+            AND p.id = sa.lot_id
 
-            WHERE sa.saved_search_id = $1
+          LEFT JOIN auction_live_lots a
+            ON sa.source = 'auction'
+            AND a.id = sa.lot_id
+
+          WHERE
+            sa.saved_search_id = $1
             AND sa.user_id = $2
             AND sa.company_id = $3
             AND COALESCE(sa.hidden, false) = false
