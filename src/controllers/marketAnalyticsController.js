@@ -30,50 +30,55 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
 
     const lotsResult = await pool.query(
     `
-    SELECT
+        SELECT
+        breed,
+        municipality,
+        cattle_type,
+        age,
+        gender,
+        quantity,
 
-    breed,
-    municipality,
-    cattle_type,
-    age,
-    gender,
+        weight,
 
-    quantity,
-    weight,
+        sale_type,
 
-    sale_type,
+        final_price AS price,
 
-    final_price AS price,
+        'auction' AS source_type,
 
-    closed_at
+        closed_at
 
-    FROM auction_live_lots
+        FROM auction_live_lots
 
-    WHERE status = 'sold'
+        WHERE status = 'sold'
 
-    UNION ALL
+        UNION ALL
 
-    SELECT
+        SELECT
+        breed,
+        municipality,
+        class AS cattle_type,
+        NULL AS age,
+        NULL AS gender,
 
-    breed,
-    municipality,
+        quantity,
 
-    class AS cattle_type,
+        weight,
 
-    NULL AS age,
+        sale_type,
 
-    NULL AS gender,
+        COALESCE(
+            final_price,
+            base_price
+        ) AS price,
 
-    quantity,
-    weight,
+        'lot' AS source_type,
 
-    sale_type,
+        sold_at AS closed_at
 
-    base_price AS price,
+        FROM lots
 
-    created_at AS closed_at
-
-    FROM lots
+        WHERE status = 'sold'
 
     `,
     );
@@ -103,13 +108,25 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
 
       const quantity = parseFloat(lot.quantity || 0);
       const weight = parseFloat(lot.weight || 0);
-      const finalPrice = parseFloat(lot.final_price || 0);
+        const finalPrice =
+        parseFloat(
+            lot.price || 0
+        );
       const saleType = lot.sale_type?.toString().toLowerCase();
       const source = lot.bid_source?.toString().toLowerCase();
 
       lotsSold++;
       animalsSold += quantity;
-      totalWeight += weight;
+        let realWeight = weight;
+
+        if (
+        lot.source_type === 'lot'
+        ) {
+        realWeight =
+            quantity * weight;
+        }
+
+        totalWeight += realWeight;
 
       let revenue = 0;
 
