@@ -2,7 +2,6 @@ const { pool } = require('../config/db');
 
 exports.getGlobalAuctionAnalytics = async (req, res) => {
   try {
-    const companyId = req.user.company_id;
 
     const {
     from,
@@ -16,7 +15,7 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
 
     } = req.query;
 
-    const params = [companyId];
+    const params = [];
     let dateFilter = '';
 
     if (from && to) {
@@ -403,15 +402,12 @@ exports.exportGlobalAuctionAnalytics =
 
   try {
 
-    const companyId =
-        req.user.company_id;
-
     const {
       from,
       to,
     } = req.query;
 
-    const params = [companyId];
+    const params = [];
 
     let dateFilter = '';
 
