@@ -917,12 +917,14 @@ exports.uploadPaymentProof = async (req, res) => {
       SET
         status = 'sold',
         winner_user_id = $1,
-        sold_at = NOW()
-      WHERE id = $2
+        sold_at = NOW(),
+        final_price = $2
+      WHERE id = $3
       `,
       [
         negotiation.buyer_id,
-        negotiation.lot_id
+        negotiatedPrice,
+        negotiation.lot_id,
       ]
     );
 
@@ -940,6 +942,22 @@ exports.uploadPaymentProof = async (req, res) => {
       `,
       [negotiation.lot_id]
     );
+
+    /// 🔥 OBTENER PRECIO FINAL NEGOCIADO
+    const lastOfferRes = await pool.query(
+      `
+      SELECT price
+      FROM negotiation_messages
+      WHERE negotiation_id = $1
+      AND price IS NOT NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+      [negotiation.id]
+    );
+
+    const negotiatedPrice =
+      lastOfferRes.rows[0]?.price || null;
 
     /// 🔥 CERRAR OTRAS NEGOCIACIONES
     await pool.query(
