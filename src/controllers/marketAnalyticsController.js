@@ -389,6 +389,21 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
       params,
     );
 
+    console.log(
+    '🔥 LOTS UNION TOTAL:',
+    lots.length
+    );
+
+    console.log(
+    '🔥 SUMMARY:',
+    {
+        lotsSold,
+        animalsSold,
+        totalWeight,
+        totalRevenue,
+    }
+    );
+
     return res.json({
       summary: {
         lots_sold: lotsSold,
