@@ -16,15 +16,16 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
     } = req.query;
 
     const params = [];
-    let dateFilter = '';
 
     if (from && to) {
-      dateFilter = `
+
+    dateFilter = `
         AND DATE(l.closed_at)
-        BETWEEN $2 AND $3
-      `;
-      params.push(from);
-      params.push(to);
+        BETWEEN $1 AND $2
+    `;
+
+    params.push(from);
+    params.push(to);
     }
 
     const lotsResult = await pool.query(
@@ -298,8 +299,7 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
       ) b ON true
 
       WHERE
-        l.company_id = $1
-        AND l.status = 'sold'
+        l.status = 'sold'
         ${dateFilter}
         AND ${groupField} IS NOT NULL
 
@@ -352,9 +352,7 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
 
       WHERE
 
-        l.company_id = $1
-
-        AND l.status = 'sold'
+        l.status = 'sold'
 
         ${dateFilter}
 
@@ -415,7 +413,7 @@ exports.exportGlobalAuctionAnalytics =
 
       dateFilter = `
         AND DATE(l.closed_at)
-        BETWEEN $2 AND $3
+        BETWEEN $1 AND $2
       `;
 
       params.push(from);
@@ -549,9 +547,7 @@ exports.exportGlobalAuctionAnalytics =
 
       WHERE
 
-        l.company_id = $1
-
-        AND l.status = 'sold'
+        l.status = 'sold'
 
         ${dateFilter}
 
