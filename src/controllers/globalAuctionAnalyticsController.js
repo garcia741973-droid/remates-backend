@@ -308,21 +308,16 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
         DATE(l.closed_at)
         AS trend_date,
 
-        AVG(
-
-          CASE
-
-            WHEN l.sale_type = 'kilo'
-
-            THEN l.final_price
-
-            ELSE NULL
-
-          END
-
-        )
-
-        AS avg_price_kg
+        COALESCE(
+          AVG(
+            CASE
+              WHEN l.sale_type = 'kilo'
+              THEN l.final_price
+              ELSE NULL
+            END
+          ),
+          0
+        ) AS avg_price_kg
 
       FROM auction_live_lots l
 
