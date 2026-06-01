@@ -94,6 +94,13 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
     const buyersMap = {};
 
     for (const lot of lots) {
+
+        console.log({
+            sale_type: lot.sale_type,
+            weight: lot.weight,
+            final_price: lot.final_price,
+        });
+
       const quantity = parseFloat(lot.quantity || 0);
       const weight = parseFloat(lot.weight || 0);
       const finalPrice = parseFloat(lot.final_price || 0);
