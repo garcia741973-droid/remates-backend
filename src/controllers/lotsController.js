@@ -393,7 +393,80 @@ exports.getLots = async (req, res) => {
       params
     );
 
-    res.json(rows);
+    /// 🔥 LOTES DE REMATE
+    const auctionLotsResult =
+        await pool.query(
+    `
+    SELECT
+
+      l.id,
+
+      l.company_id,
+
+      l.lot_number,
+
+      l.title,
+
+      l.breed,
+
+      l.quantity,
+
+      l.weight,
+
+      l.sale_type,
+
+      l.current_price AS base_price,
+
+      l.department,
+
+      l.province,
+
+      l.municipality,
+
+      l.images,
+
+      l.videos,
+
+      l.cattle_type AS class,
+
+      l.status,
+
+      c.name AS company_name,
+
+      'auction' AS source
+
+    FROM auction_live_lots l
+
+    JOIN companies c
+      ON c.id = l.company_id
+
+    JOIN auctions a
+      ON a.id = l.auction_id
+
+    WHERE
+
+      l.status IN (
+        'queued',
+        'live'
+      )
+
+      AND a.status != 'closed'
+    `
+    );
+
+    const auctionLots =
+        auctionLotsResult.rows;    
+
+    const plazaLots =
+        rows.map((lot) => ({
+          ...lot,
+          source: 'plaza',
+        }));
+
+    res.json([
+      ...auctionLots,
+      ...plazaLots,
+    ]);
 
   } catch (error) {
 
