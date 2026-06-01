@@ -910,6 +910,23 @@ exports.uploadPaymentProof = async (req, res) => {
       [id]
     );
 
+    /// 🔥 OBTENER PRECIO FINAL NEGOCIADO
+    const lastOfferRes = await pool.query(
+      `
+      SELECT price
+      FROM negotiation_messages
+      WHERE negotiation_id = $1
+      AND price IS NOT NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+      [negotiation.id]
+    );
+
+    const negotiatedPrice =
+      lastOfferRes.rows[0]?.price || null;
+
+
     /// 🔥 MARCAR LOTE VENDIDO
     await pool.query(
       `
@@ -942,22 +959,6 @@ exports.uploadPaymentProof = async (req, res) => {
       `,
       [negotiation.lot_id]
     );
-
-    /// 🔥 OBTENER PRECIO FINAL NEGOCIADO
-    const lastOfferRes = await pool.query(
-      `
-      SELECT price
-      FROM negotiation_messages
-      WHERE negotiation_id = $1
-      AND price IS NOT NULL
-      ORDER BY created_at DESC
-      LIMIT 1
-      `,
-      [negotiation.id]
-    );
-
-    const negotiatedPrice =
-      lastOfferRes.rows[0]?.price || null;
 
     /// 🔥 CERRAR OTRAS NEGOCIACIONES
     await pool.query(
