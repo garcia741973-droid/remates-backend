@@ -128,17 +128,28 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
 
         totalWeight += realWeight;
 
-      let revenue = 0;
+        let revenue = 0;
 
-      if (saleType === 'kilo') {
-        revenue = weight * finalPrice;
+        if (saleType === 'kilo') {
+
+        revenue =
+            realWeight *
+            finalPrice;
+
         kiloRevenue += revenue;
-        kiloWeight += weight;
-      } else {
-        revenue = quantity * finalPrice;
+
+        kiloWeight += realWeight;
+
+        } else {
+
+        revenue =
+            quantity *
+            finalPrice;
+
         bultoRevenue += revenue;
+
         bultoAnimals += quantity;
-      }
+        }
 
       totalRevenue += revenue;
 
