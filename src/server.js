@@ -157,6 +157,14 @@ const upcomingAuctionsRoutes =
       './routes/upcomingAuctionsRoutes'
     );
 
+const marketAnalyticsRoutes =
+require('./routes/marketAnalyticsRoutes');
+
+app.use(
+  '/market-analytics',
+  marketAnalyticsRoutes
+);
+
 app.use(cors());
 app.use(express.json());
 
