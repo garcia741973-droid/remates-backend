@@ -17,6 +17,8 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
 
     const params = [];
 
+    let dateFilter = '';
+
     if (from && to) {
 
     dateFilter = `
@@ -271,17 +273,75 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
     }
 
     const analyticsResult = await pool.query(
-      `
+    `
+    WITH all_sales AS (
+
         SELECT
+            breed,
+            municipality,
+            cattle_type,
+            age,
+            gender,
+            quantity,
+
+            weight,
+
+            CASE
+                WHEN sale_type = 'kilo'
+                THEN weight
+                ELSE quantity
+            END AS metric_weight,
+
+            sale_type,
+
+            final_price,
+
+            closed_at
+
+        FROM auction_live_lots
+
+        WHERE status = 'sold'
+
+        UNION ALL
+
+        SELECT
+            breed,
+            municipality,
+
+            class AS cattle_type,
+
+            NULL AS age,
+
+            NULL AS gender,
+
+            quantity,
+
+            quantity * weight AS weight,
+
+            quantity * weight AS metric_weight,
+
+            sale_type,
+
+            COALESCE(
+                final_price,
+                base_price
+            ) AS final_price,
+
+            sold_at AS closed_at
+
+        FROM lots
+
+        WHERE status = 'sold'
+    )
+
+    SELECT
 
         ${groupField} AS label,
 
         ${
-            subGroupField
-
-            ? `${subGroupField} AS subgroup,`
-
-            : `'TOTAL' AS subgroup,`
+        subGroupField
+        ? `${subGroupField} AS subgroup,`
+        : `'TOTAL' AS subgroup,`
         }
 
         COUNT(*) AS total_lots,
@@ -291,113 +351,108 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
         SUM(l.weight) AS total_weight,
 
         SUM(
-          CASE
+        CASE
             WHEN l.sale_type = 'kilo'
             THEN l.weight * l.final_price
             ELSE l.quantity * l.final_price
-          END
+        END
         ) AS total_revenue,
 
         AVG(
-          CASE
+        CASE
             WHEN l.sale_type = 'kilo'
             THEN l.final_price
             ELSE NULL
-          END
+        END
         ) AS avg_price_kg,
 
         AVG(
-          CASE
+        CASE
             WHEN l.sale_type = 'bulto'
             THEN l.final_price
             ELSE NULL
-          END
+        END
         ) AS avg_price_animal,
 
-        ${metricField} AS metric_value
+        ${metricField.replaceAll('l.', '')} AS metric_value
 
-      FROM auction_live_lots l
+    FROM all_sales l
 
-      LEFT JOIN users u
-        ON u.id = l.winner_user_id
+    WHERE
+        ${groupField} IS NOT NULL
 
-      LEFT JOIN LATERAL (
-        SELECT
-          bid_source,
-          bidder_label,
-          amount,
-          created_at
-        FROM bids
-        WHERE bids.lot_id = l.id
-        ORDER BY amount DESC, created_at DESC
-        LIMIT 1
-      ) b ON true
-
-      WHERE
-        l.status = 'sold'
-        ${dateFilter}
-        AND ${groupField} IS NOT NULL
-
-        GROUP BY
+    GROUP BY
 
         ${groupField}
 
         ${
-            subGroupField
-
-            ? `, ${subGroupField}`
-
-            : ''
+        subGroupField
+        ? `, ${subGroupField}`
+        : ''
         }
 
-      ORDER BY
+    ORDER BY
         metric_value DESC NULLS LAST
 
-      LIMIT 20
-      `,
-      params,
+    LIMIT 20
+    `,
+    params,
     );
 
     const trendsResult =
-        await pool.query(
+    await pool.query(
+    `
+    WITH all_sales AS (
 
-      `
-      SELECT
+        SELECT
+            sale_type,
+            final_price,
+            closed_at
+        FROM auction_live_lots
+        WHERE status = 'sold'
 
-        DATE(l.closed_at)
+        UNION ALL
+
+        SELECT
+            sale_type,
+            COALESCE(
+                final_price,
+                base_price
+            ) AS final_price,
+            sold_at AS closed_at
+        FROM lots
+        WHERE status = 'sold'
+    )
+
+    SELECT
+
+        DATE(closed_at)
         AS trend_date,
 
         AVG(
+            CASE
+                WHEN sale_type = 'kilo'
+                THEN final_price
+                ELSE NULL
+            END
+        ) AS avg_price_kg,
 
-          CASE
+        AVG(
+            CASE
+                WHEN sale_type = 'bulto'
+                THEN final_price
+                ELSE NULL
+            END
+        ) AS avg_price_animal
 
-            WHEN l.sale_type = 'kilo'
+    FROM all_sales
 
-            THEN l.final_price
+    GROUP BY
+        DATE(closed_at)
 
-            ELSE NULL
-
-          END
-
-        )
-
-        AS avg_price_kg
-
-      FROM auction_live_lots l
-
-      WHERE
-
-        l.status = 'sold'
-
-        ${dateFilter}
-
-      GROUP BY
-        DATE(l.closed_at)
-
-      ORDER BY
+    ORDER BY
         trend_date ASC
-      `,
-      params,
+    `,
     );
 
     console.log(
