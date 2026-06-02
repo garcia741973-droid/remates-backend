@@ -10,8 +10,6 @@ exports.getSearchAlerts = async (
     const user_id =
       req.user.user_id;
 
-    const company_id =
-      req.user.company_id;
 
     const result =
     await pool.query(
@@ -57,7 +55,6 @@ exports.getSearchAlerts = async (
         ON u.id = l.seller_id
 
         WHERE sa.user_id = $1
-        AND sa.company_id = $2
         AND COALESCE(sa.hidden, false) = false
 
         GROUP BY
@@ -151,8 +148,6 @@ exports.getUnreadCount = async (
     const user_id =
       req.user.user_id;
 
-    const company_id =
-      req.user.company_id;
 
     const result =
       await pool.query(
@@ -160,7 +155,6 @@ exports.getUnreadCount = async (
         SELECT COUNT(*) as total
         FROM search_alerts
         WHERE user_id = $1
-        AND company_id = $2
         AND opened = false
         AND COALESCE(hidden, false) = false
         `,
