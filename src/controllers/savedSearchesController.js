@@ -11,9 +11,6 @@ exports.getSavedSearches = async (
     const user_id =
       req.user.user_id;
 
-    const company_id =
-      req.user.company_id;
-
     const result =
       await pool.query(
         `
@@ -31,14 +28,12 @@ exports.getSavedSearches = async (
         ON sa.saved_search_id = ss.id
 
         WHERE ss.user_id = $1
-        AND ss.company_id = $2
 
         GROUP BY ss.id
 
         ORDER BY ss.created_at DESC`,
         [
           user_id,
-          company_id,
         ]
       );
 
@@ -217,9 +212,6 @@ exports.getSavedSearchAlerts =
       const user_id =
         req.user.user_id;
 
-      const company_id =
-        req.user.company_id;
-
       const { id } =
         req.params;
 
@@ -308,7 +300,6 @@ exports.getSavedSearchAlerts =
           WHERE
             sa.saved_search_id = $1
             AND sa.user_id = $2
-            AND sa.company_id = $3
             AND COALESCE(sa.hidden, false) = false
 
           ORDER BY sa.created_at DESC
@@ -316,7 +307,6 @@ exports.getSavedSearchAlerts =
           [
             id,
             user_id,
-            company_id,
           ]
         );
 
