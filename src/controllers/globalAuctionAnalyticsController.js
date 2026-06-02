@@ -55,6 +55,24 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
 
     const lots = lotsResult.rows;
 
+    console.log(
+      '🔥 COMPANY:',
+      companyId
+    );
+
+    console.log(
+      '🔥 LOTS FOUND:',
+      lots.length
+    );
+
+    console.log(
+      lots.map(l => ({
+        id: l.id,
+        company_id: l.company_id,
+        status: l.status,
+      }))
+    );
+
     let lotsSold = 0;
     let animalsSold = 0;
     let totalWeight = 0;
@@ -336,6 +354,16 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
         trend_date ASC
       `,
       params,
+    );
+
+    console.log(
+      '🔥 SUMMARY FINAL',
+      {
+        lotsSold,
+        animalsSold,
+        totalWeight,
+        totalRevenue,
+      }
     );
 
     return res.json({
