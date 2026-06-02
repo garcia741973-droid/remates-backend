@@ -79,7 +79,6 @@ exports.getSearchAlerts = async (
         `,
         [
         user_id,
-        company_id,
         ]
     );
 
@@ -148,6 +147,10 @@ exports.getUnreadCount = async (
     const user_id =
       req.user.user_id;
 
+    console.log(
+      '🔥 ALERT USER:',
+      user_id
+    );
 
     const result =
       await pool.query(
@@ -160,8 +163,12 @@ exports.getUnreadCount = async (
         `,
         [
           user_id,
-          company_id,
         ]
+      );
+
+      console.log(
+        '🔥 ALERT TOTAL:',
+        result.rows[0].total
       );
 
     res.json({
