@@ -396,7 +396,6 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
 
     LIMIT 20
     `,
-    params,
     );
 
     const trendsResult =
