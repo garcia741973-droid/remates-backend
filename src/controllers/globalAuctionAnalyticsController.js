@@ -2,21 +2,14 @@ const { pool } = require('../config/db');
 
 
 
-exports.getGlobalAuctionAnalytics = async (req, res) => {
+exports.getGlobalAuctionAnalytics =
+async (req, res) => {
+
   try {
 
-
-    console.log(
-      '🔥 JWT USER:',
-      req.user
-    );
-
-    console.log(
-      '🔥 COMPANY:',
-      req.user.company_id
-    );
-
-    const companyId = req.user.company_id;
+    const companyId =
+      req.params.companyId ||
+      req.user?.company_id;
 
     const {
     from,

@@ -59,6 +59,11 @@ router.get(
 );
 
 router.get(
+  '/analytics/public/:companyId',
+  getGlobalAuctionAnalytics
+);
+
+router.get(
   '/analytics/export',
   requireAuth,
   exportGlobalAuctionAnalytics,
