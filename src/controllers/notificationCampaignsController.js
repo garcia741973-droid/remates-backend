@@ -504,3 +504,57 @@ exports.updateCampaignStatus =
         });
     }
 };
+
+/// ======================================================
+/// 🔥 DETALLE CAMPAÑA
+/// ======================================================
+exports.getCampaignById =
+    async (req, res) => {
+
+    try {
+
+        const { id } =
+            req.params;
+
+        const result =
+            await pool.query(
+
+                `
+                SELECT *
+                FROM notification_campaigns
+                WHERE id = $1
+                LIMIT 1
+                `,
+                [id]
+            );
+
+        if (
+            result.rows.length === 0
+        ) {
+
+            return res.status(404)
+                .json({
+
+                error:
+                    'Campaña no encontrada',
+            });
+        }
+
+        return res.json(
+            result.rows[0],
+        );
+
+    } catch (err) {
+
+        console.log(
+            '❌ GET CAMPAIGN ERROR',
+            err,
+        );
+
+        res.status(500).json({
+
+            error:
+                'Error obteniendo campaña',
+        });
+    }
+};

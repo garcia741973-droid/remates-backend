@@ -16,6 +16,8 @@ const {
 
     getCampaigns,
 
+    getCampaignById,
+
     hideCampaign,
 
     updateCampaignStatus,
@@ -36,6 +38,13 @@ router.get(
     '/',
     requireAuth,
     getCampaigns,
+);
+
+/// 🔥 DETALLE
+router.get(
+    '/:id',
+    requireAuth,
+    getCampaignById,
 );
 
 /// 🔥 UPDATE STATUS
