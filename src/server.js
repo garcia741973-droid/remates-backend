@@ -382,6 +382,49 @@ io.on('connection', (socket) => {
     );
   });
 
+socket.on(
+  'leaveAuction',
+  (auction_id) => {
+
+    if (
+      auctionViewers[
+        auction_id
+      ]
+    ) {
+
+      auctionViewers[
+        auction_id
+      ].delete(
+        socket.id
+      );
+
+      const count =
+        auctionViewers[
+          auction_id
+        ].size;
+
+      console.log(
+        `👁 REMATE ${auction_id}: ${count} asistentes`
+      );
+
+      io.to(
+        `auction_${auction_id}`
+      ).emit(
+        'viewerCount',
+        {
+          auction_id,
+          count,
+        }
+      );
+    }
+
+    delete socketAuctionMap[
+      socket.id
+    ];
+  }
+);
+
+
 socket.on('disconnect', () => {
 
   const auction_id =
