@@ -64,68 +64,78 @@ exports.sendPushNotification = async ({
         }
 
         /// 🚀 PUSH
+        const message = {
+
+            tokens,
+
+            notification: {
+                title,
+                body,
+            },
+
+            data: Object.keys(data)
+                .reduce((acc, key) => {
+
+                    acc[key] =
+                        String(data[key]);
+
+                    return acc;
+
+                }, {}),
+
+            android: {
+
+                priority: 'high',
+
+                notification: {
+
+                    channelId:
+                        'high_importance_channel',
+
+                    sound: 'default',
+                },
+            },
+
+            apns: {
+
+                headers: {
+                    'apns-priority': '10',
+                },
+
+                payload: {
+
+                    aps: {
+
+                        sound: 'default',
+
+                        badge: 1,
+
+                        contentAvailable: true,
+                    },
+                },
+            },
+        };
+
+        /// 🔥 SOLO SI EXISTE IMAGEN
+        if (
+            imageUrl &&
+            imageUrl.startsWith('http')
+        ) {
+
+            message.android.notification.imageUrl =
+                imageUrl;
+
+            message.apns.fcmOptions = {
+
+                imageUrl,
+            };
+        }
+
         const response =
             await admin.messaging()
-                .sendEachForMulticast({
-
-                    tokens,
-
-                    notification: {
-                        title,
-                        body,
-                    },
-
-                    data: Object.keys(data)
-                        .reduce((acc, key) => {
-
-                            acc[key] =
-                                String(data[key]);
-
-                            return acc;
-
-                        }, {}),
-
-                        android: {
-
-                            priority: 'high',
-
-                            notification: {
-
-                                channelId:
-                                    'high_importance_channel',
-
-                                sound: 'default',
-
-                                imageUrl:
-                                    imageUrl,
-                            },
-                        },
-
-                        apns: {
-
-                            headers: {
-                                'apns-priority': '10',
-                            },
-
-                            fcmOptions: {
-
-                                imageUrl:
-                                    imageUrl,
-                            },
-
-                            payload: {
-
-                            aps: {
-
-                                sound: 'default',
-
-                                badge: 1,
-
-                                contentAvailable: true,
-                            },
-                        },
-                    },
-                });
+                .sendEachForMulticast(
+                    message
+                );
 
         console.log(
             '🔥 FULL RESPONSE:',
