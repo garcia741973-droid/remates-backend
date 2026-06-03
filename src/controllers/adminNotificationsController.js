@@ -25,6 +25,11 @@ exports.sendNotification = async (
             target_value,
         } = req.body;
 
+        console.log(
+            '🔥 TYPE RECEIVED:',
+            type,
+        );
+
         let usersQuery = '';
         let values = [];
 
