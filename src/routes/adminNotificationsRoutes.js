@@ -25,4 +25,11 @@ router.get(
     controller.getNotifications,
 );
 
+/// 🔥 DETALLE
+router.get(
+    '/:id',
+    requireAuth,
+    controller.getNotificationById,
+);
+
 module.exports = router;
