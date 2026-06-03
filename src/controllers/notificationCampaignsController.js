@@ -19,6 +19,7 @@ exports.createCampaign =
 
             title,
             body,
+            image_url,
             type,
             target_type,
             target_value,
@@ -46,6 +47,8 @@ exports.createCampaign =
 
                     title,
                     body,
+
+                    image_url,
 
                     type,
 
@@ -79,8 +82,8 @@ exports.createCampaign =
                     $10,
                     $11,
                     $12,
-                    $13
-
+                    $13,
+                    $14
                 )
 
                 RETURNING *
@@ -91,6 +94,7 @@ exports.createCampaign =
 
                     title,
                     body,
+                    image_url,
 
                     type ||
                         'announcement',
@@ -308,8 +312,10 @@ exports.createCampaign =
             data: {
 
                 type:
-                    type ||
-                    'announcement',
+                    'admin_campaign',
+
+                campaign_id:
+                    campaign.id.toString(),
             },
         });
 
