@@ -140,26 +140,7 @@ exports.sendNotification = async (
                 (u) => u.id,
             );
 
-        /// 🔥 ENVIAR PUSH
-        await sendPushNotification({
-
-            userIds,
-
-            title,
-            body,
-
-            imageUrl:
-                image_url,
-
-            data: {
-
-                type:
-                    'admin_notification',
-
-                notification_type:
-                    type,
-            },
-        });
+        let campaignId = null;
 
         /// 🔥 HISTORIAL
         const history =
@@ -170,6 +151,9 @@ exports.sendNotification = async (
 
                     title,
                     body,
+
+                    image_url,
+
                     type,
 
                     target_type,
@@ -182,7 +166,6 @@ exports.sendNotification = async (
                     success_count,
 
                     created_at
-
                 )
 
                 VALUES (
@@ -201,9 +184,11 @@ exports.sendNotification = async (
                 RETURNING *
                 `,
                 [
-
                     title,
                     body,
+
+                    image_url,
+
                     type,
 
                     target_type,
@@ -216,6 +201,30 @@ exports.sendNotification = async (
                     userIds.length,
                 ]
             );
+
+            campaignId =
+                history.rows[0].id;
+                
+        /// 🔥 ENVIAR PUSH
+        await sendPushNotification({
+
+            userIds,
+
+            title,
+            body,
+
+            imageUrl:
+                image_url,
+
+            data: {
+
+                type:
+                    'admin_campaign',
+
+                campaign_id:
+                    campaignId,
+            },
+        });                
 
         res.json({
 
