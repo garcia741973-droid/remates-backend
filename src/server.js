@@ -336,18 +336,102 @@ setInterval(() => {
 
 }, 1000 * 60 * 5);
 
+const auctionViewers = {};
+const socketAuctionMap = {};
+
 /// 🔥 conexión sockets
 io.on('connection', (socket) => {
   console.log('Usuario conectado:', socket.id);
 
   socket.on('joinAuction', (auction_id) => {
-    socket.join(`auction_${auction_id}`);
+
+    socket.join(
+      `auction_${auction_id}`
+    );
+
+    socketAuctionMap[
+      socket.id
+    ] = auction_id;
+
+    if (
+      !auctionViewers[auction_id]
+    ) {
+
+      auctionViewers[auction_id] =
+        new Set();
+    }
+
+    auctionViewers[auction_id]
+      .add(socket.id);
+
+    const count =
+      auctionViewers[auction_id].size;
+
+    console.log(
+      `👁 REMATE ${auction_id}: ${count} asistentes`
+    );
+
+    io.to(
+      `auction_${auction_id}`
+    ).emit(
+      'viewerCount',
+      {
+        auction_id,
+        count,
+      }
+    );
   });
 
-  socket.on('disconnect', () => {
-    console.log('Usuario desconectado');
-  });
+socket.on('disconnect', () => {
+
+  const auction_id =
+    socketAuctionMap[
+      socket.id
+    ];
+
+  if (
+      auction_id &&
+      auctionViewers[
+        auction_id
+      ]
+  ) {
+
+    auctionViewers[
+      auction_id
+    ].delete(
+      socket.id
+    );
+
+    const count =
+      auctionViewers[
+        auction_id
+      ].size;
+
+    console.log(
+      `👁 REMATE ${auction_id}: ${count} asistentes`
+    );
+
+    io.to(
+      `auction_${auction_id}`
+    ).emit(
+      'viewerCount',
+      {
+        auction_id,
+        count,
+      }
+    );
+
+    delete socketAuctionMap[
+      socket.id
+    ];
+  }
+
+  console.log(
+    'Usuario desconectado'
+  );
 });
+
+}); // 👈 ESTE FALTABA
 
 server.listen(PORT, () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
