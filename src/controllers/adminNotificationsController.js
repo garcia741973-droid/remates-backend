@@ -224,7 +224,9 @@ exports.sendNotification = async (
             data: {
 
                 type:
-                    'admin_campaign',
+                    image_url
+                        ? 'admin_campaign'
+                        : 'admin_notification',
 
                 campaign_id:
                     campaignId,
