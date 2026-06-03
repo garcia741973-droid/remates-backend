@@ -12,6 +12,7 @@ exports.sendPushNotification = async ({
     userIds = [],
     title,
     body,
+    imageUrl = null,
     data = {},
 }) => {
 
@@ -84,26 +85,35 @@ exports.sendPushNotification = async ({
 
                         }, {}),
 
-                    android: {
+                        android: {
 
-                        priority: 'high',
+                            priority: 'high',
 
-                        notification: {
+                            notification: {
 
-                            channelId:
-                                'high_importance_channel',
+                                channelId:
+                                    'high_importance_channel',
 
-                            sound: 'default',
-                        },
-                    },
+                                sound: 'default',
 
-                    apns: {
-
-                        headers: {
-                            'apns-priority': '10',
+                                imageUrl:
+                                    imageUrl,
+                            },
                         },
 
-                        payload: {
+                        apns: {
+
+                            headers: {
+                                'apns-priority': '10',
+                            },
+
+                            fcmOptions: {
+
+                                imageUrl:
+                                    imageUrl,
+                            },
+
+                            payload: {
 
                             aps: {
 

@@ -17,6 +17,8 @@ exports.sendNotification = async (
         const {
             title,
             body,
+            image_url,
+
             type = 'announcement',
 
             target_type,
@@ -145,6 +147,9 @@ exports.sendNotification = async (
 
             title,
             body,
+
+            imageUrl:
+                image_url,
 
             data: {
 
