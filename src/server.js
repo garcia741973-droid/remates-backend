@@ -371,9 +371,7 @@ io.on('connection', (socket) => {
       `👁 REMATE ${auction_id}: ${count} asistentes`
     );
 
-    io.to(
-      `auction_${auction_id}`
-    ).emit(
+    io.emit(
       'viewerCount',
       {
         auction_id,
@@ -407,9 +405,7 @@ socket.on(
         `👁 REMATE ${auction_id}: ${count} asistentes`
       );
 
-      io.to(
-        `auction_${auction_id}`
-      ).emit(
+      io.emit(
         'viewerCount',
         {
           auction_id,
