@@ -9,25 +9,74 @@ const {
 } = require('../services/notificationService');
 
 exports.createAuction = async (req, res) => {
+
   try {
-    const company_id = req.user.company_id;
 
-    const { name, scheduled_at } = req.body;
+    const company_id =
+        req.user.company_id;
 
-    const { rows } = await pool.query(
+    const {
+
+      name,
+
+      scheduled_at,
+
+      auction_type = 'live',
+
+    } = req.body;
+
+    const { rows } =
+        await pool.query(
+
       `
-      INSERT INTO auctions (company_id, name, scheduled_at)
-      VALUES ($1,$2,$3)
+      INSERT INTO auctions (
+
+        company_id,
+
+        name,
+
+        scheduled_at,
+
+        auction_type
+
+      )
+
+      VALUES (
+
+        $1,$2,$3,$4
+
+      )
+
       RETURNING *
       `,
-      [company_id, name, scheduled_at]
+      [
+
+        company_id,
+
+        name,
+
+        scheduled_at,
+
+        auction_type,
+      ]
     );
 
-    res.json(rows[0]);
+    res.json(
+      rows[0],
+    );
 
   } catch (error) {
-    console.error('ERROR CREATE AUCTION:', error);
-    res.status(500).json({ error: 'Error creando remate' });
+
+    console.error(
+      'ERROR CREATE AUCTION:',
+      error,
+    );
+
+    res.status(500).json({
+
+      error:
+          'Error creando remate',
+    });
   }
 };
 
