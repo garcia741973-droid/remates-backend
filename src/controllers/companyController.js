@@ -13,7 +13,8 @@ exports.getMyCompany = async (req, res) => {
         logo_url,
         primary_color,
         secondary_color,
-        background_color
+        background_color,
+        remates_pro_enabled
       FROM companies
       WHERE id = $1
       `,
