@@ -112,18 +112,17 @@ exports.setCurrentLot = async (req, res) => {
   }
 };
 
-exports.getAuctionById = async (req, res) => {
-  try {
-    const company_id = req.user.company_id;
+    exports.getAuctionById = async (req, res) => {
+      try {
     const { id } = req.params;
 
-    // 🔍 Obtener remate
     const auctionResult = await pool.query(
-      `
-      SELECT * FROM auctions
-      WHERE id = $1 AND company_id = $2
-      `,
-      [id, company_id]
+    `
+    SELECT *
+    FROM auctions
+    WHERE id = $1
+    `,
+    [id]
     );
 
     const auction = auctionResult.rows[0];
