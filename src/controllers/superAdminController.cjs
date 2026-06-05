@@ -278,6 +278,8 @@ exports.updateRemateCompany =
 
         mini_plaza_background_url,
 
+        remates_pro_enabled,
+
       } = req.body;
 
       const result =
@@ -295,15 +297,20 @@ exports.updateRemateCompany =
             COALESCE($3, lobby_banner_url),
 
           mini_plaza_background_url =
-            COALESCE($4, mini_plaza_background_url)
+            COALESCE($4, mini_plaza_background_url),
 
-        WHERE id = $5
+          remates_pro_enabled =
+            COALESCE(
+              $5,
+              remates_pro_enabled
+            )
+
+        WHERE id = $6
 
         RETURNING *
         `,
 
         [
-
           name,
 
           logo_url,
@@ -311,6 +318,8 @@ exports.updateRemateCompany =
           lobby_banner_url,
 
           mini_plaza_background_url,
+
+          remates_pro_enabled,
 
           id,
         ],
