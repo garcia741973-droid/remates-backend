@@ -25,6 +25,40 @@ exports.createAuction = async (req, res) => {
 
     } = req.body;
 
+    /// 🔥 VALIDAR LICENCIA REMATES PRO
+    if (
+      auction_type ===
+      'prerecorded'
+    ) {
+
+      const companyResult =
+          await pool.query(
+
+        `
+        SELECT
+          remates_pro_enabled
+        FROM companies
+        WHERE id = $1
+        `,
+        [company_id]
+      );
+
+      const company =
+          companyResult.rows[0];
+
+      if (
+        !company ||
+        !company.remates_pro_enabled
+      ) {
+
+        return res.status(403).json({
+
+          error:
+            'Remates Pro no habilitado para esta empresa',
+        });
+      }
+    }    
+
     const { rows } =
         await pool.query(
 
