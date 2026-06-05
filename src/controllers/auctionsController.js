@@ -217,6 +217,9 @@ exports.setCurrentLot = async (req, res) => {
       current_lot_id:
           auction.current_lot_id,
 
+      auction_type:
+          auction.auction_type,
+
       current_lot:
           currentLot,
     });
