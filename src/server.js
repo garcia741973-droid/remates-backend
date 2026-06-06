@@ -160,6 +160,11 @@ const upcomingAuctionsRoutes =
 const marketAnalyticsRoutes =
 require('./routes/marketAnalyticsRoutes');
 
+const locationRoutes =
+  require(
+    './routes/locationRoutes'
+  );
+
 app.use(
   '/market-analytics',
   marketAnalyticsRoutes
@@ -307,6 +312,11 @@ app.use(
   '/upcoming-auctions',
 
   upcomingAuctionsRoutes,
+);
+
+app.use(
+  '/locations',
+  locationRoutes
 );
 
 /// 🚀 SERVIDOR
