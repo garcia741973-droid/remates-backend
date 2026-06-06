@@ -67,3 +67,43 @@ exports.requireAdmin = (
     });
   }
 };
+
+/// 🔥 SOLO SUPER ADMIN
+exports.requireSuperAdmin = (
+  req,
+  res,
+  next
+) => {
+
+  try {
+
+    if (!req.user) {
+
+      return res.status(403).json({
+        error: 'No autorizado'
+      });
+    }
+
+    if (
+      req.user.role !==
+      'super_admin'
+    ) {
+
+      return res.status(403).json({
+        error:
+          'No autorizado (super admin)'
+      });
+    }
+
+    next();
+
+  } catch (error) {
+
+    console.error(error);
+
+    return res.status(500).json({
+      error:
+        'Error validando super admin'
+    });
+  }
+};
