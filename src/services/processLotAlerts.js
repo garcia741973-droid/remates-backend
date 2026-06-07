@@ -245,6 +245,8 @@ const existingLotAlert =
                 lot_id:
                 String(lot.id),
 
+                source,
+
                 click_action:
                 'FLUTTER_NOTIFICATION_CLICK',
             },
