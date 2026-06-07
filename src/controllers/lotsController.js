@@ -865,6 +865,8 @@ exports.searchLots = async (
 
       breed,
 
+      gender,
+
       sale_type,
 
       department,
@@ -982,6 +984,18 @@ exports.searchLots = async (
 
       index++;
     }
+
+    /// 🚻 SEXO
+    if (gender) {
+
+      sql += `
+        AND l.gender = $${index}
+      `;
+
+      values.push(gender);
+
+      index++;
+    }    
 
     /// 💰 TIPO VENTA
     if (sale_type) {
