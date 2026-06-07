@@ -34,6 +34,7 @@ exports.createLot = async (req, res) => {
       quantity,
       class: lot_class,
       gender,
+      age,
       town,
       distance_km,
       breed,
@@ -95,6 +96,7 @@ exports.createLot = async (req, res) => {
         class,
         breed,
         gender,
+        age,
 
         weight,
         sale_type,
@@ -139,6 +141,7 @@ exports.createLot = async (req, res) => {
         $18,
         $19,
         $20,
+        $21,
         false
       )
       RETURNING *
@@ -152,6 +155,7 @@ exports.createLot = async (req, res) => {
         lot_class,
         breed,
         gender,
+        age,
 
         weight,
         sale_type,
@@ -562,6 +566,7 @@ exports.updateLot = async (req, res) => {
 
       class: lot_class,
       gender,
+      age,
 
       has_destare,
       destare_percent,      
@@ -643,45 +648,48 @@ exports.updateLot = async (req, res) => {
 
         gender = $4,
 
-        weight = $5,
+        age = $5,
 
-        sale_type = $6,
+        weight = $6,
 
-        base_price = $7,
+        sale_type = $7,
 
-        current_price = $7,
+        base_price = $8,
 
-        department = $8,
+        current_price = $8,
 
-        province = $9,
+        department = $9,
 
-        municipality = $10,
+        province = $10,
 
-        town = $11,
+        municipality = $11,
 
-        distance_km = $12,
+        town = $12,
 
-        images = $13,
+        distance_km = $13,
 
-        video_url = $14,
+        images = $14,
 
-        has_destare = $15,
+        video_url = $15,
 
-        destare_percent = $16
+        has_destare = $16,
 
-        WHERE id = $17
+        destare_percent = $17
+
+      WHERE id = $18
 
       RETURNING *
       `,
       [
-
         quantity,
 
         lot_class,
 
         breed,
 
-        gender,        
+        gender,
+
+        age,
 
         weight,
 
