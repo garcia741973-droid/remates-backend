@@ -679,9 +679,9 @@ exports.updateLot = async (req, res) => {
 
         breed,
 
-        weight,
+        gender,        
 
-        gender,
+        weight,
 
         sale_type,
 
