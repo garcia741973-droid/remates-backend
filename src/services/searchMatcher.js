@@ -21,6 +21,26 @@ function calculateLotMatchScore(filters, lot) {
 
   reasons.push('Raza exacta');
 
+  /// 🚻 SEXO → NO NEGOCIABLE
+  if (
+    filters.gender &&
+    filters.gender.toLowerCase() !==
+      lot.gender?.toLowerCase()
+  ) {
+    return {
+      matched: false,
+      score: 0,
+      reasons: ['Sexo distinto'],
+    };
+  }
+
+  if (filters.gender) {
+
+    score += 20;
+
+    reasons.push('Sexo exacto');
+  }
+
   /// 🧠 CLASE → NO NEGOCIABLE
   if (
     filters.class &&
