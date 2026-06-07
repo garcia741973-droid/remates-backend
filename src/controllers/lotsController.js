@@ -33,6 +33,7 @@ exports.createLot = async (req, res) => {
     const {
       quantity,
       class: lot_class,
+      gender,
       town,
       distance_km,
       breed,
@@ -93,6 +94,7 @@ exports.createLot = async (req, res) => {
         quantity,
         class,
         breed,
+        gender,
 
         weight,
         sale_type,
@@ -136,6 +138,7 @@ exports.createLot = async (req, res) => {
         $17,
         $18,
         $19,
+        $20,
         false
       )
       RETURNING *
@@ -148,6 +151,7 @@ exports.createLot = async (req, res) => {
         quantity,
         lot_class,
         breed,
+        gender,
 
         weight,
         sale_type,
@@ -555,6 +559,7 @@ exports.updateLot = async (req, res) => {
       quantity,
 
       class: lot_class,
+      gender,
 
       has_destare,
       destare_percent,      
@@ -634,33 +639,35 @@ exports.updateLot = async (req, res) => {
 
         breed = $3,
 
-        weight = $4,
+        gender = $4,
 
-        sale_type = $5,
+        weight = $5,
 
-        base_price = $6,
+        sale_type = $6,
 
-        current_price = $6,
+        base_price = $7,
 
-        department = $7,
+        current_price = $7,
 
-        province = $8,
+        department = $8,
 
-        municipality = $9,
+        province = $9,
 
-        town = $10,
+        municipality = $10,
 
-        distance_km = $11,
+        town = $11,
 
-        images = $12,
+        distance_km = $12,
 
-        video_url = $13,
+        images = $13,
 
-        has_destare = $14,
+        video_url = $14,
 
-        destare_percent = $15
+        has_destare = $15,
 
-      WHERE id = $16
+        destare_percent = $16
+
+        WHERE id = $17
 
       RETURNING *
       `,
@@ -673,6 +680,8 @@ exports.updateLot = async (req, res) => {
         breed,
 
         weight,
+
+        gender,
 
         sale_type,
 
