@@ -413,6 +413,8 @@ exports.getLots = async (req, res) => {
 
       l.breed,
 
+      l.gender,
+
       l.quantity,
 
       l.weight,
