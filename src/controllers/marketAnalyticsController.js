@@ -202,7 +202,26 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
     }
 
     if (analysis === 'age') {
-      groupField = 'l.age';
+
+      groupField = `
+        CASE
+
+          WHEN l.age <= 12
+          THEN '< 12 meses'
+
+          WHEN l.age BETWEEN 13 AND 24
+          THEN '13 - 24 meses'
+
+          WHEN l.age BETWEEN 25 AND 36
+          THEN '25 - 36 meses'
+
+          WHEN l.age BETWEEN 37 AND 48
+          THEN '37 - 48 meses'
+
+          ELSE '> 48 meses'
+
+        END
+      `;
     }
 
     if (analysis === 'category') {
@@ -220,7 +239,26 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
     }
 
     if (subgroup === 'age') {
-      subGroupField = 'l.age';
+
+      subGroupField = `
+        CASE
+
+          WHEN l.age <= 12
+          THEN '< 12 meses'
+
+          WHEN l.age BETWEEN 13 AND 24
+          THEN '13 - 24 meses'
+
+          WHEN l.age BETWEEN 25 AND 36
+          THEN '25 - 36 meses'
+
+          WHEN l.age BETWEEN 37 AND 48
+          THEN '37 - 48 meses'
+
+          ELSE '> 48 meses'
+
+        END
+      `;
     }
 
     if (subgroup === 'category') {
