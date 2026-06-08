@@ -40,6 +40,191 @@ exports.getCountries =
     }
   };
 
+/// 🌎 ADMIN PAÍSES
+exports.getAdminCountries =
+  async (req, res) => {
+
+    try {
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+            *
+          FROM countries
+          ORDER BY
+            display_order,
+            name
+          `
+        );
+
+      res.json(
+        result.rows
+      );
+
+    } catch (error) {
+
+      console.log(
+        'GET ADMIN COUNTRIES ERROR:',
+        error
+      );
+
+      res.status(500).json({
+        error:
+          'Error obteniendo países'
+      });
+    }
+  };
+
+/// 🌎 CREAR PAÍS
+exports.createCountry =
+  async (req, res) => {
+
+    try {
+
+      const {
+        name,
+        code,
+      } = req.body;
+
+      if (!name) {
+
+        return res.status(400).json({
+          error:
+            'Nombre requerido',
+        });
+      }
+
+      const result =
+        await pool.query(
+          `
+          INSERT INTO countries
+          (
+            name,
+            code
+          )
+          VALUES
+          (
+            $1,
+            $2
+          )
+          RETURNING *
+          `,
+          [
+            name.trim(),
+            code?.trim() ?? null,
+          ]
+        );
+
+      res.json(
+        result.rows[0]
+      );
+
+    } catch (error) {
+
+      console.log(
+        'CREATE COUNTRY ERROR:',
+        error
+      );
+
+      res.status(500).json({
+        error:
+          'Error creando país'
+      });
+    }
+  };
+  
+/// 🌎 EDITAR PAÍS
+exports.updateCountry =
+  async (req, res) => {
+
+    try {
+
+      const {
+        id,
+      } = req.params;
+
+      const {
+        name,
+        code,
+      } = req.body;
+
+      const result =
+        await pool.query(
+          `
+          UPDATE countries
+          SET
+            name = $1,
+            code = $2
+          WHERE id = $3
+          RETURNING *
+          `,
+          [
+            name.trim(),
+            code?.trim() ?? null,
+            id,
+          ]
+        );
+
+      res.json(
+        result.rows[0]
+      );
+
+    } catch (error) {
+
+      console.log(
+        'UPDATE COUNTRY ERROR:',
+        error
+      );
+
+      res.status(500).json({
+        error:
+          'Error actualizando país'
+      });
+    }
+  };  
+
+/// 🌎 ACTIVAR / DESACTIVAR
+exports.toggleCountryStatus =
+  async (req, res) => {
+
+    try {
+
+      const {
+        id,
+      } = req.params;
+
+      const result =
+        await pool.query(
+          `
+          UPDATE countries
+          SET
+            is_active =
+              NOT is_active
+          WHERE id = $1
+          RETURNING *
+          `,
+          [id]
+        );
+
+      res.json(
+        result.rows[0]
+      );
+
+    } catch (error) {
+
+      console.log(
+        'TOGGLE COUNTRY ERROR:',
+        error
+      );
+
+      res.status(500).json({
+        error:
+          'Error cambiando estado'
+      });
+    }
+  };
+
 /// 🏛️ DEPARTAMENTOS
 exports.getDepartments =
   async (req, res) => {

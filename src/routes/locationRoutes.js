@@ -8,6 +8,11 @@ const {
 
   getCountries,
 
+  getAdminCountries,
+  createCountry,
+  updateCountry,
+  toggleCountryStatus,  
+
   getDepartments,
 
   getProvinces,
@@ -22,6 +27,30 @@ const {
 router.get(
   '/countries',
   getCountries
+);
+
+/// 🌎 ADMIN PAÍSES
+router.get(
+  '/admin/countries',
+  getAdminCountries
+);
+
+/// 🌎 CREAR PAÍS
+router.post(
+  '/countries',
+  createCountry
+);
+
+/// 🌎 EDITAR PAÍS
+router.put(
+  '/countries/:id',
+  updateCountry
+);
+
+/// 🌎 ACTIVAR / DESACTIVAR
+router.patch(
+  '/countries/:id/status',
+  toggleCountryStatus
 );
 
 /// 🏛️ DEPARTAMENTOS
