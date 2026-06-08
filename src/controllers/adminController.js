@@ -26,7 +26,6 @@ exports.createUser = async (req, res) => {
       'operator_sala',
       'streamer',
       'corral',
-      'admin_operativo',
       'client'
     ];
 
