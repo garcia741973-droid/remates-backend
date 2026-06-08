@@ -56,12 +56,13 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
 
         UNION ALL
 
-        SELECT
+      SELECT
         breed,
         municipality,
         class AS cattle_type,
-        NULL AS age,
-        NULL AS gender,
+
+        age,
+        gender,
 
         quantity,
 
@@ -304,15 +305,14 @@ exports.getGlobalAuctionAnalytics = async (req, res) => {
 
         UNION ALL
 
-        SELECT
-            breed,
-            municipality,
+            SELECT
+              breed,
+              municipality,
 
-            class AS cattle_type,
+              class AS cattle_type,
 
-            NULL AS age,
-
-            NULL AS gender,
+              age,
+              gender,
 
             quantity,
 
