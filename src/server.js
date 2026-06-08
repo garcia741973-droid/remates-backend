@@ -165,6 +165,11 @@ const locationRoutes =
     './routes/locationRoutes'
   );
 
+const cattleRoutes =
+  require(
+    './routes/cattleRoutes'
+  );
+
 app.use(
   '/market-analytics',
   marketAnalyticsRoutes
@@ -317,6 +322,11 @@ app.use(
 app.use(
   '/locations',
   locationRoutes
+);
+
+app.use(
+  '/cattle',
+  cattleRoutes
 );
 
 /// 🚀 SERVIDOR
