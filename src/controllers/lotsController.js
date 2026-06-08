@@ -405,21 +405,23 @@ exports.getLots = async (req, res) => {
     const auctionLotsResult =
         await pool.query(
     `
-    SELECT
+      SELECT
 
-      l.id,
+        l.id,
 
-      l.company_id,
+        l.company_id,
 
-      l.lot_number,
+        l.lot_number,
 
-      l.title,
+        l.title,
 
-      l.breed,
+        l.breed,
 
-      l.gender,
+        l.gender,
 
-      l.quantity,
+        l.age,
+
+        l.quantity,
 
       l.weight,
 
