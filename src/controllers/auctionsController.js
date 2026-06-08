@@ -12,6 +12,14 @@ exports.createAuction = async (req, res) => {
 
   try {
 
+    if (req.user.role !== 'admin') {
+
+      return res.status(403).json({
+
+        error: 'No autorizado',
+      });
+    }
+
     const company_id =
         req.user.company_id;
 
@@ -115,7 +123,23 @@ exports.createAuction = async (req, res) => {
 };
 
 exports.setCurrentLot = async (req, res) => {
+
   try {
+
+    if (
+
+      req.user.role !== 'admin' &&
+
+      req.user.role !== 'operator_sala'
+
+    ) {
+
+      return res.status(403).json({
+
+        error: 'No autorizado',
+      });
+    }
+
     const { auction_id, lot_id } = req.body;
 
     // 🔥 VALIDAR REMATE
@@ -287,7 +311,17 @@ exports.getAuctions = async (req, res) => {
 };
 
 exports.startAuction = async (req, res) => {
+
   try {
+
+    if (req.user.role !== 'admin') {
+
+      return res.status(403).json({
+
+        error: 'No autorizado',
+      });
+    }
+
     const { auction_id } = req.body;
 
     // 🔥 validar que existe
@@ -419,6 +453,14 @@ exports.startAuction = async (req, res) => {
 exports.closeAuction = async (req, res) => {
 
   try {
+
+    if (req.user.role !== 'admin') {
+
+      return res.status(403).json({
+
+        error: 'No autorizado',
+      });
+    }
 
     const { auction_id } =
         req.body;
