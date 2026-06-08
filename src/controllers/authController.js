@@ -8,6 +8,12 @@ exports.login = async (req, res) => {
   try {
     const { email, password, company_id } = req.body;
 
+    console.log('====================');
+    console.log('LOGIN EMAIL =>', email);
+    console.log('LOGIN PASSWORD =>', password);
+    console.log('LOGIN COMPANY =>', company_id);
+    console.log('====================');
+
     // 🔍 Buscar usuario
     const { rows } = await pool.query(
       'SELECT * FROM users WHERE email = $1',
