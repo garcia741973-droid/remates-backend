@@ -901,7 +901,7 @@ exports.uploadPaymentProof = async (req, res) => {
         contacts_unlocked_at = NOW(),
 
         review_available_at =
-          NOW() + INTERVAL '48 hours',
+          NOW() + INTERVAL '1 minute',
 
         closed_at = NOW()
 
