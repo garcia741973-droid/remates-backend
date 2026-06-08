@@ -9,6 +9,9 @@ const {
   getCategories,
   getBreeds,
 
+  getAdminCategories,
+  getAdminBreeds,
+
   createCategory,
   updateCategory,
   toggleCategoryStatus,
@@ -25,6 +28,12 @@ const {
 router.get(
   '/categories',
   getCategories
+);
+
+/// 🐄 ADMIN CATEGORÍAS
+router.get(
+  '/admin/categories',
+  getAdminCategories
 );
 
 /// 🐄 CREAR CATEGORÍA
@@ -55,6 +64,12 @@ router.get(
 router.post(
   '/breeds',
   createBreed
+);
+
+/// 🧬 ADMIN RAZAS
+router.get(
+  '/admin/breeds',
+  getAdminBreeds
 );
 
 /// 🧬 EDITAR RAZA

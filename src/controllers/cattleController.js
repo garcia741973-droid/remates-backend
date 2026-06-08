@@ -39,6 +39,46 @@ exports.getCategories =
     }
   };
 
+/// 🐄 ADMIN CATEGORÍAS
+exports.getAdminCategories =
+  async (req, res) => {
+
+    try {
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+            id,
+            name,
+            is_active,
+            display_order,
+            created_at
+          FROM cattle_categories
+          ORDER BY
+            display_order,
+            name
+          `
+        );
+
+      res.json(
+        result.rows
+      );
+
+    } catch (error) {
+
+      console.log(
+        'GET ADMIN CATEGORIES ERROR:',
+        error
+      );
+
+      res.status(500).json({
+        error:
+          'Error obteniendo categorías'
+      });
+    }
+  };
+
 /// 🐄 CREAR CATEGORÍA
 exports.createCategory =
   async (req, res) => {
@@ -207,6 +247,46 @@ exports.getBreeds =
 
       console.log(
         'GET BREEDS ERROR:',
+        error
+      );
+
+      res.status(500).json({
+        error:
+          'Error obteniendo razas'
+      });
+    }
+  };
+
+/// 🧬 ADMIN RAZAS
+exports.getAdminBreeds =
+  async (req, res) => {
+
+    try {
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+            id,
+            name,
+            is_active,
+            display_order,
+            created_at
+          FROM cattle_breeds
+          ORDER BY
+            display_order,
+            name
+          `
+        );
+
+      res.json(
+        result.rows
+      );
+
+    } catch (error) {
+
+      console.log(
+        'GET ADMIN BREEDS ERROR:',
         error
       );
 
