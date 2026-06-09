@@ -740,3 +740,40 @@ exports.changePassword = async (req, res) => {
     });
   }
 };
+
+/// 🗑 ELIMINAR CUENTA
+exports.deleteAccount = async (req, res) => {
+
+  try {
+
+    const userId =
+      req.user.user_id;
+
+    await pool.query(
+      `
+      UPDATE users
+      SET
+        is_active = false,
+        deleted_at = NOW()
+      WHERE id = $1
+      `,
+      [userId]
+    );
+
+    res.json({
+      success: true,
+    });
+
+  } catch (e) {
+
+    console.error(
+      'DELETE ACCOUNT ERROR:',
+      e,
+    );
+
+    res.status(500).json({
+      error:
+        'Error eliminando cuenta',
+    });
+  }
+};

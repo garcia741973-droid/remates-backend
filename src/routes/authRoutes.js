@@ -17,6 +17,8 @@ const {
 
   changePassword,
 
+  deleteAccount,
+
 } = require(
   '../controllers/authController'
 );
@@ -44,6 +46,12 @@ router.put(
   '/change-password',
   requireAuth,
   changePassword,
+);
+
+router.delete(
+  '/delete-account',
+  requireAuth,
+  deleteAccount,
 );
 
 module.exports = router;
