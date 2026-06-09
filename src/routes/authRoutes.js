@@ -15,6 +15,8 @@ const {
 
   checkParticipant,
 
+  changePassword,
+
 } = require(
   '../controllers/authController'
 );
@@ -36,5 +38,12 @@ const { requireAuth } = require('../middleware/authMiddleware');
 
 // 🔥 GUARDAR TOKEN
 router.post('/save-fcm-token', requireAuth, saveFcmToken);
+
+/// 🔒 CAMBIAR PASSWORD
+router.put(
+  '/change-password',
+  requireAuth,
+  changePassword,
+);
 
 module.exports = router;

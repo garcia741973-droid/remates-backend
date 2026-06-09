@@ -613,3 +613,120 @@ exports.checkParticipant =
     });
   }
 };
+
+/// 🔒 CAMBIAR PASSWORD
+exports.changePassword = async (req, res) => {
+
+  try {
+
+    const userId =
+      req.user.user_id;
+
+    const {
+      current_password,
+      new_password,
+    } = req.body;
+
+    if (
+      !current_password ||
+      !new_password
+    ) {
+
+      return res.status(400).json({
+        error: 'Datos incompletos',
+      });
+    }
+
+    const result =
+      await pool.query(
+
+      `
+      SELECT
+        id,
+        password
+      FROM users
+      WHERE id = $1
+      `,
+      [userId],
+    );
+
+    if (
+      result.rows.length === 0
+    ) {
+
+      return res.status(404).json({
+        error: 'Usuario no encontrado',
+      });
+    }
+
+    const user =
+      result.rows[0];
+
+    let validPassword = false;
+
+    if (
+      user.password &&
+      user.password.startsWith('$2')
+    ) {
+
+      validPassword =
+        await bcrypt.compare(
+          current_password,
+          user.password,
+        );
+
+    } else {
+
+      validPassword =
+        user.password === current_password;
+    }
+
+    if (!validPassword) {
+
+      return res.status(400).json({
+        error:
+          'Contraseña actual incorrecta',
+      });
+    }
+
+    const hash =
+      await bcrypt.hash(
+        new_password,
+        10,
+      );
+
+    await pool.query(
+
+      `
+      UPDATE users
+      SET password = $1
+      WHERE id = $2
+      `,
+      [
+        hash,
+        userId,
+      ],
+    );
+
+    return res.json({
+
+      success: true,
+
+      message:
+        'Contraseña actualizada',
+    });
+
+  } catch (e) {
+
+    console.log(
+      'CHANGE PASSWORD ERROR:',
+      e,
+    );
+
+    return res.status(500).json({
+
+      error:
+        'Error cambiando contraseña',
+    });
+  }
+};
