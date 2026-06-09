@@ -55,6 +55,7 @@ exports.getUserDetail = async (req, res) => {
         u.*,
 
         c.name AS company_name,
+        uc.role AS company_role,
 
         k.full_name,
         k.document_number,
