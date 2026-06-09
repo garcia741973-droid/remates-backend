@@ -56,6 +56,7 @@ exports.getUserDetail = async (req, res) => {
 
         c.name AS company_name,
         uc.role AS company_role,
+        'PRUEBA123' AS debug_field,
 
         k.full_name,
         k.document_number,
