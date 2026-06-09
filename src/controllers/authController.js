@@ -15,10 +15,15 @@ exports.login = async (req, res) => {
     console.log('====================');
 
     // 🔍 Buscar usuario
-    const { rows } = await pool.query(
-      'SELECT * FROM users WHERE email = $1',
-      [email]
-    );
+  const { rows } = await pool.query(
+    `
+    SELECT *
+    FROM users
+    WHERE email = $1
+    AND is_active = true
+    `,
+    [email]
+  );
 
     const user = rows[0];
 
@@ -157,7 +162,12 @@ exports.login = async (req, res) => {
       const { email, password } = req.body;
 
       const userResult = await pool.query(
-        `SELECT * FROM users WHERE email = $1`,
+        `
+        SELECT *
+        FROM users
+        WHERE email = $1
+        AND is_active = true
+        `,
         [email]
       );
 
