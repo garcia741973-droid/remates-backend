@@ -29,6 +29,14 @@ const {
   '../services/emailService'
 );
 
+const {
+  requestResetCode,
+  verifyResetCode,
+  setNewPassword,
+} = require(
+  '../controllers/passwordRecoveryController'
+);
+
 router.post('/login', login);
 router.post(
   '/register-participant',
@@ -91,6 +99,23 @@ router.get(
       });
     }
   }
+);
+
+/// 🔑 RECUPERAR PASSWORD
+
+router.post(
+  '/request-reset-code',
+  requestResetCode,
+);
+
+router.post(
+  '/verify-reset-code',
+  verifyResetCode,
+);
+
+router.post(
+  '/set-new-password',
+  setNewPassword,
 );
 
 module.exports = router;
