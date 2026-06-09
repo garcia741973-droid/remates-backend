@@ -183,6 +183,41 @@ app.get('/', (req, res) => {
   res.send('API Remates funcionando 🚀');
 });
 
+/// ✅ HEALTH CHECK
+app.get('/health', async (req, res) => {
+
+  try {
+
+    await pool.query(
+      'SELECT 1'
+    );
+
+    res.status(200).json({
+
+      success: true,
+      status: 'ok',
+      database: true,
+      timestamp: new Date(),
+
+    });
+
+  } catch (error) {
+
+    console.error(
+      'HEALTH ERROR:',
+      error
+    );
+
+    res.status(500).json({
+
+      success: false,
+      status: 'error',
+      database: false,
+
+    });
+  }
+});
+
 /// 🔥 TEST DB
 app.get('/test-db', async (req, res) => {
   try {
