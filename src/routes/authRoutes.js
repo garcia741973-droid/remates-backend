@@ -23,6 +23,12 @@ const {
   '../controllers/authController'
 );
 
+const {
+  sendResetCode,
+} = require(
+  '../services/emailService'
+);
+
 router.post('/login', login);
 router.post(
   '/register-participant',
@@ -52,6 +58,39 @@ router.delete(
   '/delete-account',
   requireAuth,
   deleteAccount,
+);
+
+router.get(
+  '/test-email',
+  async (req, res) => {
+
+    try {
+
+      await sendResetCode(
+
+        'garcia741973@gmail.com',
+
+        '123456',
+      );
+
+      res.json({
+        success: true,
+      });
+
+    } catch (e) {
+
+      console.log(
+        'EMAIL ERROR:',
+        e,
+      );
+
+      res.status(500).json({
+
+        error:
+          e.message,
+      });
+    }
+  }
 );
 
 module.exports = router;
