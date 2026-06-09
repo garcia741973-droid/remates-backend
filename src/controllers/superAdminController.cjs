@@ -34,6 +34,90 @@ exports.getAllUsers = async (req, res) => {
   }
 };
 
+exports.getUserDetail = async (req, res) => {
+
+  try {
+
+    if (req.user.role !== 'super_admin') {
+
+      return res.status(403).json({
+        error: 'No autorizado',
+      });
+    }
+
+    const { id } = req.params;
+
+    const result = await pool.query(
+
+      `
+      SELECT
+
+        u.*,
+
+        c.name AS company_name,
+
+        k.full_name,
+        k.document_number,
+        k.document_type,
+        k.phone,
+        k.country,
+        k.city,
+        k.address,
+        k.nit,
+        k.client_type,
+
+        k.document_front_url,
+        k.document_back_url,
+        k.video_url,
+
+        k.submitted_at,
+        k.reviewed_at,
+        k.rejection_reason
+
+      FROM users u
+
+      LEFT JOIN user_companies uc
+        ON uc.user_id = u.id
+
+      LEFT JOIN companies c
+        ON c.id = uc.company_id
+
+      LEFT JOIN user_kyc k
+        ON k.user_id = u.id
+
+      WHERE u.id = $1
+      `,
+      [id],
+    );
+
+    if (
+      result.rows.length == 0
+    ) {
+
+      return res.status(404).json({
+        error: 'Usuario no encontrado',
+      });
+    }
+
+    res.json(
+      result.rows[0],
+    );
+
+  } catch (e) {
+
+    console.log(
+      'GET USER DETAIL ERROR:',
+      e,
+    );
+
+    res.status(500).json({
+
+      error:
+          'Error obteniendo usuario',
+    });
+  }
+};
+
 /// 🔥 CREAR EMPRESA REMATERA
 /// 🔥 CREAR EMPRESA REMATERA
 exports.createRemateCompany =

@@ -10,6 +10,7 @@ const {
 
 const {
   getAllUsers,
+  getUserDetail,
   createRemateCompany,
   updateRemateCompany,
 } = require(
@@ -59,6 +60,12 @@ router.get(
   "/users",
   requireAuth,
   getAllUsers
+);
+
+router.get(
+  "/users/:id",
+  requireAuth,
+  getUserDetail
 );
 
 /// 🏢 CREAR EMPRESA REMATERA
