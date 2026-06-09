@@ -9,6 +9,8 @@ const {
 
   hammerLot,
 
+  getLatestBids,
+
 } = require(
   '../controllers/bidsController'
 );
@@ -27,6 +29,12 @@ router.post(
   '/hammer',
   requireAuth,
   hammerLot,
+);
+
+router.get(
+  '/lot/:lotId/latest',
+  requireAuth,
+  getLatestBids,
 );
 
 module.exports = router;

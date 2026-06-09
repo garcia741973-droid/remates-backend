@@ -803,3 +803,52 @@ exports.hammerLot = async (
       client.release();
     }
 };
+
+exports.getLatestBids = async (
+  req,
+  res,
+) => {
+
+  try {
+
+    const {
+      lotId,
+    } = req.params;
+
+    const result =
+        await pool.query(
+
+      `
+      SELECT
+        id,
+        amount,
+        bid_source,
+        user_id,
+        bidder_label,
+        created_at
+      FROM bids
+      WHERE lot_id = $1
+      ORDER BY id DESC
+      LIMIT 3
+      `,
+      [lotId]
+    );
+
+    res.json(
+      result.rows,
+    );
+
+  } catch (error) {
+
+    console.error(
+      'LATEST BIDS ERROR:',
+      error,
+    );
+
+    res.status(500).json({
+
+      error:
+        'Error cargando últimas pujas',
+    });
+  }
+};
