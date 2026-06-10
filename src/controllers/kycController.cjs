@@ -305,11 +305,21 @@ const approveKyc = async (req, res) => {
     const userId = req.params.userId;
 
     await pool.query(
-      `UPDATE users
-       SET kyc_status = 'approved',
-           kyc_level = 2,
-           kyc_verified_at = now()
-       WHERE id = $1`,
+      `
+      UPDATE users u
+      SET
+          full_name = k.full_name,
+          document_number = k.document_number,
+          document_type = k.document_type,
+          phone = k.phone,
+          kyc_status = 'approved',
+          kyc_level = 2,
+          kyc_verified_at = now()
+      FROM user_kyc k
+      WHERE
+          u.id = $1
+          AND k.user_id = u.id
+      `,
       [userId]
     );
 
