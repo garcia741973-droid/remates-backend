@@ -268,6 +268,11 @@ exports.createCampaign =
                 u => u.id
             );
 
+        console.log(
+            '👥 USERS FOUND:',
+            userIds
+        );            
+
         if (
             userIds.length === 0
         ) {
@@ -295,6 +300,16 @@ exports.createCampaign =
             tokensRes.rows.map(
                 t => t.fcm_token
             );
+
+        console.log(
+            '📲 TOKENS FOUND:',
+            tokens.length
+        );
+
+        console.log(
+            '📲 TOKENS:',
+            tokens
+        );            
 
         if (
             tokens.length === 0
@@ -329,6 +344,53 @@ exports.createCampaign =
                     campaign.id.toString(),
             },
         });
+
+        console.log(
+            '🔥 FULL RESPONSE:',
+            JSON.stringify(response),
+        );
+
+        console.log(
+            '✅ PUSH SENT:',
+            response.successCount,
+        );
+
+        console.log(
+            '❌ PUSH FAILURES:',
+            response.failureCount,
+        );
+
+        console.log(
+            '❌ PUSH RESPONSES:',
+            JSON.stringify(
+                response.responses,
+                null,
+                2
+            ),
+        );
+
+        response.responses.forEach(
+            (resp, index) => {
+
+                if (!resp.success) {
+
+                    console.log(
+                        '🚨 FAILED TOKEN:',
+                        tokens[index]
+                    );
+
+                    console.log(
+                        '🚨 ERROR CODE:',
+                        resp.error?.code
+                    );
+
+                    console.log(
+                        '🚨 ERROR MESSAGE:',
+                        resp.error?.message
+                    );
+                }
+            }
+        );
 
         /// 🔥 UPDATE MÉTRICAS
         await pool.query(
