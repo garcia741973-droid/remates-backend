@@ -181,13 +181,24 @@ exports.createCampaign =
             target_type === 'role'
         ) {
 
-            usersQuery = `
-                SELECT DISTINCT user_id as id
-                FROM user_companies
-                WHERE role = $1
-            `;
+            if (target_value === 'super_admin') {
 
-            values.push(target_value);
+                usersQuery = `
+                    SELECT id
+                    FROM users
+                    WHERE role = 'super_admin'
+                `;
+
+            } else {
+
+                usersQuery = `
+                    SELECT DISTINCT user_id as id
+                    FROM user_companies
+                    WHERE role = $1
+                `;
+
+                values.push(target_value);
+            }
         }
 
         /// 🔥 COMPANY
