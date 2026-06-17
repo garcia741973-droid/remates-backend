@@ -143,8 +143,45 @@ exports.sendPushNotification = async ({
         );
 
         console.log(
-            '🔥 PUSH SENT:',
+            '✅ PUSH SENT:',
             response.successCount,
+        );
+
+        console.log(
+            '❌ PUSH FAILURES:',
+            response.failureCount,
+        );
+
+        console.log(
+            '❌ PUSH RESPONSES:',
+            JSON.stringify(
+                response.responses,
+                null,
+                2
+            ),
+        );
+
+        response.responses.forEach(
+            (resp, index) => {
+
+                if (!resp.success) {
+
+                    console.log(
+                        '🚨 FAILED TOKEN:',
+                        tokens[index]
+                    );
+
+                    console.log(
+                        '🚨 ERROR CODE:',
+                        resp.error?.code
+                    );
+
+                    console.log(
+                        '🚨 ERROR MESSAGE:',
+                        resp.error?.message
+                    );
+                }
+            }
         );
 
         /// 🔥 EVENTO OPERATIVO
