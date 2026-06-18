@@ -330,6 +330,49 @@ const approveKyc = async (req, res) => {
       [userId]
     );
 
+    /// 🔥 SI EL USUARIO NACIÓ EN PLAZA GANADERA
+    const plazaUser = await pool.query(
+      `
+      SELECT 1
+      FROM user_companies
+      WHERE user_id = $1
+      AND company_id = 1
+      LIMIT 1
+      `,
+      [userId]
+    );
+
+    if (plazaUser.rows.length > 0) {
+
+      await pool.query(
+        `
+        UPDATE users
+        SET seller_status = 'approved'
+        WHERE id = $1
+        AND seller_status = 'none'
+        `,
+        [userId]
+      );
+
+      await sendUserNotification({
+
+        userId,
+
+        title:
+            '🐄 Vendedor aprobado',
+
+        body:
+            'Tu identidad fue aprobada y ya puedes publicar ganado en Plaza Ganadera.',
+
+        data: {
+
+          type: 'seller_approved',
+        },
+      });
+    }
+
+
+
     /// 🔥 EVENTO OPERATIVO
     await createOperationEvent({
 
