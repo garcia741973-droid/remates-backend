@@ -1,6 +1,10 @@
 const { pool } = require('../config/db');
 
 const {
+  RoomServiceClient,
+} = require('livekit-server-sdk');
+
+const {
   createOperationEvent,
 } = require('../services/operationEventsService');
 
@@ -560,6 +564,35 @@ exports.closeAuction = async (req, res) => {
         auction_id,
       }
     );
+
+    /// 🔥 CERRAR ROOM LIVEKIT
+    try {
+
+      const roomService =
+          new RoomServiceClient(
+
+        process.env.LIVEKIT_URL,
+
+        process.env.LIVEKIT_API_KEY,
+
+        process.env.LIVEKIT_API_SECRET
+      );
+
+      await roomService.deleteRoom(
+        `auction_${auction_id}`
+      );
+
+      console.log(
+        `🔥 LIVEKIT ROOM CERRADA auction_${auction_id}`
+      );
+
+    } catch (e) {
+
+      console.log(
+        'LIVEKIT DELETE ROOM ERROR:',
+        e.message
+      );
+    }    
 
     /// 🔥 AVISO GLOBAL
     io.emit(
