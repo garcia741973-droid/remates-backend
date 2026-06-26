@@ -49,7 +49,7 @@ exports.getLivekitToken = async (req, res) => {
       process.env.LIVEKIT_API_KEY,
       process.env.LIVEKIT_API_SECRET,
       {
-        identity: `user_${user.user_id}_${Date.now()}`,
+        identity: `user_${user.user_id}`,
         name: user.name || `User ${user.user_id}`,
         metadata: JSON.stringify({
           user_id: user.user_id,
