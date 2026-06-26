@@ -718,6 +718,48 @@ exports.hammerLot = async (
       [auction_id]
     );
 
+    /// 🔥 VER SI QUEDAN LOTES EN COLA
+    const queuedResult =
+        await client.query(
+
+      `
+      SELECT id
+      FROM auction_live_lots
+      WHERE
+
+        auction_id = $1
+
+        AND status = 'queued'
+
+      LIMIT 1
+      `,
+      [auction_id]
+    );
+
+    const hasMoreLots =
+        queuedResult.rows.length > 0;
+
+    /// 🔥 SI NO QUEDAN MÁS LOTES → CERRAR REMATE
+    if (!hasMoreLots) {
+
+      await client.query(
+
+        `
+        UPDATE auctions
+        SET
+
+          status = 'closed',
+
+          ended_at = NOW(),
+
+          current_lot_id = NULL
+
+        WHERE id = $1
+        `,
+        [auction_id]
+      );
+    }
+
     await client.query(
       'COMMIT'
     );    
