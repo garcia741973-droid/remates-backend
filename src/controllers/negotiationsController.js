@@ -183,6 +183,67 @@ exports.sendMessage = async (req, res) => {
       message
     } = req.body;
 
+    /// 🔥 FILTRO ANTI FUGA DE CONTACTOS
+    if (message) {
+
+      const text =
+        message.toLowerCase();
+
+      /// 📞 teléfonos
+      const phoneRegex =
+        /(\+?\d[\d\s\-]{6,})/;
+
+      /// 📧 correos
+      const emailRegex =
+        /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+
+      /// 🔗 links
+      const linkRegex =
+        /(https?:\/\/|www\.)/i;
+
+      /// 🚫 palabras bloqueadas
+      const blockedWords = [
+
+        'whatsapp',
+        'wsp',
+        'wasap',
+        'llamame',
+        'llámame',
+        'telegram',
+        'facebook',
+        'instagram',
+        'correo',
+        'gmail',
+        'hotmail',
+        'contactame',
+        'contáctame',
+        'escribime',
+        'escríbeme',
+        'celular',
+        'numero',
+        'número',
+      ];
+
+      const hasBlockedWord =
+        blockedWords.some(
+          word => text.includes(word)
+        );
+
+      if (
+        phoneRegex.test(message) ||
+        emailRegex.test(message) ||
+        linkRegex.test(message) ||
+        hasBlockedWord
+      ) {
+
+        return res.status(400).json({
+
+          error:
+            'Por seguridad y para proteger la negociación dentro de Plaza Ganadera, no está permitido compartir contactos directos antes del cierre.',
+        });
+      }
+    }
+
     /// 🔥 1. GUARDAR MENSAJE SQL
     const { rows } = await pool.query(
       `
