@@ -739,6 +739,9 @@ exports.hammerLot = async (
     const hasMoreLots =
         queuedResult.rows.length > 0;
 
+    const auctionClosed =
+        !hasMoreLots;
+
     /// 🔥 SI NO QUEDAN MÁS LOTES → CERRAR REMATE
     if (!hasMoreLots) {
 
@@ -806,6 +809,21 @@ exports.hammerLot = async (
             null,
       }
     );
+
+    /// 🔥 SI AUTO CERRÓ EL REMATE
+    if (auctionClosed) {
+
+      io.to(
+        `auction_${auction_id}`
+      ).emit(
+
+        'auctionClosed',
+
+        {
+          auction_id,
+        }
+      );
+    }    
 
     res.json({
 
