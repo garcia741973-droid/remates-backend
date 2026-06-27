@@ -2,6 +2,7 @@ const { pool } = require("../config/db");
 
 const {
   sendAdminNotification,
+  sendUserNotification,
 } = require('../services/notificationService');
 
 /// 🟢 SOLICITAR SER VENDEDOR

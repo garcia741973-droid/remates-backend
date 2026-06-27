@@ -151,6 +151,27 @@ exports.createPromotionRequest = async (
                 ],
             );
 
+            /// 🔥 NOTIFICAR SUPER ADMIN
+            await sendAdminNotification({
+
+                title:
+                    '⭐ Nueva solicitud premium',
+
+                body:
+                    `Usuario ${userId} solicitó promoción para lote ${entity_id}`,
+
+                data: {
+
+                    type: 'premium_request',
+
+                    request_id:
+                        result.rows[0].id.toString(),
+
+                    entity_id:
+                        entity_id.toString(),
+                },
+            });
+
         res.json({
             success: true,
             request: result.rows[0],
