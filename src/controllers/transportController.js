@@ -695,21 +695,27 @@ const sendTransportMessage = async (req, res) => {
       );
 
     /// 2. GUARDAR FIRESTORE (realtime)
+    console.log(
+    '🔥 Writing transport message to Firestore'
+    );
+
     await admin
-      .firestore()
-      .collection(
-        'transport_negotiations'
-      )
-      .doc(
+    .firestore()
+    .collection('transport_negotiations')
+    .doc(
         negotiation_id.toString()
-      )
-      .collection('messages')
-      .add({
+    )
+    .collection('messages')
+    .add({
         sender_id: senderId,
         message,
         created_at:
-          admin.firestore.FieldValue.serverTimestamp(),
-      });
+        admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    console.log(
+    '✅ Firestore transport message saved'
+    );
 
     res.json(
       result.rows[0]
