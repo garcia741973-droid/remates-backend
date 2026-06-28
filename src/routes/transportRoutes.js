@@ -8,6 +8,10 @@ const {
   createGuide,
 } = require('../controllers/transportController');
 
+const {
+  requireAuth,
+} = require('../middleware/authMiddleware');
+
 router.get(
   '/my-truck',
   requireAuth,
