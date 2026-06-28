@@ -179,8 +179,120 @@ const updateMyTruck = async (req, res) => {
   }
 };
 
+const createGuide = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    const truckRes = await pool.query(
+      `
+      SELECT *
+      FROM transporter_trucks
+      WHERE user_id = $1
+        AND is_active = true
+      LIMIT 1
+      `,
+      [userId]
+    );
+
+    if (truckRes.rows.length === 0) {
+      return res.status(400).json({
+        error: 'No tienes camión registrado',
+      });
+    }
+
+    const truck = truckRes.rows[0];
+
+    const {
+      origin,
+      destination,
+      driver_name,
+      driver_ci,
+
+      male_0_12,
+      female_0_12,
+
+      male_13_24,
+      female_13_24,
+
+      male_25_36,
+      female_25_36,
+
+      male_36_plus,
+      female_36_plus,
+
+      guide_image_url,
+    } = req.body;
+
+    const result = await pool.query(
+      `
+      INSERT INTO transport_guides (
+        truck_id,
+        user_id,
+        origin,
+        destination,
+        driver_name,
+        driver_ci,
+        plate,
+
+        male_0_12,
+        female_0_12,
+
+        male_13_24,
+        female_13_24,
+
+        male_25_36,
+        female_25_36,
+
+        male_36_plus,
+        female_36_plus,
+
+        guide_image_url
+      )
+      VALUES (
+        $1,$2,$3,$4,$5,$6,$7,
+        $8,$9,$10,$11,$12,$13,$14,$15,$16
+      )
+      RETURNING *
+      `,
+      [
+        truck.id,
+        userId,
+        origin,
+        destination,
+        driver_name,
+        driver_ci,
+        truck.plate,
+
+        male_0_12,
+        female_0_12,
+
+        male_13_24,
+        female_13_24,
+
+        male_25_36,
+        female_25_36,
+
+        male_36_plus,
+        female_36_plus,
+
+        guide_image_url,
+      ]
+    );
+
+    res.json(result.rows[0]);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error creando guía',
+    });
+  }
+};
+
 module.exports = {
   registerTruck,
   getMyTruck,
   updateMyTruck,
+  createGuide,
 };
