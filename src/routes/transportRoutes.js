@@ -10,6 +10,9 @@ const {
   getSharedGuide,
   createTransportRequest,
   getOpenTransportRequests,
+  createTransportNegotiation,
+  sendTransportMessage,
+  getTransportMessages,
 } = require('../controllers/transportController');
 
 const {
@@ -55,6 +58,24 @@ router.get(
   '/open-requests',
   requireAuth,
   getOpenTransportRequests
+);
+
+router.post(
+  '/create-negotiation',
+  requireAuth,
+  createTransportNegotiation
+);
+
+router.post(
+  '/send-message',
+  requireAuth,
+  sendTransportMessage
+);
+
+router.get(
+  '/messages/:negotiation_id',
+  requireAuth,
+  getTransportMessages
 );
 
 module.exports = router;

@@ -526,6 +526,213 @@ const getOpenTransportRequests = async (req, res) => {
   }
 };
 
+const createTransportNegotiation = async (req, res) => {
+  try {
+    const transporterId =
+      req.user.user_id;
+
+    const { request_id } = req.body;
+
+    const requestRes =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_requests
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [request_id]
+      );
+
+    if (
+      requestRes.rows.length === 0
+    ) {
+      return res.status(404).json({
+        error:
+          'Solicitud no encontrada',
+      });
+    }
+
+    const request =
+      requestRes.rows[0];
+
+    const truckRes =
+      await pool.query(
+        `
+        SELECT *
+        FROM transporter_trucks
+        WHERE user_id = $1
+          AND is_active = true
+        LIMIT 1
+        `,
+        [transporterId]
+      );
+
+    if (
+      truckRes.rows.length === 0
+    ) {
+      return res.status(400).json({
+        error:
+          'No tienes camión activo',
+      });
+    }
+
+    const truck =
+      truckRes.rows[0];
+
+    const existing =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_negotiations
+        WHERE request_id = $1
+          AND transporter_id = $2
+        LIMIT 1
+        `,
+        [
+          request_id,
+          transporterId,
+        ]
+      );
+
+    if (
+      existing.rows.length > 0
+    ) {
+      return res.json(
+        existing.rows[0]
+      );
+    }
+
+    const result =
+      await pool.query(
+        `
+        INSERT INTO transport_negotiations (
+          request_id,
+          truck_id,
+          requester_id,
+          transporter_id
+        )
+        VALUES ($1,$2,$3,$4)
+        RETURNING *
+        `,
+        [
+          request_id,
+          truck.id,
+          request.user_id,
+          transporterId,
+        ]
+      );
+
+    res.json(
+      result.rows[0]
+    );
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error creando negociación',
+    });
+  }
+};
+
+const sendTransportMessage = async (req, res) => {
+  try {
+    const senderId =
+      req.user.user_id;
+
+    const {
+      negotiation_id,
+      message,
+    } = req.body;
+
+    const forbiddenPatterns = [
+      /\d{7,}/,
+      /whatsapp/i,
+      /llámame/i,
+      /llamame/i,
+      /telegram/i,
+      /@/,
+      /facebook/i,
+      /instagram/i,
+    ];
+
+    const blocked =
+      forbiddenPatterns.some(
+        (pattern) =>
+          pattern.test(message)
+      );
+
+    if (blocked) {
+      return res.status(400).json({
+        error:
+          'Mensaje bloqueado por compartir contacto externo',
+      });
+    }
+
+    const result =
+      await pool.query(
+        `
+        INSERT INTO transport_negotiation_messages (
+          negotiation_id,
+          sender_id,
+          message
+        )
+        VALUES ($1,$2,$3)
+        RETURNING *
+        `,
+        [
+          negotiation_id,
+          senderId,
+          message,
+        ]
+      );
+
+    res.json(
+      result.rows[0]
+    );
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error enviando mensaje',
+    });
+  }
+};
+
+const getTransportMessages = async (req, res) => {
+  try {
+    const { negotiation_id } =
+      req.params;
+
+    const result =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_negotiation_messages
+        WHERE negotiation_id = $1
+        ORDER BY id ASC
+        `,
+        [negotiation_id]
+      );
+
+    res.json(
+      result.rows
+    );
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error obteniendo mensajes',
+    });
+  }
+};
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -535,4 +742,7 @@ module.exports = {
   getSharedGuide,
   createTransportRequest,
   getOpenTransportRequests,
+  createTransportNegotiation,
+  sendTransportMessage,
+  getTransportMessages,  
 };
