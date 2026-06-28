@@ -1047,13 +1047,19 @@ const createTransportPayment = async (req, res) => {
         proof_image_url
       );
 
-    const aiVerified =
-      aiResult.pago_valido === true;
+    console.log(
+    '🤖 AI RESULT:',
+    JSON.stringify(
+        aiResult,
+        null,
+        2
+    )
+    );
+
+    const aiVerified = false;
 
     const paymentStatus =
-      aiVerified
-        ? 'approved'
-        : 'pending_review';
+    'pending_review';
 
     const result =
       await pool.query(
@@ -1082,25 +1088,25 @@ const createTransportPayment = async (req, res) => {
       );
 
     /// Si IA aprobó:
-    if (aiVerified) {
-      await pool.query(
-        `
-        UPDATE transport_negotiations
-        SET status = 'paid'
-        WHERE id = $1
-        `,
-        [negotiation_id]
-      );
-
-      await pool.query(
-        `
-        UPDATE transport_requests
-        SET status = 'paid'
-        WHERE id = $1
-        `,
-        [negotiation.request_id]
-      );
-    }
+///    if (aiVerified) {
+///      await pool.query(
+///       `
+///        UPDATE transport_negotiations
+///        SET status = 'paid'
+///        WHERE id = $1
+///        `,
+///        [negotiation_id]
+///      );
+///
+///      await pool.query(
+///        `
+///        UPDATE transport_requests
+///        SET status = 'paid'
+///        WHERE id = $1
+///        `,
+///        [negotiation.request_id]
+///      );
+///    }
 
     await sendUserNotification({
       userId:
