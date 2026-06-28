@@ -112,7 +112,75 @@ const getMyTruck = async (req, res) => {
   }
 };
 
+const updateMyTruck = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    const {
+      plate,
+      brand,
+      model,
+      year,
+      truck_type,
+      capacity_large,
+      capacity_small,
+      has_trailer,
+      trailer_capacity,
+      front_photo,
+      side_photo,
+      ownership_doc,
+    } = req.body;
+
+    const result = await pool.query(
+      `
+      UPDATE transporter_trucks
+      SET
+        plate = $1,
+        brand = $2,
+        model = $3,
+        year = $4,
+        truck_type = $5,
+        capacity_large = $6,
+        capacity_small = $7,
+        has_trailer = $8,
+        trailer_capacity = $9,
+        front_photo = COALESCE($10, front_photo),
+        side_photo = COALESCE($11, side_photo),
+        ownership_doc = COALESCE($12, ownership_doc)
+      WHERE user_id = $13
+        AND is_active = true
+      RETURNING *
+      `,
+      [
+        plate,
+        brand,
+        model,
+        year,
+        truck_type,
+        capacity_large,
+        capacity_small,
+        has_trailer,
+        trailer_capacity,
+        front_photo,
+        side_photo,
+        ownership_doc,
+        userId,
+      ]
+    );
+
+    res.json(result.rows[0]);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error actualizando camión',
+    });
+  }
+};
+
 module.exports = {
   registerTruck,
   getMyTruck,
+  updateMyTruck,
 };
