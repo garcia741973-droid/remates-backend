@@ -338,19 +338,104 @@ const getSharedGuide = async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({
-        error: 'Manifiesto no encontrado',
-      });
+      return res
+        .status(404)
+        .send(
+          '<h1>Manifiesto no encontrado</h1>'
+        );
     }
 
-    res.json(result.rows[0]);
+    const g = result.rows[0];
+
+    res.send(`
+      <html>
+      <head>
+        <title>Manifiesto de Carga</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            background: #111;
+            color: #fff;
+            padding: 30px;
+          }
+
+          .box {
+            max-width: 700px;
+            margin: auto;
+            background: #1b1b1b;
+            padding: 25px;
+            border-radius: 12px;
+            border: 1px solid #2d7d46;
+          }
+
+          h1 {
+            color: #d4af37;
+          }
+
+          h2 {
+            color: #2d7d46;
+            margin-top: 25px;
+          }
+
+          .line {
+            margin-bottom: 10px;
+          }
+
+          .status {
+            padding: 8px 12px;
+            background: #2d7d46;
+            display: inline-block;
+            border-radius: 8px;
+            margin-top: 15px;
+          }
+        </style>
+      </head>
+
+      <body>
+        <div class="box">
+          <h1>Manifiesto de Carga #${g.id}</h1>
+
+          <div class="line"><b>Placa:</b> ${g.plate}</div>
+          <div class="line"><b>Conductor:</b> ${g.driver_name}</div>
+          <div class="line"><b>CI:</b> ${g.driver_ci}</div>
+
+          <div class="line"><b>Origen:</b> ${g.origin}</div>
+          <div class="line"><b>Destino:</b> ${g.destination}</div>
+
+          <h2>Machos</h2>
+          <div class="line">0-12 meses: ${g.male_0_12}</div>
+          <div class="line">13-24 meses: ${g.male_13_24}</div>
+          <div class="line">25-36 meses: ${g.male_25_36}</div>
+          <div class="line">+36 meses: ${g.male_36_plus}</div>
+
+          <h2>Hembras</h2>
+          <div class="line">0-12 meses: ${g.female_0_12}</div>
+          <div class="line">13-24 meses: ${g.female_13_24}</div>
+          <div class="line">25-36 meses: ${g.female_25_36}</div>
+          <div class="line">+36 meses: ${g.female_36_plus}</div>
+
+          <div class="status">
+            Estado: ${g.status}
+          </div>
+
+          <div style="margin-top:20px;">
+            Fecha: ${new Date(
+              g.created_at
+            ).toLocaleString('es-BO')}
+          </div>
+        </div>
+      </body>
+      </html>
+    `);
 
   } catch (error) {
     console.error(error);
 
-    res.status(500).json({
-      error: 'Error obteniendo manifiesto',
-    });
+    res
+      .status(500)
+      .send(
+        '<h1>Error cargando manifiesto</h1>'
+      );
   }
 };
 
