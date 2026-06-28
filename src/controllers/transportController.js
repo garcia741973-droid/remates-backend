@@ -347,6 +347,16 @@ const getSharedGuide = async (req, res) => {
 
     const g = result.rows[0];
 
+    const statusMap = {
+    draft: 'Pendiente',
+    guide_uploaded: 'Guía cargada',
+    in_trip: 'En viaje',
+    delivered: 'Entregado',
+    };
+
+    const statusText =
+    statusMap[g.status] || 'Pendiente';
+
     res.send(`
       <html>
       <head>
@@ -415,13 +425,13 @@ const getSharedGuide = async (req, res) => {
           <div class="line">+36 meses: ${g.female_36_plus}</div>
 
           <div class="status">
-            Estado: ${g.status}
+            Estado: ${statusText}
           </div>
 
           <div style="margin-top:20px;">
             Fecha: ${new Date(
-              g.created_at
-            ).toLocaleString('es-BO')}
+            g.created_at
+            ).toLocaleDateString()}
           </div>
         </div>
       </body>
