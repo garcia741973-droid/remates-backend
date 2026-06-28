@@ -999,148 +999,134 @@ const acceptTransportNegotiation = async (req, res) => {
   }
 };
 
-const createTransportPayment = async (req, res) => {
-  try {
-    const userId =
-      req.user.user_id;
+const {
+  analyzePaymentProof,
+} = require('../services/paymentAiService');
 
-    const {
-      negotiation_id,
-      proof_image_url,
-    } = req.body;
+const createTransportPayment =
+  async (req, res) => {
+    try {
+      const userId =
+        req.user.user_id;
 
-    const negotiationRes =
-      await pool.query(
-        `
-        SELECT *
-        FROM transport_negotiations
-        WHERE id = $1
-        LIMIT 1
-        `,
-        [negotiation_id]
-      );
-
-    if (
-      negotiationRes.rows.length === 0
-    ) {
-      return res.status(404).json({
-        error:
-          'Negociación no encontrada',
-      });
-    }
-
-    const negotiation =
-      negotiationRes.rows[0];
-
-    if (
-      negotiation.requester_id !== userId
-    ) {
-      return res.status(403).json({
-        error:
-          'No autorizado',
-      });
-    }
-
-    /// 🔥 IA analiza comprobante
-    const aiResult =
-      await analyzeTransportPayment(
-        proof_image_url
-      );
-
-    console.log(
-    '🤖 AI RESULT:',
-    JSON.stringify(
-        aiResult,
-        null,
-        2
-    )
-    );
-
-    const aiVerified = false;
-
-    const paymentStatus =
-    'pending_review';
-
-    const result =
-      await pool.query(
-        `
-        INSERT INTO transport_payments (
-          negotiation_id,
-          payer_user_id,
-          amount,
-          proof_image_url,
-          ai_verified,
-          ai_notes,
-          status
-        )
-        VALUES ($1,$2,$3,$4,$5,$6,$7)
-        RETURNING *
-        `,
-        [
-          negotiation_id,
-          userId,
-          30,
-          proof_image_url,
-          aiVerified,
-          JSON.stringify(aiResult),
-          paymentStatus,
-        ]
-      );
-
-    /// Si IA aprobó:
-///    if (aiVerified) {
-///      await pool.query(
-///       `
-///        UPDATE transport_negotiations
-///        SET status = 'paid'
-///        WHERE id = $1
-///        `,
-///        [negotiation_id]
-///      );
-///
-///      await pool.query(
-///        `
-///        UPDATE transport_requests
-///        SET status = 'paid'
-///        WHERE id = $1
-///        `,
-///        [negotiation.request_id]
-///      );
-///    }
-
-    await sendUserNotification({
-      userId:
-        negotiation.transporter_id,
-      title:
-        aiVerified
-          ? 'Pago aprobado'
-          : 'Pago enviado',
-      body:
-        aiVerified
-          ? 'El pago fue validado automáticamente'
-          : 'El pago quedó pendiente de revisión',
-      data: {
-        type:
-          'transport_payment',
+      const {
         negotiation_id,
-      },
-    });
+        proof_image_url,
+      } = req.body;
 
-    res.json({
-      payment:
-        result.rows[0],
-      ai: aiResult,
-    });
+      const negotiationRes =
+        await pool.query(
+          `
+          SELECT *
+          FROM transport_negotiations
+          WHERE id = $1
+          LIMIT 1
+          `,
+          [negotiation_id]
+        );
 
-  } catch (error) {
-    console.error(error);
+      if (
+        negotiationRes.rows.length === 0
+      ) {
+        return res.status(404).json({
+          error:
+            'Negociación no encontrada',
+        });
+      }
 
-    res.status(500).json({
-      error:
-        'Error creando pago',
-    });
-  }
-};
+      const negotiation =
+        negotiationRes.rows[0];
+
+      const expectedAmount = 30;
+
+      const aiResult =
+        await analyzePaymentProof({
+          proofImageUrl:
+            proof_image_url,
+          expectedAmount,
+        });
+
+      console.log(
+        '🤖 AI RESULT:',
+        aiResult
+      );
+
+      const result =
+        await pool.query(
+          `
+          INSERT INTO payment_validations (
+            module,
+            reference_id,
+            payer_user_id,
+            expected_amount,
+            proof_image_url,
+
+            detected_amount,
+            detected_bank,
+            detected_reference,
+            detected_sender,
+            detected_date,
+            detected_time,
+
+            ai_verified,
+            ai_confidence,
+            ai_notes,
+            status
+          )
+          VALUES (
+            $1,$2,$3,$4,$5,
+            $6,$7,$8,$9,$10,$11,
+            $12,$13,$14,$15
+          )
+          RETURNING *
+          `,
+          [
+            'transport',
+            negotiation_id,
+            userId,
+            expectedAmount,
+            proof_image_url,
+
+            aiResult.monto_detectado,
+            aiResult.banco,
+            aiResult.referencia,
+            aiResult.nombre_emisor,
+            aiResult.fecha,
+            aiResult.hora,
+
+            aiResult.pago_valido,
+            aiResult.confianza,
+            aiResult.notas,
+            aiResult.pago_valido
+              ? 'approved'
+              : 'pending',
+          ]
+        );
+
+      if (aiResult.pago_valido) {
+        await pool.query(
+          `
+          UPDATE transport_negotiations
+          SET status = 'paid'
+          WHERE id = $1
+          `,
+          [negotiation_id]
+        );
+      }
+
+      res.json(
+        result.rows[0]
+      );
+
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        error:
+          'Error creando pago',
+      });
+    }
+  };
 
 module.exports = {
   registerTruck,
