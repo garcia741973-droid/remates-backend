@@ -290,9 +290,35 @@ const createGuide = async (req, res) => {
   }
 };
 
+const getMyGuides = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    const result = await pool.query(
+      `
+      SELECT *
+      FROM transport_guides
+      WHERE user_id = $1
+      ORDER BY id DESC
+      `,
+      [userId]
+    );
+
+    res.json(result.rows);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error obteniendo manifiestos',
+    });
+  }
+};
+
 module.exports = {
   registerTruck,
   getMyTruck,
   updateMyTruck,
   createGuide,
+  getMyGuides,
 };

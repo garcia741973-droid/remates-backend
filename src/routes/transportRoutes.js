@@ -6,6 +6,7 @@ const {
   getMyTruck,
   updateMyTruck,
   createGuide,
+  getMyGuides,
 } = require('../controllers/transportController');
 
 const {
@@ -28,6 +29,12 @@ router.post(
   '/create-guide',
   requireAuth,
   createGuide
+);
+
+router.get(
+  '/my-guides',
+  requireAuth,
+  getMyGuides
 );
 
 module.exports = router;
