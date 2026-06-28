@@ -3,14 +3,15 @@ const router = express.Router();
 
 const {
   registerTruck,
+  getMyTruck,
 } = require('../controllers/transportController');
 
 const { requireAuth } = require('../middleware/authMiddleware');
 
-router.post(
-  '/register-truck',
+router.get(
+  '/my-truck',
   requireAuth,
-  registerTruck
+  getMyTruck
 );
 
 module.exports = router;

@@ -84,6 +84,34 @@ const registerTruck = async (req, res) => {
   }
 };
 
+const getMyTruck = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    const result = await pool.query(
+      `
+      SELECT *
+      FROM transporter_trucks
+      WHERE user_id = $1
+        AND is_active = true
+      LIMIT 1
+      `,
+      [userId]
+    );
+
+    res.json(
+      result.rows[0] || null
+    );
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error obteniendo camión',
+    });
+  }
+};
+
 module.exports = {
   registerTruck,
 };
