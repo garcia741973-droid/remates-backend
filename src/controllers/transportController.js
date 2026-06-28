@@ -2,6 +2,8 @@ const { pool } = require('../config/db');
 
 const crypto = require('crypto');
 
+const admin = require('firebase-admin');
+
 const registerTruck = async (req, res) => {
   try {
     const userId = req.user.user_id;
@@ -639,8 +641,7 @@ const createTransportNegotiation = async (req, res) => {
 
 const sendTransportMessage = async (req, res) => {
   try {
-    const senderId =
-      req.user.user_id;
+    const senderId = req.user.user_id;
 
     const {
       negotiation_id,
@@ -656,6 +657,9 @@ const sendTransportMessage = async (req, res) => {
       /@/,
       /facebook/i,
       /instagram/i,
+      /wa\.me/i,
+      /t\.me/i,
+      /\+591/,
     ];
 
     const blocked =
@@ -671,6 +675,7 @@ const sendTransportMessage = async (req, res) => {
       });
     }
 
+    /// 1. GUARDAR SQL (auditoría)
     const result =
       await pool.query(
         `
@@ -688,6 +693,23 @@ const sendTransportMessage = async (req, res) => {
           message,
         ]
       );
+
+    /// 2. GUARDAR FIRESTORE (realtime)
+    await admin
+      .firestore()
+      .collection(
+        'transport_negotiations'
+      )
+      .doc(
+        negotiation_id.toString()
+      )
+      .collection('messages')
+      .add({
+        sender_id: senderId,
+        message,
+        created_at:
+          admin.firestore.FieldValue.serverTimestamp(),
+      });
 
     res.json(
       result.rows[0]
