@@ -4,8 +4,6 @@ const crypto = require('crypto');
 
 const admin = require('firebase-admin');
 
-const admin = require('firebase-admin');
-
 const {
   sendUserNotification,
 } = require('../services/notificationService');
