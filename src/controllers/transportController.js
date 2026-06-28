@@ -887,6 +887,114 @@ const getRequestNegotiations = async (req, res) => {
   }
 };
 
+const acceptTransportNegotiation = async (req, res) => {
+  try {
+    const userId =
+      req.user.user_id;
+
+    const {
+      negotiation_id,
+    } = req.body;
+
+    /// 🔥 BUSCAR NEGOCIACIÓN
+    const negotiationRes =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_negotiations
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [negotiation_id]
+      );
+
+    if (
+      negotiationRes.rows.length === 0
+    ) {
+      return res.status(404).json({
+        error:
+          'Negociación no encontrada',
+      });
+    }
+
+    const negotiation =
+      negotiationRes.rows[0];
+
+    /// 🔒 SOLO EL DUEÑO DE LA CARGA
+    if (
+      negotiation.requester_id !== userId
+    ) {
+      return res.status(403).json({
+        error:
+          'No autorizado',
+      });
+    }
+
+    /// 🔥 ACEPTAR ESTA
+    await pool.query(
+      `
+      UPDATE transport_negotiations
+      SET status = 'accepted'
+      WHERE id = $1
+      `,
+      [negotiation_id]
+    );
+
+    /// 🔥 CAMBIAR REQUEST
+    await pool.query(
+      `
+      UPDATE transport_requests
+      SET status = 'matched'
+      WHERE id = $1
+      `,
+      [negotiation.request_id]
+    );
+
+    /// 🔥 CANCELAR OTRAS
+    await pool.query(
+      `
+      UPDATE transport_negotiations
+      SET status = 'cancelled'
+      WHERE request_id = $1
+        AND id != $2
+      `,
+      [
+        negotiation.request_id,
+        negotiation_id,
+      ]
+    );
+
+    /// 🔥 NOTIFICAR CAMIONERO
+    await sendUserNotification({
+      userId:
+        negotiation.transporter_id,
+      title:
+        'Trato aceptado',
+      body:
+        'Tu propuesta fue aceptada',
+      data: {
+        type:
+          'transport_negotiation',
+        negotiation_id,
+        request_id:
+          negotiation.request_id,
+      },
+    });
+
+    res.json({
+      success: true,
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error aceptando negociación',
+    });
+  }
+};
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -900,5 +1008,6 @@ module.exports = {
   sendTransportMessage,
   getTransportMessages,
   getMyTransportRequests,
-  getRequestNegotiations,    
+  getRequestNegotiations,
+  acceptTransportNegotiation,   
 };

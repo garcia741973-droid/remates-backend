@@ -14,7 +14,8 @@ const {
   sendTransportMessage,
   getTransportMessages,
   getMyTransportRequests,
-  getRequestNegotiations,  
+  getRequestNegotiations, 
+  acceptTransportNegotiation, 
 } = require('../controllers/transportController');
 
 const {
@@ -90,6 +91,12 @@ router.get(
   '/request-negotiations/:request_id',
   requireAuth,
   getRequestNegotiations
+);
+
+router.post(
+  '/accept-negotiation',
+  requireAuth,
+  acceptTransportNegotiation
 );
 
 module.exports = router;
