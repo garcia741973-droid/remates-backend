@@ -933,9 +933,9 @@ const acceptTransportNegotiation = async (req, res) => {
     /// 🔥 ACEPTAR ESTA
     await pool.query(
       `
-      UPDATE transport_negotiations
-      SET status = 'accepted'
-      WHERE id = $1
+        UPDATE transport_negotiations
+        SET status = 'payment_pending'
+        WHERE id = $1
       `,
       [negotiation_id]
     );
@@ -943,9 +943,9 @@ const acceptTransportNegotiation = async (req, res) => {
     /// 🔥 CAMBIAR REQUEST
     await pool.query(
       `
-      UPDATE transport_requests
-      SET status = 'matched'
-      WHERE id = $1
+        UPDATE transport_requests
+        SET status = 'payment_pending'
+        WHERE id = $1
       `,
       [negotiation.request_id]
     );
@@ -995,6 +995,95 @@ const acceptTransportNegotiation = async (req, res) => {
   }
 };
 
+const createTransportPayment = async (req, res) => {
+  try {
+    const userId =
+      req.user.user_id;
+
+    const {
+      negotiation_id,
+      proof_image_url,
+    } = req.body;
+
+    const negotiationRes =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_negotiations
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [negotiation_id]
+      );
+
+    if (
+      negotiationRes.rows.length === 0
+    ) {
+      return res.status(404).json({
+        error:
+          'Negociación no encontrada',
+      });
+    }
+
+    const negotiation =
+      negotiationRes.rows[0];
+
+    if (
+      negotiation.requester_id !== userId
+    ) {
+      return res.status(403).json({
+        error:
+          'No autorizado',
+      });
+    }
+
+    const result =
+      await pool.query(
+        `
+        INSERT INTO transport_payments (
+          negotiation_id,
+          payer_user_id,
+          proof_image_url,
+          status
+        )
+        VALUES ($1,$2,$3,'pending')
+        RETURNING *
+        `,
+        [
+          negotiation_id,
+          userId,
+          proof_image_url,
+        ]
+      );
+
+    await sendUserNotification({
+      userId:
+        negotiation.transporter_id,
+      title:
+        'Pago enviado',
+      body:
+        'El comprobante fue cargado y está en revisión',
+      data: {
+        type:
+          'transport_payment',
+        negotiation_id,
+      },
+    });
+
+    res.json(
+      result.rows[0]
+    );
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error creando pago',
+    });
+  }
+};
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -1009,5 +1098,6 @@ module.exports = {
   getTransportMessages,
   getMyTransportRequests,
   getRequestNegotiations,
-  acceptTransportNegotiation,   
+  acceptTransportNegotiation,
+  createTransportPayment,   
 };
