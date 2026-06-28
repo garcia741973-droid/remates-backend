@@ -172,8 +172,6 @@ const cattleRoutes =
 
 const transportRoutes = require('./routes/transportRoutes');
 
-app.use('/transport', transportRoutes);
-
 app.use(
   '/market-analytics',
   marketAnalyticsRoutes
@@ -241,6 +239,9 @@ app.use('/auth', authRoutes);
 app.use('/test', testRoutes);
 app.use('/lots', lotsRoutes);
 app.use('/auctions', auctionsRoutes);
+
+app.use('/transport', transportRoutes);
+
 app.use('/livekit', livekitRoutes);
 app.use('/auction-lots', auctionLotsRoutes);
 app.use(
