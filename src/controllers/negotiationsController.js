@@ -753,7 +753,6 @@ exports.closeNegotiation = async (req, res) => {
       `
       UPDATE negotiations
       SET status = 'payment_pending'
-      final_price: final_price,
       WHERE id = $1
       `,
       [id]
