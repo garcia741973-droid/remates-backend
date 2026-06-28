@@ -5,7 +5,7 @@ const {
   registerTruck,
 } = require('../controllers/transportController');
 
-const authMiddleware = require('../middlewares/authMiddleware');
+const authMiddleware = require('../middleware/authMiddleware');
 
 router.post(
   '/register-truck',
