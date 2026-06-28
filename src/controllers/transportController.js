@@ -733,6 +733,72 @@ const getTransportMessages = async (req, res) => {
   }
 };
 
+const getMyTransportRequests = async (req, res) => {
+  try {
+    const userId =
+      req.user.user_id;
+
+    const result =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_requests
+        WHERE user_id = $1
+        ORDER BY id DESC
+        `,
+        [userId]
+      );
+
+    res.json(
+      result.rows
+    );
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error obteniendo solicitudes',
+    });
+  }
+};
+
+const getRequestNegotiations = async (req, res) => {
+  try {
+    const { request_id } =
+      req.params;
+
+    const result =
+      await pool.query(
+        `
+        SELECT
+          tn.*,
+          tt.plate,
+          tt.brand,
+          tt.model
+        FROM transport_negotiations tn
+        JOIN transporter_trucks tt
+          ON tn.truck_id = tt.id
+        WHERE tn.request_id = $1
+        ORDER BY tn.id DESC
+        `,
+        [request_id]
+      );
+
+    res.json(
+      result.rows
+    );
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error obteniendo negociaciones',
+    });
+  }
+};
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -744,5 +810,7 @@ module.exports = {
   getOpenTransportRequests,
   createTransportNegotiation,
   sendTransportMessage,
-  getTransportMessages,  
+  getTransportMessages,
+  getMyTransportRequests,
+  getRequestNegotiations,    
 };
