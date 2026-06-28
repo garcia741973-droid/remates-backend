@@ -5,6 +5,10 @@ const crypto = require('crypto');
 const admin = require('firebase-admin');
 
 const {
+  analyzeTransportPayment,
+} = require('../services/transportAiService');
+
+const {
   sendUserNotification,
 } = require('../services/notificationService');
 
@@ -1037,32 +1041,78 @@ const createTransportPayment = async (req, res) => {
       });
     }
 
+    /// 🔥 IA analiza comprobante
+    const aiResult =
+      await analyzeTransportPayment(
+        proof_image_url
+      );
+
+    const aiVerified =
+      aiResult.pago_valido === true;
+
+    const paymentStatus =
+      aiVerified
+        ? 'approved'
+        : 'pending_review';
+
     const result =
       await pool.query(
         `
         INSERT INTO transport_payments (
           negotiation_id,
           payer_user_id,
+          amount,
           proof_image_url,
+          ai_verified,
+          ai_notes,
           status
         )
-        VALUES ($1,$2,$3,'pending')
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
         RETURNING *
         `,
         [
           negotiation_id,
           userId,
+          30,
           proof_image_url,
+          aiVerified,
+          JSON.stringify(aiResult),
+          paymentStatus,
         ]
       );
+
+    /// Si IA aprobó:
+    if (aiVerified) {
+      await pool.query(
+        `
+        UPDATE transport_negotiations
+        SET status = 'paid'
+        WHERE id = $1
+        `,
+        [negotiation_id]
+      );
+
+      await pool.query(
+        `
+        UPDATE transport_requests
+        SET status = 'paid'
+        WHERE id = $1
+        `,
+        [negotiation.request_id]
+      );
+    }
 
     await sendUserNotification({
       userId:
         negotiation.transporter_id,
       title:
-        'Pago enviado',
+        aiVerified
+          ? 'Pago aprobado'
+          : 'Pago enviado',
       body:
-        'El comprobante fue cargado y está en revisión',
+        aiVerified
+          ? 'El pago fue validado automáticamente'
+          : 'El pago quedó pendiente de revisión',
       data: {
         type:
           'transport_payment',
@@ -1070,9 +1120,11 @@ const createTransportPayment = async (req, res) => {
       },
     });
 
-    res.json(
-      result.rows[0]
-    );
+    res.json({
+      payment:
+        result.rows[0],
+      ai: aiResult,
+    });
 
   } catch (error) {
     console.error(error);
