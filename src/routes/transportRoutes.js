@@ -8,6 +8,8 @@ const {
   createGuide,
   getMyGuides,
   getSharedGuide,
+  createTransportRequest,
+  getOpenTransportRequests,
 } = require('../controllers/transportController');
 
 const {
@@ -41,6 +43,18 @@ router.get(
 router.get(
   '/shared-guide/:token',
   getSharedGuide
+);
+
+router.post(
+  '/create-request',
+  requireAuth,
+  createTransportRequest
+);
+
+router.get(
+  '/open-requests',
+  requireAuth,
+  getOpenTransportRequests
 );
 
 module.exports = router;

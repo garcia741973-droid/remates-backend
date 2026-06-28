@@ -449,6 +449,83 @@ const getSharedGuide = async (req, res) => {
   }
 };
 
+const createTransportRequest = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    const {
+      origin,
+      destination,
+      quantity,
+      animal_type,
+      travel_date,
+      notes,
+      contact_phone,
+    } = req.body;
+
+    const result = await pool.query(
+      `
+      INSERT INTO transport_requests (
+        user_id,
+        origin,
+        destination,
+        quantity,
+        animal_type,
+        travel_date,
+        notes,
+        contact_phone
+      )
+      VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8
+      )
+      RETURNING *
+      `,
+      [
+        userId,
+        origin,
+        destination,
+        quantity,
+        animal_type,
+        travel_date,
+        notes,
+        contact_phone,
+      ]
+    );
+
+    res.json(result.rows[0]);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error creando solicitud',
+    });
+  }
+};
+
+
+const getOpenTransportRequests = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      SELECT *
+      FROM transport_requests
+      WHERE status = 'open'
+      ORDER BY id DESC
+      `
+    );
+
+    res.json(result.rows);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error obteniendo solicitudes',
+    });
+  }
+};
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -456,4 +533,6 @@ module.exports = {
   createGuide,
   getMyGuides,
   getSharedGuide,
+  createTransportRequest,
+  getOpenTransportRequests,
 };
