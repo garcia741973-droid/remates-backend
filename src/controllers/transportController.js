@@ -4,6 +4,12 @@ const crypto = require('crypto');
 
 const admin = require('firebase-admin');
 
+const admin = require('firebase-admin');
+
+const {
+  sendUserNotification,
+} = require('../services/notificationService');
+
 const registerTruck = async (req, res) => {
   try {
     const userId = req.user.user_id;
@@ -625,8 +631,26 @@ const createTransportNegotiation = async (req, res) => {
         ]
       );
 
+    const negotiation =
+    result.rows[0];
+
+    /// 🔥 PUSH AL GANADERO
+    await sendUserNotification({
+    userId: request.user_id,
+    title: 'Nuevo transportista interesado',
+    body:
+        'Un camionero quiere negociar tu carga',
+    data: {
+        type: 'transport_negotiation',
+        negotiation_id:
+        negotiation.id,
+        request_id:
+        request.id,
+    },
+    });
+
     res.json(
-      result.rows[0]
+    negotiation
     );
 
   } catch (error) {
@@ -716,6 +740,44 @@ const sendTransportMessage = async (req, res) => {
     console.log(
     '✅ Firestore transport message saved'
     );
+
+    /// 🔥 BUSCAR NEGOCIACIÓN
+    const negotiationRes =
+    await pool.query(
+        `
+        SELECT *
+        FROM transport_negotiations
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [negotiation_id]
+    );
+
+    if (
+    negotiationRes.rows.length > 0
+    ) {
+    const negotiation =
+        negotiationRes.rows[0];
+
+    const receiverId =
+        negotiation.requester_id === senderId
+        ? negotiation.transporter_id
+        : negotiation.requester_id;
+
+    await sendUserNotification({
+        userId: receiverId,
+        title:
+        'Nuevo mensaje de transporte',
+        body: message,
+        data: {
+        type:
+            'transport_negotiation',
+        negotiation_id,
+        request_id:
+            negotiation.request_id,
+        },
+    });
+    }
 
     res.json(
       result.rows[0]
