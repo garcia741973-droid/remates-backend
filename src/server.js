@@ -242,6 +242,14 @@ app.use('/auctions', auctionsRoutes);
 
 app.use('/transport', transportRoutes);
 
+const paymentValidationRoutes =
+  require('./routes/paymentValidationRoutes');
+
+app.use(
+  '/payments',
+  paymentValidationRoutes
+);
+
 app.use('/livekit', livekitRoutes);
 app.use('/auction-lots', auctionLotsRoutes);
 app.use(
