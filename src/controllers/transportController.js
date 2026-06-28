@@ -114,4 +114,5 @@ const getMyTruck = async (req, res) => {
 
 module.exports = {
   registerTruck,
+  getMyTruck,
 };
