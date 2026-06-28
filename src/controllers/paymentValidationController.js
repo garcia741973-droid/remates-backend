@@ -215,9 +215,103 @@ const recheckPaymentValidation =
     }
   };
 
+const createManualPaymentValidation =
+  async (req, res) => {
+    try {
+      const userId =
+        req.user.user_id;
+
+      const {
+        module,
+        reference_id,
+        expected_amount,
+        proof_image_url,
+      } = req.body;
+
+      const aiResult =
+        await analyzePaymentProof({
+          proofImageUrl:
+            proof_image_url,
+          expectedAmount:
+            expected_amount,
+        });
+
+      console.log(
+        '🤖 AI MANUAL RESULT:',
+        aiResult
+      );
+
+      const result =
+        await pool.query(
+          `
+          INSERT INTO payment_validations (
+            module,
+            reference_id,
+            payer_user_id,
+            expected_amount,
+            proof_image_url,
+
+            detected_amount,
+            detected_bank,
+            detected_reference,
+            detected_sender,
+            detected_date,
+            detected_time,
+
+            ai_verified,
+            ai_confidence,
+            ai_notes,
+            status
+          )
+          VALUES (
+            $1,$2,$3,$4,$5,
+            $6,$7,$8,$9,$10,$11,
+            $12,$13,$14,$15
+          )
+          RETURNING *
+          `,
+          [
+            module,
+            reference_id,
+            userId,
+            expected_amount,
+            proof_image_url,
+
+            aiResult.monto_detectado,
+            aiResult.banco,
+            aiResult.referencia,
+            aiResult.nombre_emisor,
+            aiResult.fecha,
+            aiResult.hora,
+
+            aiResult.pago_valido,
+            aiResult.confianza,
+            aiResult.notas,
+
+            aiResult.pago_valido
+              ? 'approved'
+              : 'pending',
+          ]
+        );
+
+      res.json(
+        result.rows[0]
+      );
+
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        error:
+          'Error creando validación manual',
+      });
+    }
+  };
+
 module.exports = {
   getPaymentValidations,
   approvePaymentValidation,
   rejectPaymentValidation,
   recheckPaymentValidation,
+  createManualPaymentValidation,
 };

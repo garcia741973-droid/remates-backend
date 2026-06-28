@@ -6,6 +6,7 @@ const {
   approvePaymentValidation,
   rejectPaymentValidation,
   recheckPaymentValidation,
+  createManualPaymentValidation,
 } = require('../controllers/paymentValidationController');
 
 const {
@@ -16,6 +17,12 @@ router.get(
   '/validations',
   requireAuth,
   getPaymentValidations
+);
+
+router.post(
+  '/manual-create',
+  requireAuth,
+  createManualPaymentValidation
 );
 
 router.put(
