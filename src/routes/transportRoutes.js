@@ -7,6 +7,7 @@ const {
   updateMyTruck,
   createGuide,
   getMyGuides,
+  getSharedGuide,
 } = require('../controllers/transportController');
 
 const {
@@ -35,6 +36,11 @@ router.get(
   '/my-guides',
   requireAuth,
   getMyGuides
+);
+
+router.get(
+  '/shared-guide/:token',
+  getSharedGuide
 );
 
 module.exports = router;

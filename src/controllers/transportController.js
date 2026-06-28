@@ -1,5 +1,7 @@
 const { pool } = require('../config/db');
 
+const crypto = require('crypto');
+
 const registerTruck = async (req, res) => {
   try {
     const userId = req.user.user_id;
@@ -223,6 +225,10 @@ const createGuide = async (req, res) => {
       guide_image_url,
     } = req.body;
 
+    const shareToken =
+    crypto.randomBytes(8)
+        .toString('hex');
+
     const result = await pool.query(
       `
       INSERT INTO transport_guides (
@@ -246,11 +252,12 @@ const createGuide = async (req, res) => {
         male_36_plus,
         female_36_plus,
 
-        guide_image_url
+        guide_image_url,
+        share_token
       )
       VALUES (
         $1,$2,$3,$4,$5,$6,$7,
-        $8,$9,$10,$11,$12,$13,$14,$15,$16
+        $8,$9,$10,$11,$12,$13,$14,$15,$16,$17
       )
       RETURNING *
       `,
@@ -276,6 +283,7 @@ const createGuide = async (req, res) => {
         female_36_plus,
 
         guide_image_url,
+        shareToken,
       ]
     );
 
@@ -315,10 +323,42 @@ const getMyGuides = async (req, res) => {
   }
 };
 
+const getSharedGuide = async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    const result = await pool.query(
+      `
+      SELECT *
+      FROM transport_guides
+      WHERE share_token = $1
+      LIMIT 1
+      `,
+      [token]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Manifiesto no encontrado',
+      });
+    }
+
+    res.json(result.rows[0]);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error obteniendo manifiesto',
+    });
+  }
+};
+
 module.exports = {
   registerTruck,
   getMyTruck,
   updateMyTruck,
   createGuide,
   getMyGuides,
+  getSharedGuide,
 };
