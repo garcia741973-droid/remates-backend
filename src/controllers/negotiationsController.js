@@ -178,8 +178,6 @@ exports.sendMessage = async (req, res) => {
 
     const {
       negotiation_id,
-      price,
-      quantity,
       message
     } = req.body;
 
@@ -261,8 +259,8 @@ exports.sendMessage = async (req, res) => {
       [
         negotiation_id,
         sender_id,
-        price,
-        quantity,
+        null,
+        null,
         message || null
       ]
     );
@@ -464,10 +462,9 @@ exports.sendMessage = async (req, res) => {
 
         text: message || '',
 
-        price: price || null,
+        price: null,
 
-        quantity:
-          quantity || null,
+        quantity: null,
 
         message_type: 'offer',
 
@@ -507,12 +504,10 @@ exports.sendMessage = async (req, res) => {
           "🐄 Nueva oferta";
 
         const notificationBody =
-          price
-            ? `Bs ${price} ${
-                lot?.sale_type === 'kilo'
-                  ? '/kg'
-                  : '/lote'
-              }`
+          message
+            ? message.length > 60
+                ? `${message.substring(0, 60)}...`
+                : message
             : "Tienes un nuevo mensaje";
 
         const response =
@@ -685,6 +680,8 @@ exports.closeNegotiation = async (req, res) => {
 
     const { id } = req.params;
 
+    const { final_price } = req.body;
+
     /// 🔥 OBTENER NEGOCIACIÓN
     const negRes = await pool.query(
       `
@@ -721,6 +718,17 @@ exports.closeNegotiation = async (req, res) => {
       });
     }
 
+    /// 🔥 VALIDAR PRECIO FINAL
+    if (
+      !final_price ||
+      isNaN(final_price) ||
+      Number(final_price) <= 0
+    ) {
+      return res.status(400).json({
+        error: 'Debes ingresar un precio final válido'
+      });
+    }    
+
     /// 🔥 OBTENER QR ACTIVO
     const qrRes = await pool.query(
       `
@@ -745,6 +753,7 @@ exports.closeNegotiation = async (req, res) => {
       `
       UPDATE negotiations
       SET status = 'payment_pending'
+      final_price: final_price,
       WHERE id = $1
       `,
       [id]
@@ -783,6 +792,8 @@ exports.uploadPaymentProof = async (req, res) => {
     const seller_id = req.user.user_id;
 
     const { id } = req.params;
+
+    const { final_price } = req.body;
 
     /// 🔥 VALIDAR ARCHIVO
     if (!req.file) {
@@ -972,20 +983,8 @@ exports.uploadPaymentProof = async (req, res) => {
     );
 
     /// 🔥 OBTENER PRECIO FINAL NEGOCIADO
-    const lastOfferRes = await pool.query(
-      `
-      SELECT price
-      FROM negotiation_messages
-      WHERE negotiation_id = $1
-      AND price IS NOT NULL
-      ORDER BY created_at DESC
-      LIMIT 1
-      `,
-      [negotiation.id]
-    );
-
     const negotiatedPrice =
-      lastOfferRes.rows[0]?.price || null;
+      final_price || null;
 
 
     /// 🔥 MARCAR LOTE VENDIDO
