@@ -19,6 +19,23 @@ const registerTruck = async (req, res) => {
       ownership_doc,
     } = req.body;
 
+    const existingTruck = await pool.query(
+    `
+    SELECT id
+    FROM transporter_trucks
+    WHERE user_id = $1
+        AND is_active = true
+    LIMIT 1
+    `,
+    [userId]
+    );
+
+    if (existingTruck.rows.length > 0) {
+    return res.status(400).json({
+        error: 'Ya tienes un camión registrado',
+    });
+    }
+
     const result = await pool.query(
       `
       INSERT INTO transporter_trucks (
