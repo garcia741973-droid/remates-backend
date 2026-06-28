@@ -170,6 +170,10 @@ const cattleRoutes =
     './routes/cattleRoutes'
   );
 
+const transportRoutes = require('./routes/transportRoutes');
+
+app.use('/transport', transportRoutes);
+
 app.use(
   '/market-analytics',
   marketAnalyticsRoutes
