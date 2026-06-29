@@ -1310,6 +1310,112 @@ const createTransportPayment =
     }
   };
 
+const createDispatch = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    const {
+      negotiation_id,
+      photo_url,
+      signature_url,
+      guide_image_url,
+      notes,
+    } = req.body;
+
+    const negotiationRes =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_negotiations
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [negotiation_id]
+      );
+
+    if (
+      negotiationRes.rows.length === 0
+    ) {
+      return res.status(404).json({
+        error: 'Negociación no encontrada',
+      });
+    }
+
+    const negotiation =
+      negotiationRes.rows[0];
+
+    if (
+      negotiation.transporter_id !== userId
+    ) {
+      return res.status(403).json({
+        error: 'Solo el camionero puede despachar',
+      });
+    }
+
+    const eventRes =
+      await pool.query(
+        `
+        INSERT INTO transport_trip_events (
+          negotiation_id,
+          event_type,
+          photo_url,
+          signature_url,
+          notes,
+          created_by
+        )
+        VALUES ($1,$2,$3,$4,$5,$6)
+        RETURNING *
+        `,
+        [
+          negotiation_id,
+          'dispatch',
+          photo_url,
+          signature_url,
+          notes,
+          userId,
+        ]
+      );
+
+    if (guide_image_url) {
+      await pool.query(
+        `
+        INSERT INTO transport_guides (
+          negotiation_id,
+          user_id,
+          guide_image_url
+        )
+        VALUES ($1,$2,$3)
+        `,
+        [
+          negotiation_id,
+          userId,
+          guide_image_url,
+        ]
+      );
+    }
+
+    await pool.query(
+      `
+      UPDATE transport_negotiations
+      SET status = 'loading_completed'
+      WHERE id = $1
+      `,
+      [negotiation_id]
+    );
+
+    res.json(
+      eventRes.rows[0]
+    );
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error creando despacho',
+    });
+  }
+};
+
 const getMyTrips = async (req, res) => {
   try {
     const userId = req.user.user_id;
@@ -1383,4 +1489,5 @@ module.exports = {
   acceptTransportNegotiation,
   createTransportPayment,
   getMyTrips,   
+  createDispatch,
 };
