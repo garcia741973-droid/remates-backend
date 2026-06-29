@@ -1381,24 +1381,6 @@ const createDispatch = async (req, res) => {
         ]
       );
 
-    if (guide_image_url) {
-      await pool.query(
-        `
-        INSERT INTO transport_guides (
-          negotiation_id,
-          user_id,
-          guide_image_url
-        )
-        VALUES ($1,$2,$3)
-        `,
-        [
-          negotiation_id,
-          userId,
-          guide_image_url,
-        ]
-      );
-    }
-
     await pool.query(
       `
       UPDATE transport_negotiations
