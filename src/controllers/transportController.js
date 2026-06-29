@@ -1437,17 +1437,22 @@ const saveTracking = async (req, res) => {
     const negotiation =
       negotiationRes.rows[0];
 
-    if (
-      negotiation.status ===
-      'loading_completed'
-    ) {
+    if (!negotiation.trip_started_at) {
       await pool.query(
         `
         UPDATE transport_negotiations
-        SET status = 'in_trip'
-        WHERE id = $1
+        SET
+          status = 'trip_active',
+          trip_started_at = NOW(),
+          real_origin_lat = $1,
+          real_origin_lng = $2
+        WHERE id = $3
         `,
-        [negotiation_id]
+        [
+          latitude,
+          longitude,
+          negotiation_id,
+        ]
       );
     }
 
