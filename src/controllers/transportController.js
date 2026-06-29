@@ -935,13 +935,37 @@ const acceptTransportNegotiation = async (req, res) => {
     }
 
     /// 🔥 ACEPTAR ESTA
+    const configRes = await pool.query(
+    `
+    SELECT amount
+    FROM system_payment_configs
+    WHERE code = 'transport_unlock'
+      AND is_active = true
+    LIMIT 1
+    `
+    );
+
+    if (configRes.rows.length === 0) {
+      return res.status(400).json({
+        error: 'Configuración de pago no encontrada',
+      });
+    }
+
+    const unlockFee =
+      Number(configRes.rows[0].amount);
+
     await pool.query(
-      `
-        UPDATE transport_negotiations
-        SET status = 'payment_pending'
-        WHERE id = $1
-      `,
-      [negotiation_id]
+    `
+    UPDATE transport_negotiations
+    SET
+      status = 'payment_pending',
+      unlock_fee = $2
+    WHERE id = $1
+    `,
+    [
+      negotiation_id,
+      unlockFee
+    ]
     );
 
     /// 🔥 CAMBIAR REQUEST
@@ -1037,29 +1061,9 @@ const createTransportPayment =
       const negotiation =
         negotiationRes.rows[0];
 
-      const configRes =
-        await pool.query(
-          `
-          SELECT amount
-          FROM system_payment_configs
-          WHERE code = 'transport_unlock'
-            AND is_active = true
-          LIMIT 1
-          `
-        );
-
-      if (
-        configRes.rows.length === 0
-      ) {
-        return res.status(400).json({
-          error:
-            'Configuración de pago no encontrada',
-        });
-      }
-
       const expectedAmount =
         Number(
-          configRes.rows[0].amount
+          negotiation.unlock_fee
         );
 
       const aiResult =
