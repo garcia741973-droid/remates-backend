@@ -1051,6 +1051,19 @@ const createTransportPayment =
         aiResult
       );
 
+      let validationStatus = 'rejected';
+
+      if (
+        aiResult.pago_valido &&
+        aiResult.confianza >= 0.90
+      ) {
+        validationStatus = 'approved';
+      } else if (
+        aiResult.confianza >= 0.70
+      ) {
+        validationStatus = 'review';
+      }
+
       const result =
         await pool.query(
           `
@@ -1097,22 +1110,90 @@ const createTransportPayment =
             aiResult.pago_valido,
             aiResult.confianza,
             aiResult.notas,
-            aiResult.pago_valido
-              ? 'approved'
-              : 'pending',
+            validationStatus,
           ]
         );
 
-      if (aiResult.pago_valido) {
-        await pool.query(
-          `
-          UPDATE transport_negotiations
-          SET status = 'paid'
-          WHERE id = $1
-          `,
-          [negotiation_id]
-        );
-      }
+        if (validationStatus === 'approved') {
+          /// NEGOCIACIÓN PAGADA
+          await pool.query(
+            `
+            UPDATE transport_negotiations
+            SET status = 'paid'
+            WHERE id = $1
+            `,
+            [negotiation_id]
+          );
+
+          /// REQUEST PAGADO
+          await pool.query(
+            `
+            UPDATE transport_requests
+            SET status = 'paid'
+            WHERE id = $1
+            `,
+            [negotiation.request_id]
+          );
+
+          /// INGRESO A CAJA
+          await pool.query(
+            `
+            INSERT INTO cash_movements (
+              type,
+              category,
+              amount,
+              description
+            )
+            VALUES (
+              'income',
+              'Transporte',
+              $1,
+              $2
+            )
+            `,
+            [
+              expectedAmount,
+              `Pago transporte negociación #${negotiation_id}`,
+            ]
+          );
+
+          /// PUSH AL CAMIONERO
+          await sendUserNotification({
+            userId: negotiation.transporter_id,
+            title: 'Pago aprobado',
+            body:
+              'El pago fue validado correctamente. Contactos desbloqueados.',
+            data: {
+              type: 'transport_paid',
+              negotiation_id,
+            },
+          });
+        }
+
+        if (validationStatus === 'review') {
+          await sendUserNotification({
+            userId,
+            title: 'Pago en revisión',
+            body:
+              'El comprobante necesita revisión manual.',
+            data: {
+              type: 'payment_review',
+            },
+          });
+        }
+
+        if (validationStatus === 'rejected') {
+          await sendUserNotification({
+            userId,
+            title: 'Pago rechazado',
+            body:
+              aiResult.notas ||
+              'No se pudo validar el comprobante.',
+            data: {
+              type: 'payment_rejected',
+            },
+          });
+        }
 
       res.json(
         result.rows[0]
