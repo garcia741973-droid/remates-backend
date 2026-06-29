@@ -1552,6 +1552,81 @@ const saveTracking = async (req, res) => {
     });
   }
 };
+
+const finishTrip = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    const {
+      negotiation_id,
+      latitude,
+      longitude,
+    } = req.body;
+
+    const negotiationRes =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_negotiations
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [negotiation_id]
+      );
+
+    if (
+      negotiationRes.rows.length === 0
+    ) {
+      return res.status(404).json({
+        error: 'Negociación no encontrada',
+      });
+    }
+
+    const negotiation =
+      negotiationRes.rows[0];
+
+    if (
+      negotiation.transporter_id !== userId
+    ) {
+      return res.status(403).json({
+        error:
+          'Solo el camionero puede finalizar el viaje',
+      });
+    }
+
+    await pool.query(
+      `
+      UPDATE transport_negotiations
+      SET
+        status = 'delivered',
+        delivered_at = NOW(),
+        real_destination_lat = $1,
+        real_destination_lng = $2
+      WHERE id = $3
+      `,
+      [
+        latitude,
+        longitude,
+        negotiation_id,
+      ]
+    );
+
+    res.json({
+      success: true,
+      message:
+        'Viaje finalizado correctamente',
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error finalizando viaje',
+    });
+  }
+};
+
 const getTripTracking = async (req, res) => {
   try {
     const { negotiation_id } = req.params;
@@ -1731,5 +1806,6 @@ module.exports = {
   saveTracking,
   getTripTracking,
   getMyTrips,
-  getTripMapData,   
+  getTripMapData,
+  finishTrip,   
 };

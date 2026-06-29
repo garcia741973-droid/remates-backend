@@ -24,6 +24,7 @@ const {
   getTripTracking,
   getMyTrips,
   getTripMapData,
+  finishTrip,
 } = require('../controllers/transportController');
 
 router.get(
@@ -125,6 +126,12 @@ router.post(
   '/save-tracking',
   requireAuth,
   saveTracking
+);
+
+router.post(
+  '/finish-trip',
+  requireAuth,
+  finishTrip
 );
 
 router.get(
