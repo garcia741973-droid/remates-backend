@@ -363,7 +363,7 @@ const getSharedGuide = async (req, res) => {
     const statusMap = {
     draft: 'Pendiente',
     guide_uploaded: 'Guía cargada',
-    in_trip: 'En viaje',
+    trip_active: 'En viaje',
     delivered: 'Entregado',
     };
 
@@ -592,6 +592,31 @@ const createTransportNegotiation = async (req, res) => {
 
     const truck =
       truckRes.rows[0];
+
+    const activeTrip =
+      await pool.query(
+        `
+        SELECT id
+        FROM transport_negotiations
+        WHERE truck_id = $1
+        AND status IN (
+          'payment_pending',
+          'paid',
+          'loading_completed',
+          'trip_active',
+          'in_trip'
+        )
+        LIMIT 1
+        `,
+        [truck.id]
+      );
+
+    if (activeTrip.rows.length > 0) {
+      return res.status(400).json({
+        error:
+          'Este camión ya tiene un viaje activo',
+      });
+    }
 
     const existing =
       await pool.query(
