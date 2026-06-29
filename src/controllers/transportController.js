@@ -1076,15 +1076,19 @@ const createTransportPayment =
 
       let validationStatus = 'rejected';
 
-      if (
-        aiResult.pago_valido &&
-        aiResult.confianza >= 0.90
-      ) {
-        validationStatus = 'approved';
-      } else if (
-        aiResult.confianza >= 0.70
-      ) {
-        validationStatus = 'review';
+      /// SOLO SI EL MONTO COINCIDE
+      if (aiResult.pago_valido) {
+        if (
+          aiResult.confianza >= 0.90
+        ) {
+          validationStatus =
+            'approved';
+        } else if (
+          aiResult.confianza >= 0.70
+        ) {
+          validationStatus =
+            'review';
+        }
       }
 
       const result =
