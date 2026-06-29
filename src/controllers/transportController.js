@@ -1310,6 +1310,62 @@ const createTransportPayment =
     }
   };
 
+const getMyTrips = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    const result = await pool.query(
+      `
+      SELECT
+        tn.id,
+        tn.status,
+        tn.unlock_fee,
+        tn.created_at,
+
+        tr.origin,
+        tr.destination,
+        tr.quantity,
+        tr.animal_type,
+        tr.travel_date,
+        tr.notes,
+
+        tt.plate,
+        tt.brand,
+        tt.model,
+
+        tg.id AS guide_id
+
+      FROM transport_negotiations tn
+
+      JOIN transport_requests tr
+        ON tn.request_id = tr.id
+
+      JOIN transporter_trucks tt
+        ON tn.truck_id = tt.id
+
+      LEFT JOIN transport_guides tg
+        ON tg.negotiation_id = tn.id
+
+      WHERE
+        tn.transporter_id = $1
+        OR tn.requester_id = $1
+
+      ORDER BY tn.created_at DESC
+      `,
+      [userId]
+    );
+
+    res.json(result.rows);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error obteniendo viajes',
+    });
+  }
+};
+  
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -1325,5 +1381,6 @@ module.exports = {
   getMyTransportRequests,
   getRequestNegotiations,
   acceptTransportNegotiation,
-  createTransportPayment,   
+  createTransportPayment,
+  getMyTrips,   
 };

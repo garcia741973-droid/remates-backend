@@ -17,6 +17,7 @@ const {
   getRequestNegotiations, 
   acceptTransportNegotiation, 
   createTransportPayment,
+  getMyTrips,
 } = require('../controllers/transportController');
 
 const {
@@ -104,6 +105,12 @@ router.post(
   '/create-payment',
   requireAuth,
   createTransportPayment
+);
+
+router.get(
+  '/my-trips',
+  requireAuth,
+  getMyTrips
 );
 
 module.exports = router;
