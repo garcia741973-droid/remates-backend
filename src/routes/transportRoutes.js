@@ -25,6 +25,7 @@ const {
   getMyTrips,
   getTripMapData,
   finishTrip,
+  createDeliveryReport,
 } = require('../controllers/transportController');
 
 router.get(
@@ -132,6 +133,12 @@ router.post(
   '/finish-trip',
   requireAuth,
   finishTrip
+);
+
+router.post(
+  '/delivery-report',
+  requireAuth,
+  createDeliveryReport
 );
 
 router.get(

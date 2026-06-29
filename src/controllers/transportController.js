@@ -1598,7 +1598,7 @@ const finishTrip = async (req, res) => {
       `
       UPDATE transport_negotiations
       SET
-        status = 'delivered',
+        status = 'delivery_pending',
         delivered_at = NOW(),
         real_destination_lat = $1,
         real_destination_lng = $2
@@ -1626,6 +1626,115 @@ const finishTrip = async (req, res) => {
     });
   }
 };
+
+const createDeliveryReport =
+  async (req, res) => {
+    try {
+      const userId =
+        req.user.user_id;
+
+      const {
+        negotiation_id,
+        delivered_quantity,
+        delivered_animal_type,
+        receiver_name,
+        receiver_ci,
+        delivery_photo_url,
+        receiver_signature_url,
+        delivery_lat,
+        delivery_lng,
+        notes,
+      } = req.body;
+
+      const negotiationRes =
+        await pool.query(
+          `
+          SELECT *
+          FROM transport_negotiations
+          WHERE id = $1
+          LIMIT 1
+          `,
+          [negotiation_id]
+        );
+
+      if (
+        negotiationRes.rows.length === 0
+      ) {
+        return res.status(404).json({
+          error:
+            'Negociación no encontrada',
+        });
+      }
+
+      const negotiation =
+        negotiationRes.rows[0];
+
+      if (
+        negotiation.transporter_id !== userId
+      ) {
+        return res.status(403).json({
+          error:
+            'Solo el camionero puede cerrar la entrega',
+        });
+      }
+
+      const result =
+        await pool.query(
+          `
+          INSERT INTO transport_delivery_reports (
+            negotiation_id,
+            delivered_quantity,
+            delivered_animal_type,
+            receiver_name,
+            receiver_ci,
+            delivery_photo_url,
+            receiver_signature_url,
+            delivery_lat,
+            delivery_lng,
+            notes
+          )
+          VALUES (
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
+          )
+          RETURNING *
+          `,
+          [
+            negotiation_id,
+            delivered_quantity,
+            delivered_animal_type,
+            receiver_name,
+            receiver_ci,
+            delivery_photo_url,
+            receiver_signature_url,
+            delivery_lat,
+            delivery_lng,
+            notes,
+          ]
+        );
+
+      await pool.query(
+        `
+        UPDATE transport_negotiations
+        SET status = 'delivered'
+        WHERE id = $1
+        `,
+        [negotiation_id]
+      );
+
+      res.json(
+        result.rows[0]
+      );
+
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        error:
+          'Error creando planilla de entrega',
+      });
+    }
+  };
+
 
 const getTripTracking = async (req, res) => {
   try {
@@ -1807,5 +1916,6 @@ module.exports = {
   getTripTracking,
   getMyTrips,
   getTripMapData,
-  finishTrip,   
+  finishTrip,
+  createDeliveryReport,   
 };
