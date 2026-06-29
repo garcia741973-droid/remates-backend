@@ -1224,25 +1224,39 @@ const createTransportPayment =
 
           /// INGRESO A CAJA
           await pool.query(
-            `
-            INSERT INTO cash_movements (
-              type,
-              category,
-              amount,
-              description
-            )
-            VALUES (
-              'income',
-              'Transporte',
-              $1,
-              $2
-            )
-            `,
-            [
-              expectedAmount,
-              `Pago transporte negociación #${negotiation_id}`,
-            ]
+          `INSERT INTO cash_movements (
+            type,
+            category,
+            amount,
+            description,
+            reference_type,
+            reference_id,
+            proof_url,
+            created_by,
+            company_id
+          )
+          VALUES (
+            'income',
+            'Transporte',
+            $1,
+            $2,
+            $3,
+            $4,
+            $5,
+            $6,
+            $7
+          )`,
+          [
+          expectedAmount,
+          `Pago transporte negociación #${negotiation_id}`,
+          'transport_payment',
+          negotiation_id,
+          proof_image_url,
+          userId,
+          1
+          ]
           );
+
 
           /// PUSH AL CAMIONERO
           await sendUserNotification({
