@@ -1146,11 +1146,67 @@ const createTransportPayment =
           await pool.query(
             `
             UPDATE transport_negotiations
-            SET status = 'paid'
+            SET status = 'trip_active'
             WHERE id = $1
             `,
             [negotiation_id]
           );
+
+          const usersRes = await pool.query(
+          `
+          SELECT
+            r.name AS requester_name,
+            r.phone AS requester_phone,
+            t.name AS transporter_name,
+            t.phone AS transporter_phone
+          FROM transport_negotiations tn
+          JOIN users r
+            ON tn.requester_id = r.id
+          JOIN users t
+            ON tn.transporter_id = t.id
+          WHERE tn.id = $1
+          LIMIT 1
+          `,
+          [negotiation_id]
+          );
+
+          const users = usersRes.rows[0];
+
+          await admin
+          .firestore()
+          .collection('transport_negotiations')
+          .doc(negotiation_id.toString())
+          .collection('messages')
+          .add({
+            sender_id: 0,
+            system: true,
+            message:
+            `✅ Pago aprobado.
+
+            Tu viaje ha sido activado.
+
+            Contactos liberados:
+
+            👨‍🌾 Ganadero:
+            ${users.requester_name}
+            ${users.requester_phone}
+
+            🚛 Transportista:
+            ${users.transporter_name}
+            ${users.transporter_phone}
+
+            📦 Ahora ve a MIS VIAJES para gestionar:
+
+            • Cargar guía de movimiento
+            • Iniciar viaje
+            • Compartir manifiesto
+            • Reportar avance
+            • Marcar entrega final
+
+            💬 Este chat seguirá disponible para coordinar toda la operación hasta la entrega.`,
+            created_at:
+              admin.firestore.FieldValue.serverTimestamp(),
+          });          
 
           /// REQUEST PAGADO
           await pool.query(
