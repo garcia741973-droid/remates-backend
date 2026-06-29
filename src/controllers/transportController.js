@@ -1490,6 +1490,31 @@ const saveTracking = async (req, res) => {
   }
 };
 
+const getTripTracking = async (req, res) => {
+  try {
+    const { negotiation_id } = req.params;
+
+    const result = await pool.query(
+      `
+      SELECT *
+      FROM transport_trip_tracking
+      WHERE negotiation_id = $1
+      ORDER BY created_at ASC
+      `,
+      [negotiation_id]
+    );
+
+    res.json(result.rows);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error obteniendo tracking',
+    });
+  }
+};
+
 const getMyTrips = async (req, res) => {
   try {
     const userId = req.user.user_id;
@@ -1564,5 +1589,6 @@ module.exports = {
   createTransportPayment,
   createDispatch,
   saveTracking,
+  getTripTracking,
   getMyTrips,   
 };

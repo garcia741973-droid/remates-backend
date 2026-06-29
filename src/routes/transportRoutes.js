@@ -19,6 +19,7 @@ const {
   createTransportPayment,
   createDispatch,
   saveTracking,
+  getTripTracking,
   getMyTrips,
 } = require('../controllers/transportController');
 
@@ -125,6 +126,12 @@ router.post(
   '/save-tracking',
   requireAuth,
   saveTracking
+);
+
+router.get(
+  '/trip-tracking/:negotiation_id',
+  requireAuth,
+  getTripTracking
 );
 
 module.exports = router;
