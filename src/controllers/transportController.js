@@ -1037,7 +1037,30 @@ const createTransportPayment =
       const negotiation =
         negotiationRes.rows[0];
 
-      const expectedAmount = 30;
+      const configRes =
+        await pool.query(
+          `
+          SELECT amount
+          FROM system_payment_configs
+          WHERE code = 'transport_unlock'
+            AND is_active = true
+          LIMIT 1
+          `
+        );
+
+      if (
+        configRes.rows.length === 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Configuración de pago no encontrada',
+        });
+      }
+
+      const expectedAmount =
+        Number(
+          configRes.rows[0].amount
+        );
 
       const aiResult =
         await analyzePaymentProof({
