@@ -242,6 +242,14 @@ app.use('/auctions', auctionsRoutes);
 
 app.use('/transport', transportRoutes);
 
+const paymentConfigRoutes =
+  require('./routes/paymentConfigRoutes');
+
+app.use(
+  '/payment-configs',
+  paymentConfigRoutes
+);
+
 const paymentValidationRoutes =
   require('./routes/paymentValidationRoutes');
 
