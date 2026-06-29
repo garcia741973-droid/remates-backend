@@ -1416,6 +1416,80 @@ const createDispatch = async (req, res) => {
   }
 };
 
+const saveTracking = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    const {
+      negotiation_id,
+      latitude,
+      longitude,
+      speed,
+    } = req.body;
+
+    const negotiationRes =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_negotiations
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [negotiation_id]
+      );
+
+    if (
+      negotiationRes.rows.length === 0
+    ) {
+      return res.status(404).json({
+        error: 'Negociación no encontrada',
+      });
+    }
+
+    const negotiation =
+      negotiationRes.rows[0];
+
+    if (
+      negotiation.transporter_id !== userId
+    ) {
+      return res.status(403).json({
+        error: 'Solo el camionero puede enviar ubicación',
+      });
+    }
+
+    const result =
+      await pool.query(
+        `
+        INSERT INTO transport_trip_tracking (
+          negotiation_id,
+          latitude,
+          longitude,
+          speed
+        )
+        VALUES ($1,$2,$3,$4)
+        RETURNING *
+        `,
+        [
+          negotiation_id,
+          latitude,
+          longitude,
+          speed || 0,
+        ]
+      );
+
+    res.json(
+      result.rows[0]
+    );
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error guardando tracking',
+    });
+  }
+};
+
 const getMyTrips = async (req, res) => {
   try {
     const userId = req.user.user_id;
@@ -1488,6 +1562,7 @@ module.exports = {
   getRequestNegotiations,
   acceptTransportNegotiation,
   createTransportPayment,
-  getMyTrips,   
   createDispatch,
+  saveTracking,
+  getMyTrips,   
 };

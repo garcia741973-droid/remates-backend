@@ -17,8 +17,9 @@ const {
   getRequestNegotiations, 
   acceptTransportNegotiation, 
   createTransportPayment,
-  getMyTrips,
   createDispatch,
+  saveTracking,
+  getMyTrips,
 } = require('../controllers/transportController');
 
 const {
@@ -118,6 +119,12 @@ router.post(
   '/create-dispatch',
   requireAuth,
   createDispatch
+);
+
+router.post(
+  '/save-tracking',
+  requireAuth,
+  saveTracking
 );
 
 module.exports = router;
