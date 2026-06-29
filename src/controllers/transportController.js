@@ -1174,6 +1174,31 @@ const createTransportPayment =
         );
 
         if (validationStatus === 'approved') {
+
+          await pool.query(
+            `
+            INSERT INTO transport_payments (
+              negotiation_id,
+              payer_user_id,
+              amount,
+              proof_image_url,
+              ai_verified,
+              ai_notes,
+              status
+            )
+            VALUES ($1,$2,$3,$4,$5,$6,$7)
+            `,
+            [
+              negotiation_id,
+              userId,
+              expectedAmount,
+              proof_image_url,
+              true,
+              aiResult.notas,
+              'approved'
+            ]
+          );
+
           /// NEGOCIACIÓN PAGADA
           await pool.query(
             `
