@@ -1178,7 +1178,7 @@ const createTransportPayment =
           await pool.query(
             `
             UPDATE transport_negotiations
-            SET status = 'trip_active'
+            SET status = 'paid'
             WHERE id = $1
             `,
             [negotiation_id]
@@ -1215,7 +1215,7 @@ const createTransportPayment =
             message:
             `✅ Pago aprobado.
 
-            Tu viaje ha sido activado.
+            Pago aprobado correctamente.
 
             Contactos liberados:
 
@@ -1227,11 +1227,11 @@ const createTransportPayment =
             ${users.transporter_name}
             ${users.transporter_phone}
 
-            📦 Ahora ve a MIS VIAJES para gestionar:
+            📦 Ahora ve a MIS VIAJES para continuar:
 
-            • Cargar guía de movimiento
+            • Crear despacho
+            • Confirmar carga
             • Iniciar viaje
-            • Compartir manifiesto
             • Reportar avance
             • Marcar entrega final
 
