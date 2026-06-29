@@ -1237,7 +1237,7 @@ const createTransportPayment =
           )
           VALUES (
             'income',
-            'Transporte',
+            'transporte',
             $1,
             $2,
             $3,
