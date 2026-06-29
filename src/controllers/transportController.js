@@ -1487,6 +1487,17 @@ const saveTracking = async (req, res) => {
     const negotiation =
       negotiationRes.rows[0];
 
+    /// PRIMERO VALIDAR QUE SEA EL CAMIONERO
+    if (
+      negotiation.transporter_id !== userId
+    ) {
+      return res.status(403).json({
+        error:
+          'Solo el camionero puede enviar ubicación',
+      });
+    }
+
+    /// SI ES EL PRIMER TRACKING → ARRANCA EL VIAJE
     if (!negotiation.trip_started_at) {
       await pool.query(
         `
@@ -1506,14 +1517,7 @@ const saveTracking = async (req, res) => {
       );
     }
 
-    if (
-      negotiation.transporter_id !== userId
-    ) {
-      return res.status(403).json({
-        error: 'Solo el camionero puede enviar ubicación',
-      });
-    }
-
+    /// GUARDAR TRACKING
     const result =
       await pool.query(
         `
@@ -1548,7 +1552,6 @@ const saveTracking = async (req, res) => {
     });
   }
 };
-
 const getTripTracking = async (req, res) => {
   try {
     const { negotiation_id } = req.params;
