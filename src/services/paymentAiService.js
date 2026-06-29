@@ -65,10 +65,28 @@ Responde SOLO JSON:
           ],
         });
 
-      const content =
+        const content =
         response.choices[0].message.content;
 
-      return JSON.parse(content);
+        const cleanContent =
+        content
+            .replace(/```json/g, '')
+            .replace(/```/g, '')
+            .trim();
+
+        console.log(
+        '🤖 RAW AI RESPONSE:',
+        content
+        );
+
+        console.log(
+        '🧹 CLEAN AI RESPONSE:',
+        cleanContent
+        );
+
+        return JSON.parse(
+        cleanContent
+        );
 
     } catch (error) {
       console.log(
