@@ -21,6 +21,7 @@ const {
   saveTracking,
   getTripTracking,
   getMyTrips,
+  getTripMapData,
 } = require('../controllers/transportController');
 
 const {
@@ -132,6 +133,12 @@ router.get(
   '/trip-tracking/:negotiation_id',
   requireAuth,
   getTripTracking
+);
+
+router.get(
+  '/trip-map/:negotiationId',
+  authMiddleware,
+  transportController.getTripMapData
 );
 
 module.exports = router;

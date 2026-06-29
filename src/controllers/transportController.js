@@ -1580,6 +1580,84 @@ const getMyTrips = async (req, res) => {
   }
 };
   
+const getTripMapData = async (
+  req,
+  res
+) => {
+  try {
+    const { negotiationId } =
+      req.params;
+
+    const negotiationResult =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_negotiations
+        WHERE id = $1
+        `,
+        [negotiationId]
+      );
+
+    if (
+      negotiationResult.rows.length === 0
+    ) {
+      return res
+        .status(404)
+        .json({
+          error:
+            'Negociación no encontrada',
+        });
+    }
+
+    const negotiation =
+      negotiationResult.rows[0];
+
+    let route = null;
+
+    if (negotiation.route_id) {
+      const routeResult =
+        await pool.query(
+          `
+          SELECT *
+          FROM transport_routes
+          WHERE id = $1
+          `,
+          [negotiation.route_id]
+        );
+
+      if (
+        routeResult.rows.length > 0
+      ) {
+        route = routeResult.rows[0];
+      }
+    }
+
+    const trackingResult =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_trip_tracking
+        WHERE negotiation_id = $1
+        ORDER BY tracked_at ASC
+        `,
+        [negotiationId]
+      );
+
+    res.json({
+      negotiation,
+      route,
+      tracking:
+          trackingResult.rows,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      error:
+          'Error obteniendo mapa del viaje',
+    });
+  }
+};
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -1599,5 +1677,6 @@ module.exports = {
   createDispatch,
   saveTracking,
   getTripTracking,
-  getMyTrips,   
+  getMyTrips,
+  getTripMapData,   
 };
