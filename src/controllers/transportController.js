@@ -1528,46 +1528,46 @@ const getMyTrips = async (req, res) => {
   try {
     const userId = req.user.user_id;
 
-    const result = await pool.query(
-      `
-      SELECT
-        tn.id,
-        tn.status,
-        tn.unlock_fee,
-        tn.created_at,
+  const result = await pool.query(
+    `
+    SELECT DISTINCT ON (tn.id)
+      tn.id,
+      tn.status,
+      tn.unlock_fee,
+      tn.created_at,
 
-        tr.origin,
-        tr.destination,
-        tr.quantity,
-        tr.animal_type,
-        tr.travel_date,
-        tr.notes,
+      tr.origin,
+      tr.destination,
+      tr.quantity,
+      tr.animal_type,
+      tr.travel_date,
+      tr.notes,
 
-        tt.plate,
-        tt.brand,
-        tt.model,
+      tt.plate,
+      tt.brand,
+      tt.model,
 
-        tg.id AS guide_id
+      tg.id AS guide_id
 
-      FROM transport_negotiations tn
+    FROM transport_negotiations tn
 
-      JOIN transport_requests tr
-        ON tn.request_id = tr.id
+    JOIN transport_requests tr
+      ON tn.request_id = tr.id
 
-      JOIN transporter_trucks tt
-        ON tn.truck_id = tt.id
+    JOIN transporter_trucks tt
+      ON tn.truck_id = tt.id
 
-      LEFT JOIN transport_guides tg
-        ON tg.negotiation_id = tn.id
+    LEFT JOIN transport_guides tg
+      ON tg.negotiation_id = tn.id
 
-      WHERE
-        tn.transporter_id = $1
-        OR tn.requester_id = $1
+    WHERE
+      tn.transporter_id = $1
+      OR tn.requester_id = $1
 
-      ORDER BY tn.created_at DESC
-      `,
-      [userId]
-    );
+    ORDER BY tn.id, tg.created_at DESC
+    `,
+    [userId]
+  );
 
     res.json(result.rows);
 
