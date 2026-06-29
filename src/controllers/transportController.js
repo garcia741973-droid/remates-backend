@@ -1318,8 +1318,8 @@ const createDispatch = async (req, res) => {
       negotiation_id,
       photo_url,
       signature_url,
-      guide_image_url,
       notes,
+      event_local_time,
     } = req.body;
 
     const negotiationRes =
@@ -1361,9 +1361,10 @@ const createDispatch = async (req, res) => {
           photo_url,
           signature_url,
           notes,
-          created_by
+          created_by,
+          event_local_time
         )
-        VALUES ($1,$2,$3,$4,$5,$6)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
         RETURNING *
         `,
         [
@@ -1373,6 +1374,7 @@ const createDispatch = async (req, res) => {
           signature_url,
           notes,
           userId,
+          event_local_time,
         ]
       );
 
@@ -1425,6 +1427,7 @@ const saveTracking = async (req, res) => {
       latitude,
       longitude,
       speed,
+      tracked_at,
     } = req.body;
 
     const negotiationRes =
@@ -1464,9 +1467,10 @@ const saveTracking = async (req, res) => {
           negotiation_id,
           latitude,
           longitude,
-          speed
+          speed,
+          tracked_at
         )
-        VALUES ($1,$2,$3,$4)
+        VALUES ($1,$2,$3,$4,$5)
         RETURNING *
         `,
         [
@@ -1474,6 +1478,7 @@ const saveTracking = async (req, res) => {
           latitude,
           longitude,
           speed || 0,
+          tracked_at,
         ]
       );
 
