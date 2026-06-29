@@ -215,6 +215,7 @@ const createGuide = async (req, res) => {
     const truck = truckRes.rows[0];
 
     const {
+      negotiation_id,
       origin,
       destination,
       driver_name,
@@ -263,11 +264,12 @@ const createGuide = async (req, res) => {
         female_36_plus,
 
         guide_image_url,
-        share_token
+        share_token,
+        negotiation_id
       )
       VALUES (
         $1,$2,$3,$4,$5,$6,$7,
-        $8,$9,$10,$11,$12,$13,$14,$15,$16,$17
+        $8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
       )
       RETURNING *
       `,
@@ -294,6 +296,7 @@ const createGuide = async (req, res) => {
 
         guide_image_url,
         shareToken,
+        negotiation_id,
       ]
     );
 
