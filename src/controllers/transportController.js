@@ -629,8 +629,13 @@ const createTransportNegotiation = async (req, res) => {
       await pool.query(
         `
         SELECT *
-        FROM transport_requests
-        WHERE id = $1
+        FROM transport_negotiations
+        WHERE request_id = $1
+          AND transporter_id = $2
+          AND status NOT IN (
+            'delivered',
+            'cancelled'
+          )
         LIMIT 1
         `,
         [request_id]
