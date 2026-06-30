@@ -160,7 +160,6 @@ const toggleTruckAvailability = async (req, res) => {
       UPDATE transporter_trucks
       SET is_available = $1
       WHERE user_id = $2
-        AND is_active = true
       RETURNING *
       `,
       [is_available, userId]
