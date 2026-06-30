@@ -2104,6 +2104,79 @@ const getGuideByNegotiation =
     }
   };
 
+const archiveTransportNegotiation =
+  async (req, res) => {
+    try {
+      const userId =
+        req.user.user_id;
+
+      const {
+        negotiation_id,
+      } = req.body;
+
+      const result =
+        await pool.query(
+          `
+          SELECT *
+          FROM transport_negotiations
+          WHERE id = $1
+          LIMIT 1
+          `,
+          [negotiation_id]
+        );
+
+      if (
+        result.rows.length === 0
+      ) {
+        return res.status(404).json({
+          error:
+            'Negociación no encontrada',
+        });
+      }
+
+      const negotiation =
+        result.rows[0];
+
+      if (
+        negotiation.requester_id === userId
+      ) {
+        await pool.query(
+          `
+          UPDATE transport_negotiations
+          SET hidden_by_requester = true
+          WHERE id = $1
+          `,
+          [negotiation_id]
+        );
+      }
+
+      if (
+        negotiation.transporter_id === userId
+      ) {
+        await pool.query(
+          `
+          UPDATE transport_negotiations
+          SET hidden_by_transporter = true
+          WHERE id = $1
+          `,
+          [negotiation_id]
+        );
+      }
+
+      res.json({
+        success: true,
+      });
+
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        error:
+          'Error archivando negociación',
+      });
+    }
+  };
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -2128,5 +2201,6 @@ module.exports = {
   getTripMapData,
   finishTrip,
   createDeliveryReport,
-  getGuideByNegotiation,   
+  getGuideByNegotiation, 
+  archiveTransportNegotiation,  
 };

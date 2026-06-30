@@ -28,6 +28,7 @@ const {
   finishTrip,
   createDeliveryReport,
   getGuideByNegotiation,
+  archiveTransportNegotiation,
 } = require('../controllers/transportController');
 
 router.get(
@@ -147,6 +148,12 @@ router.post(
   '/delivery-report',
   requireAuth,
   createDeliveryReport
+);
+
+router.post(
+  '/archive-negotiation',
+  requireAuth,
+  archiveTransportNegotiation
 );
 
 router.get(
