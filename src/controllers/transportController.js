@@ -2,8 +2,6 @@ const { pool } = require('../config/db');
 
 const crypto = require('crypto');
 
-const admin = require("../config/firebase");
-
 const admin = require('firebase-admin');
 
 const {
