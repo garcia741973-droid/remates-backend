@@ -954,10 +954,17 @@ const getMyTransportRequests = async (req, res) => {
     const result =
       await pool.query(
         `
-        SELECT *
-        FROM transport_requests
-        WHERE user_id = $1
-        ORDER BY id DESC
+        SELECT
+          tr.*,
+          (
+            SELECT COUNT(*)
+            FROM transport_negotiations tn
+            WHERE tn.request_id = tr.id
+              AND tn.status = 'open'
+          ) AS pending_negotiations
+        FROM transport_requests tr
+        WHERE tr.user_id = $1
+        ORDER BY tr.id DESC
         `,
         [userId]
       );
