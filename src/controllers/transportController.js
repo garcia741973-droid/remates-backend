@@ -625,20 +625,13 @@ const createTransportNegotiation = async (req, res) => {
 
     const { request_id } = req.body;
 
+    /// 🔥 BUSCAR SOLICITUD
     const requestRes =
       await pool.query(
         `
         SELECT *
-        FROM transport_negotiations
-        WHERE request_id = $1
-          AND transporter_id = $2
-          AND (
-            status IS NULL
-            OR status NOT IN (
-              'delivered',
-              'cancelled'
-            )
-          )
+        FROM transport_requests
+        WHERE id = $1
         LIMIT 1
         `,
         [request_id]
@@ -656,6 +649,7 @@ const createTransportNegotiation = async (req, res) => {
     const request =
       requestRes.rows[0];
 
+    /// 🔥 BUSCAR CAMIÓN ACTIVO
     const truckRes =
       await pool.query(
         `
@@ -680,6 +674,7 @@ const createTransportNegotiation = async (req, res) => {
     const truck =
       truckRes.rows[0];
 
+    /// 🔥 VERIFICAR VIAJE ACTIVO
     const activeTrip =
       await pool.query(
         `
@@ -691,20 +686,24 @@ const createTransportNegotiation = async (req, res) => {
           'paid',
           'loading_completed',
           'trip_active',
-          'in_trip'
+          'in_trip',
+          'delivery_pending'
         )
         LIMIT 1
         `,
         [truck.id]
       );
 
-    if (activeTrip.rows.length > 0) {
+    if (
+      activeTrip.rows.length > 0
+    ) {
       return res.status(400).json({
         error:
           'Este camión ya tiene un viaje activo',
       });
     }
 
+    /// 🔥 VERIFICAR SI YA EXISTE NEGOCIACIÓN ACTIVA
     const existing =
       await pool.query(
         `
@@ -712,6 +711,13 @@ const createTransportNegotiation = async (req, res) => {
         FROM transport_negotiations
         WHERE request_id = $1
           AND transporter_id = $2
+          AND (
+            status IS NULL
+            OR status NOT IN (
+              'delivered',
+              'cancelled'
+            )
+          )
         LIMIT 1
         `,
         [
@@ -728,6 +734,7 @@ const createTransportNegotiation = async (req, res) => {
       );
     }
 
+    /// 🔥 CREAR NUEVA NEGOCIACIÓN
     const result =
       await pool.query(
         `
@@ -747,7 +754,6 @@ const createTransportNegotiation = async (req, res) => {
           transporterId,
         ]
       );
-
     const negotiation =
     result.rows[0];
 
