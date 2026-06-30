@@ -561,48 +561,30 @@ const createTransportRequest = async (req, res) => {
       ]
     );
 
-    const guide =
-      result.rows[0];
+    const request = result.rows[0];
 
-    const totalAnimals =
-      Number(guide.male_0_12 || 0) +
-      Number(guide.female_0_12 || 0) +
-      Number(guide.male_13_24 || 0) +
-      Number(guide.female_13_24 || 0) +
-      Number(guide.male_25_36 || 0) +
-      Number(guide.female_25_36 || 0) +
-      Number(guide.male_36_plus || 0) +
-      Number(guide.female_36_plus || 0);
+    const availableTrucks = await pool.query(
+      `
+      SELECT user_id
+      FROM transporter_trucks
+      WHERE is_available = true
+        AND is_active = true
+      `
+    );
 
-    const guideUrl =
-      `${process.env.APP_URL}/transport/shared-guide/${guide.share_token}`;
-
-    await admin
-      .firestore()
-      .collection('transport_negotiations')
-      .doc(negotiation_id.toString())
-      .collection('messages')
-      .add({
-        sender_id: 0,
-        system: true,
-        message:
-          `📄 Manifiesto de carga generado
-
-    🚛 Placa: ${guide.plate}
-    👨 Conductor: ${guide.driver_name}
-
-    📍 Origen: ${guide.origin}
-    🎯 Destino: ${guide.destination}
-
-    🐄 Total animales: ${totalAnimals}
-
-    🔗 Ver manifiesto:
-    ${guideUrl}`,
-        created_at:
-          admin.firestore.FieldValue.serverTimestamp(),
+    for (const truck of availableTrucks.rows) {
+      await sendUserNotification({
+        userId: truck.user_id,
+        title: 'Nueva carga disponible',
+        body: `Hay una nueva solicitud de transporte disponible.`,
+        data: {
+          type: 'new_transport_request',
+          request_id: request.id,
+        },
       });
+    }
 
-    res.json(result.rows[0]);
+    res.json(request);
 
   } catch (error) {
     console.error(error);
