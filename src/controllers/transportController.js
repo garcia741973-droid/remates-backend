@@ -124,6 +124,60 @@ const getMyTruck = async (req, res) => {
   }
 };
 
+const toggleTruckAvailability = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+    const { is_available } = req.body;
+
+    // Verificar si tiene viaje activo
+    const activeTrip = await pool.query(
+      `
+      SELECT id
+      FROM transport_negotiations
+      WHERE transporter_user_id = $1
+      AND status IN (
+        'loading_completed',
+        'trip_active',
+        'delivery_pending'
+      )
+      LIMIT 1
+      `,
+      [userId]
+    );
+
+    if (
+      activeTrip.rows.length > 0 &&
+      is_available === true
+    ) {
+      return res.status(400).json({
+        error:
+          'No puedes activarte mientras tienes un viaje en curso',
+      });
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE transporter_trucks
+      SET is_available = $1
+      WHERE user_id = $2
+        AND is_active = true
+      RETURNING *
+      `,
+      [is_available, userId]
+    );
+
+    res.json(result.rows[0]);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error actualizando disponibilidad',
+    });
+  }
+};
+
 const updateMyTruck = async (req, res) => {
   try {
     const userId = req.user.user_id;
@@ -2042,6 +2096,7 @@ const getGuideByNegotiation =
 module.exports = {
   registerTruck,
   getMyTruck,
+  toggleTruckAvailability,
   updateMyTruck,
   createGuide,
   getMyGuides,

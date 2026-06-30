@@ -6,6 +6,7 @@ const { requireAuth } = require('../middleware/authMiddleware');
 const {
   registerTruck,
   getMyTruck,
+  toggleTruckAvailability,
   updateMyTruck,
   createGuide,
   getMyGuides,
@@ -39,6 +40,12 @@ router.put(
   '/update-my-truck',
   requireAuth,
   updateMyTruck
+);
+
+router.put(
+  '/truck/availability',
+  requireAuth,
+  toggleTruckAvailability
 );
 
 router.post(
