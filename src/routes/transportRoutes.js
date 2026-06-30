@@ -30,6 +30,7 @@ const {
   getGuideByNegotiation,
   archiveTransportNegotiation,
   getMyTripsHistory,
+  getTransportDashboard,
 } = require('../controllers/transportController');
 
 router.get(
@@ -179,6 +180,12 @@ router.get(
   '/guide/:negotiationId',
   requireAuth,
   getGuideByNegotiation
+);
+
+router.get(
+  '/dashboard',
+  requireAuth,
+  getTransportDashboard
 );
 
 module.exports = router;

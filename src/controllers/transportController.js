@@ -2255,6 +2255,78 @@ const getMyTripsHistory =
     }
   };
 
+const getTransportDashboard =
+  async (req, res) => {
+    try {
+      const userId =
+        req.user.user_id;
+
+      const truckRes =
+        await pool.query(
+          `
+          SELECT COUNT(*)::int AS total
+          FROM transporter_trucks
+          WHERE user_id = $1
+          AND is_active = true
+          `,
+          [userId]
+        );
+
+      const activeTripsRes =
+        await pool.query(
+          `
+          SELECT COUNT(*)::int AS total
+          FROM transport_negotiations
+          WHERE
+          (
+            transporter_id = $1
+            OR requester_id = $1
+          )
+          AND status NOT IN (
+            'delivered',
+            'cancelled'
+          )
+          `,
+          [userId]
+        );
+
+      const historyRes =
+        await pool.query(
+          `
+          SELECT COUNT(*)::int AS total
+          FROM transport_negotiations
+          WHERE
+          (
+            transporter_id = $1
+            OR requester_id = $1
+          )
+          AND status IN (
+            'delivered',
+            'cancelled'
+          )
+          `,
+          [userId]
+        );
+
+      res.json({
+        trucks:
+          truckRes.rows[0].total,
+        active_trips:
+          activeTripsRes.rows[0].total,
+        history:
+          historyRes.rows[0].total,
+      });
+
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        error:
+          'Error obteniendo dashboard',
+      });
+    }
+  };
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -2281,5 +2353,6 @@ module.exports = {
   createDeliveryReport,
   getGuideByNegotiation, 
   archiveTransportNegotiation,
-  getMyTripsHistory,  
+  getMyTripsHistory,
+  getTransportDashboard,  
 };
