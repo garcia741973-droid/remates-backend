@@ -531,12 +531,19 @@ const createTransportRequest = async (req, res) => {
       notes,
       contact_phone,
 
-      // NUEVOS
+      /// ORIGEN
       approx_pickup_source,
       approx_pickup_saved_location_id,
       approx_pickup_lat,
       approx_pickup_lng,
       approx_pickup_notes,
+
+      /// DESTINO
+      approx_dropoff_source,
+      approx_dropoff_saved_location_id,
+      approx_dropoff_lat,
+      approx_dropoff_lng,
+      approx_dropoff_notes,
     } = req.body;
 
     const result = await pool.query(
@@ -550,14 +557,23 @@ const createTransportRequest = async (req, res) => {
         travel_date,
         notes,
         contact_phone,
+
         approx_pickup_source,
         approx_pickup_saved_location_id,
         approx_pickup_lat,
         approx_pickup_lng,
-        approx_pickup_notes
+        approx_pickup_notes,
+
+        approx_dropoff_source,
+        approx_dropoff_saved_location_id,
+        approx_dropoff_lat,
+        approx_dropoff_lng,
+        approx_dropoff_notes
       )
       VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+        $1,$2,$3,$4,$5,$6,$7,$8,
+        $9,$10,$11,$12,$13,
+        $14,$15,$16,$17,$18
       )
       RETURNING *
       `,
@@ -569,12 +585,21 @@ const createTransportRequest = async (req, res) => {
         animal_type,
         travel_date,
         notes,
-        contact_phone,
+        contact_phone || null,
+
+        /// ORIGEN
         approx_pickup_source || null,
         approx_pickup_saved_location_id || null,
         approx_pickup_lat || null,
         approx_pickup_lng || null,
         approx_pickup_notes || null,
+
+        /// DESTINO
+        approx_dropoff_source || null,
+        approx_dropoff_saved_location_id || null,
+        approx_dropoff_lat || null,
+        approx_dropoff_lng || null,
+        approx_dropoff_notes || null,
       ]
     );
 
