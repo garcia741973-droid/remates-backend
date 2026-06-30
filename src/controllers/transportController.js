@@ -134,10 +134,13 @@ const toggleTruckAvailability = async (req, res) => {
       `
       SELECT id
       FROM transport_negotiations
-      WHERE transporter_user_id = $1
+      WHERE transporter_id = $1
       AND status IN (
+        'payment_pending',
+        'paid',
         'loading_completed',
         'trip_active',
+        'in_trip',
         'delivery_pending'
       )
       LIMIT 1
