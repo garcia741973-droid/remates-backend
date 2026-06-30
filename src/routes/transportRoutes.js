@@ -31,6 +31,7 @@ const {
   archiveTransportNegotiation,
   getMyTripsHistory,
   getTransportDashboard,
+  rejectTransportRequest,
 } = require('../controllers/transportController');
 
 router.get(
@@ -186,6 +187,12 @@ router.get(
   '/dashboard',
   requireAuth,
   getTransportDashboard
+);
+
+router.post(
+  '/reject-request',
+  requireAuth,
+  rejectTransportRequest
 );
 
 module.exports = router;

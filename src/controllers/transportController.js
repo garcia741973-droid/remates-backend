@@ -598,13 +598,22 @@ const createTransportRequest = async (req, res) => {
 
 const getOpenTransportRequests = async (req, res) => {
   try {
-    const result = await pool.query(
+  const userId =
+    req.user.user_id;
+
+  const result = await pool.query(
       `
       SELECT *
-      FROM transport_requests
-      WHERE status = 'open'
-      ORDER BY id DESC
-      `
+      FROM transport_requests tr
+      WHERE tr.status = 'open'
+      AND tr.id NOT IN (
+        SELECT request_id
+        FROM transport_request_rejections
+        WHERE transporter_id = $1
+      )
+      ORDER BY tr.id DESC
+      `,
+      [userId]
     );
 
     res.json(result.rows);
@@ -2327,6 +2336,48 @@ const getTransportDashboard =
     }
   };
 
+const rejectTransportRequest =
+  async (req, res) => {
+    try {
+      const transporterId =
+        req.user.user_id;
+
+      const { request_id } =
+        req.body;
+
+      await pool.query(
+        `
+        INSERT INTO transport_request_rejections (
+          request_id,
+          transporter_id
+        )
+        VALUES ($1,$2)
+        ON CONFLICT (
+          request_id,
+          transporter_id
+        )
+        DO NOTHING
+        `,
+        [
+          request_id,
+          transporterId,
+        ]
+      );
+
+      res.json({
+        success: true,
+      });
+
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        error:
+          'Error rechazando solicitud',
+      });
+    }
+  };
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -2354,5 +2405,6 @@ module.exports = {
   getGuideByNegotiation, 
   archiveTransportNegotiation,
   getMyTripsHistory,
-  getTransportDashboard,  
+  getTransportDashboard, 
+  rejectTransportRequest, 
 };
