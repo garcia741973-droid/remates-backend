@@ -1895,6 +1895,45 @@ const getTripMapData = async (
   }
 };
 
+const getGuideByNegotiation =
+  async (req, res) => {
+    try {
+      const { negotiationId } =
+        req.params;
+
+      const result =
+        await pool.query(
+          `
+          SELECT *
+          FROM transport_guides
+          WHERE negotiation_id = $1
+          LIMIT 1
+          `,
+          [negotiationId]
+        );
+
+      if (
+        result.rows.length === 0
+      ) {
+        return res.status(404).json({
+          error:
+            'Guía no encontrada',
+        });
+      }
+
+      res.json(
+        result.rows[0]
+      );
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        error:
+          'Error obteniendo guía',
+      });
+    }
+  };
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -1917,5 +1956,6 @@ module.exports = {
   getMyTrips,
   getTripMapData,
   finishTrip,
-  createDeliveryReport,   
+  createDeliveryReport,
+  getGuideByNegotiation,   
 };

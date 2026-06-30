@@ -26,6 +26,7 @@ const {
   getTripMapData,
   finishTrip,
   createDeliveryReport,
+  getGuideByNegotiation,
 } = require('../controllers/transportController');
 
 router.get(
@@ -151,6 +152,12 @@ router.get(
   '/trip-map/:negotiationId',
   requireAuth,
   getTripMapData
+);
+
+router.get(
+  '/guide/:negotiationId',
+  requireAuth,
+  getGuideByNegotiation
 );
 
 module.exports = router;
