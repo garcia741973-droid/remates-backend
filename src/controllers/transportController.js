@@ -2,6 +2,8 @@ const { pool } = require('../config/db');
 
 const crypto = require('crypto');
 
+const admin = require("../config/firebase");
+
 const admin = require('firebase-admin');
 
 const {
@@ -1486,6 +1488,29 @@ const createDispatch = async (req, res) => {
       `,
       [negotiation_id]
     );
+
+    await admin
+      .firestore()
+      .collection('transport_negotiations')
+      .doc(negotiation_id.toString())
+      .collection('messages')
+      .add({
+        sender_id: 0,
+        system: true,
+        message:
+          `🚛 Carga despachada correctamente.
+
+    📍 Punto de carga registrado.
+    🕒 Hora: ${event_local_time}
+
+    📦 El ganadero debe tramitar y adjuntar la guía oficial para continuar.`,
+        photo_url,
+        signature_url,
+        lat: pickup_lat,
+        lng: pickup_lng,
+        created_at:
+          admin.firestore.FieldValue.serverTimestamp(),
+      });
 
     res.json(
       eventRes.rows[0]
