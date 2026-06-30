@@ -1941,8 +1941,14 @@ const getMyTrips = async (req, res) => {
       ON tg.negotiation_id = tn.id
 
     WHERE
+    (
       tn.transporter_id = $1
       OR tn.requester_id = $1
+    )
+    AND tn.status NOT IN (
+      'delivered',
+      'cancelled'
+    )
 
     ORDER BY tn.id, tg.created_at DESC
     `,
