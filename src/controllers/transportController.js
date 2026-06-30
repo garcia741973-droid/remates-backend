@@ -1412,6 +1412,8 @@ const createDispatch = async (req, res) => {
       negotiation_id,
       photo_url,
       signature_url,
+      pickup_lat,
+      pickup_lng,
       notes,
       event_local_time,
     } = req.body;
@@ -1454,11 +1456,13 @@ const createDispatch = async (req, res) => {
           event_type,
           photo_url,
           signature_url,
+          event_lat,
+          event_lng,
           notes,
           created_by,
           event_local_time
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         RETURNING *
         `,
         [
@@ -1466,6 +1470,8 @@ const createDispatch = async (req, res) => {
           'dispatch',
           photo_url,
           signature_url,
+          pickup_lat,
+          pickup_lng,
           notes,
           userId,
           event_local_time,
