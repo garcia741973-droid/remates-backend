@@ -33,6 +33,9 @@ const {
   getTransportDashboard,
   rejectTransportRequest,
   cancelTransportRequest,
+  createSavedLocation,
+  getMySavedLocations,
+  deleteSavedLocation,  
 } = require('../controllers/transportController');
 
 router.get(
@@ -200,6 +203,24 @@ router.post(
   '/cancel-request',
   requireAuth,
   cancelTransportRequest
+);
+
+router.post(
+  '/saved-locations',
+  authMiddleware,
+  transportController.createSavedLocation
+);
+
+router.get(
+  '/saved-locations',
+  authMiddleware,
+  transportController.getMySavedLocations
+);
+
+router.delete(
+  '/saved-locations/:id',
+  authMiddleware,
+  transportController.deleteSavedLocation
 );
 
 module.exports = router;

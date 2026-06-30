@@ -2492,6 +2492,116 @@ const cancelTransportRequest =
     }
   };
 
+const createSavedLocation = async (
+  req,
+  res
+) => {
+  try {
+    const userId = req.user.user_id;
+
+    const {
+      name,
+      type,
+      latitude,
+      longitude,
+      notes,
+    } = req.body;
+
+    const result = await pool.query(
+      `
+      INSERT INTO transport_saved_locations (
+        user_id,
+        name,
+        type,
+        latitude,
+        longitude,
+        notes
+      )
+      VALUES ($1,$2,$3,$4,$5,$6)
+      RETURNING *
+      `,
+      [
+        userId,
+        name,
+        type || 'custom',
+        latitude,
+        longitude,
+        notes || null,
+      ]
+    );
+
+    res.json(result.rows[0]);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error:
+          'Error guardando ubicación',
+    });
+  }
+};
+
+const getMySavedLocations = async (
+  req,
+  res
+) => {
+  try {
+    const userId = req.user.user_id;
+
+    const result = await pool.query(
+      `
+      SELECT *
+      FROM transport_saved_locations
+      WHERE user_id = $1
+      ORDER BY name ASC
+      `,
+      [userId]
+    );
+
+    res.json(result.rows);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error:
+          'Error cargando ubicaciones',
+    });
+  }
+};
+
+const deleteSavedLocation = async (
+  req,
+  res
+) => {
+  try {
+    const userId = req.user.user_id;
+    const { id } = req.params;
+
+    await pool.query(
+      `
+      DELETE FROM transport_saved_locations
+      WHERE id = $1
+      AND user_id = $2
+      `,
+      [id, userId]
+    );
+
+    res.json({
+      success: true,
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error:
+          'Error eliminando ubicación',
+    });
+  }
+};
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -2522,4 +2632,7 @@ module.exports = {
   getTransportDashboard, 
   rejectTransportRequest, 
   cancelTransportRequest,
+  createSavedLocation,
+  getMySavedLocations,
+  deleteSavedLocation,
 };
