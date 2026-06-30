@@ -1676,8 +1676,19 @@ const createDeliveryReport =
 
       const {
         negotiation_id,
-        delivered_quantity,
-        delivered_animal_type,
+
+        male_0_12,
+        female_0_12,
+
+        male_13_24,
+        female_13_24,
+
+        male_25_36,
+        female_25_36,
+
+        male_36_plus,
+        female_36_plus,
+
         receiver_name,
         receiver_ci,
         delivery_photo_url,
@@ -1724,25 +1735,49 @@ const createDeliveryReport =
           `
           INSERT INTO transport_delivery_reports (
             negotiation_id,
-            delivered_quantity,
-            delivered_animal_type,
+
+            male_0_12,
+            female_0_12,
+
+            male_13_24,
+            female_13_24,
+
+            male_25_36,
+            female_25_36,
+
+            male_36_plus,
+            female_36_plus,
+
             receiver_name,
             receiver_ci,
             delivery_photo_url,
             receiver_signature_url,
             delivery_lat,
             delivery_lng,
+            delivered_at,
             notes
           )
           VALUES (
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,
+            $10,$11,$12,$13,$14,$15,NOW(),$16
           )
           RETURNING *
           `,
           [
             negotiation_id,
-            delivered_quantity,
-            delivered_animal_type,
+
+            male_0_12,
+            female_0_12,
+
+            male_13_24,
+            female_13_24,
+
+            male_25_36,
+            female_25_36,
+
+            male_36_plus,
+            female_36_plus,
+
             receiver_name,
             receiver_ci,
             delivery_photo_url,
