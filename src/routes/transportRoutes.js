@@ -207,20 +207,20 @@ router.post(
 
 router.post(
   '/saved-locations',
-  authMiddleware,
-  transportController.createSavedLocation
+  requireAuth,
+  createSavedLocation
 );
 
 router.get(
   '/saved-locations',
-  authMiddleware,
-  transportController.getMySavedLocations
+  requireAuth,
+  getMySavedLocations
 );
 
 router.delete(
   '/saved-locations/:id',
-  authMiddleware,
-  transportController.deleteSavedLocation
+  requireAuth,
+  deleteSavedLocation
 );
 
 module.exports = router;
