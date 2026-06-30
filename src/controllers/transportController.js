@@ -632,9 +632,12 @@ const createTransportNegotiation = async (req, res) => {
         FROM transport_negotiations
         WHERE request_id = $1
           AND transporter_id = $2
-          AND status NOT IN (
-            'delivered',
-            'cancelled'
+          AND (
+            status IS NULL
+            OR status NOT IN (
+              'delivered',
+              'cancelled'
+            )
           )
         LIMIT 1
         `,
