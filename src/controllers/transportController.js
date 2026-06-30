@@ -530,6 +530,13 @@ const createTransportRequest = async (req, res) => {
       travel_date,
       notes,
       contact_phone,
+
+      // NUEVOS
+      approx_pickup_source,
+      approx_pickup_saved_location_id,
+      approx_pickup_lat,
+      approx_pickup_lng,
+      approx_pickup_notes,
     } = req.body;
 
     const result = await pool.query(
@@ -542,10 +549,15 @@ const createTransportRequest = async (req, res) => {
         animal_type,
         travel_date,
         notes,
-        contact_phone
+        contact_phone,
+        approx_pickup_source,
+        approx_pickup_saved_location_id,
+        approx_pickup_lat,
+        approx_pickup_lng,
+        approx_pickup_notes
       )
       VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
       )
       RETURNING *
       `,
@@ -558,6 +570,11 @@ const createTransportRequest = async (req, res) => {
         travel_date,
         notes,
         contact_phone,
+        approx_pickup_source || null,
+        approx_pickup_saved_location_id || null,
+        approx_pickup_lat || null,
+        approx_pickup_lng || null,
+        approx_pickup_notes || null,
       ]
     );
 
