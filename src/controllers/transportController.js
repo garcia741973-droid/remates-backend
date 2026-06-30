@@ -1963,8 +1963,15 @@ const getMyTrips = async (req, res) => {
 
     WHERE
     (
-      tn.transporter_id = $1
-      OR tn.requester_id = $1
+      (
+        tn.transporter_id = $1
+        AND tn.hidden_by_transporter = false
+      )
+      OR
+      (
+        tn.requester_id = $1
+        AND tn.hidden_by_requester = false
+      )
     )
     AND tn.status NOT IN (
       'delivered',
