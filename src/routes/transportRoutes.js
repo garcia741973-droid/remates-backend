@@ -32,6 +32,7 @@ const {
   getMyTripsHistory,
   getTransportDashboard,
   rejectTransportRequest,
+  cancelTransportRequest,
 } = require('../controllers/transportController');
 
 router.get(
@@ -193,6 +194,12 @@ router.post(
   '/reject-request',
   requireAuth,
   rejectTransportRequest
+);
+
+router.post(
+  '/cancel-request',
+  requireAuth,
+  cancelTransportRequest
 );
 
 module.exports = router;

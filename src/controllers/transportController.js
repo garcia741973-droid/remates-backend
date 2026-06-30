@@ -2378,6 +2378,78 @@ const rejectTransportRequest =
     }
   };
 
+const cancelTransportRequest =
+  async (req, res) => {
+    try {
+      const userId =
+        req.user.user_id;
+
+      const { request_id } =
+        req.body;
+
+      const requestRes =
+        await pool.query(
+          `
+          SELECT *
+          FROM transport_requests
+          WHERE id = $1
+          LIMIT 1
+          `,
+          [request_id]
+        );
+
+      if (
+        requestRes.rows.length === 0
+      ) {
+        return res.status(404).json({
+          error:
+            'Solicitud no encontrada',
+        });
+      }
+
+      const request =
+        requestRes.rows[0];
+
+      if (request.user_id !== userId) {
+        return res.status(403).json({
+          error:
+            'No autorizado',
+        });
+      }
+
+      await pool.query(
+        `
+        UPDATE transport_requests
+        SET status = 'cancelled'
+        WHERE id = $1
+        `,
+        [request_id]
+      );
+
+      await pool.query(
+        `
+        UPDATE transport_negotiations
+        SET status = 'cancelled'
+        WHERE request_id = $1
+        AND status = 'open'
+        `,
+        [request_id]
+      );
+
+      res.json({
+        success: true,
+      });
+
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        error:
+          'Error cancelando solicitud',
+      });
+    }
+  };
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -2407,4 +2479,5 @@ module.exports = {
   getMyTripsHistory,
   getTransportDashboard, 
   rejectTransportRequest, 
+  cancelTransportRequest,
 };
