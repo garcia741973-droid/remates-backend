@@ -640,19 +640,25 @@ const createTransportRequest = async (req, res) => {
 
 const getOpenTransportRequests = async (req, res) => {
   try {
-  const userId =
-    req.user.user_id;
+    const userId = req.user.user_id;
 
-  const result = await pool.query(
+    const result = await pool.query(
       `
-      SELECT *
+      SELECT
+        tr.*,
+        pickup.name AS approx_pickup_location_name,
+        dropoff.name AS approx_dropoff_location_name
       FROM transport_requests tr
+      LEFT JOIN transport_saved_locations pickup
+        ON tr.approx_pickup_saved_location_id = pickup.id
+      LEFT JOIN transport_saved_locations dropoff
+        ON tr.approx_dropoff_saved_location_id = dropoff.id
       WHERE tr.status = 'open'
-      AND tr.id NOT IN (
-        SELECT request_id
-        FROM transport_request_rejections
-        WHERE transporter_id = $1
-      )
+        AND tr.id NOT IN (
+          SELECT request_id
+          FROM transport_request_rejections
+          WHERE transporter_id = $1
+        )
       ORDER BY tr.id DESC
       `,
       [userId]
@@ -664,7 +670,7 @@ const getOpenTransportRequests = async (req, res) => {
     console.error(error);
 
     res.status(500).json({
-      error: 'Error obteniendo solicitudes',
+      error: 'Error obteniendo solicitudes abiertas',
     });
   }
 };
