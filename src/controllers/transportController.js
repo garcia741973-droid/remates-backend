@@ -2235,6 +2235,57 @@ const getMyTrips = async (req, res) => {
     });
   }
 };
+
+const getMyIncomingTrips = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    const result = await pool.query(
+      `
+      SELECT
+        tn.id,
+        tn.status,
+        tn.price,
+        tn.created_at,
+
+        tr.origin,
+        tr.destination,
+        tr.quantity,
+        tr.animal_type,
+
+        tt.plate,
+        tt.capacity,
+        tt.driver_name
+
+      FROM transport_negotiations tn
+      INNER JOIN transport_requests tr
+        ON tr.id = tn.request_id
+      INNER JOIN transporter_trucks tt
+        ON tt.user_id = tn.transporter_id
+
+      WHERE tr.user_id = $1
+        AND tn.status IN (
+          'paid',
+          'loading_completed',
+          'trip_active',
+          'delivery_pending'
+        )
+
+      ORDER BY tn.id DESC
+      `,
+      [userId]
+    );
+
+    res.json(result.rows);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error obteniendo viajes del ganadero',
+    });
+  }
+};
   
 const getTripMapData = async (
   req,
@@ -2934,6 +2985,7 @@ module.exports = {
   saveTracking,
   getTripTracking,
   getMyTrips,
+  getMyIncomingTrips,
   getTripMapData,
   startTrip,
   finishTrip,

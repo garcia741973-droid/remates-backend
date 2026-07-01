@@ -26,6 +26,7 @@ const {
   saveTracking,
   getTripTracking,
   getMyTrips,
+  getMyIncomingTrips,
   getTripMapData,
   startTrip,
   finishTrip,
@@ -143,6 +144,12 @@ router.get(
   '/my-trips',
   requireAuth,
   getMyTrips
+);
+
+router.get(
+  '/incoming-trips',
+  requireAuth,
+  getMyIncomingTrips
 );
 
 router.post(
