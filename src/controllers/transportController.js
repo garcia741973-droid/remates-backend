@@ -2855,6 +2855,62 @@ const getLocationRoutes = async (req, res) => {
   }
 };
 
+const getSharedTripMap = async (req, res) => {
+  try {
+    const { negotiation_id } = req.params;
+
+    const negotiationRes =
+      await pool.query(
+        `
+        SELECT
+          real_origin_lat,
+          real_origin_lng,
+          destination_lat,
+          destination_lng,
+          status
+        FROM transport_negotiations
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [negotiation_id]
+      );
+
+    if (
+      negotiationRes.rows.length === 0
+    ) {
+      return res.status(404).json({
+        error: 'Viaje no encontrado',
+      });
+    }
+
+    const trackingRes =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_trip_tracking
+        WHERE negotiation_id = $1
+        ORDER BY created_at ASC
+        `,
+        [negotiation_id]
+      );
+
+    res.json({
+      negotiation:
+        negotiationRes.rows[0],
+      tracking:
+        trackingRes.rows,
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error obteniendo mapa compartido',
+    });
+  }
+};
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -2893,4 +2949,5 @@ module.exports = {
   deleteSavedLocation,
   createLocationRoute,
   getLocationRoutes,
+  getSharedTripMap,
 };

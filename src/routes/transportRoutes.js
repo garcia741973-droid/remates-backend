@@ -40,7 +40,8 @@ const {
   getMySavedLocations,
   deleteSavedLocation,
   createLocationRoute,
-  getLocationRoutes,    
+  getLocationRoutes, 
+  getSharedTripMap,   
 } = require('../controllers/transportController');
 
 router.get(
@@ -256,6 +257,12 @@ router.get(
   '/request-routes/:request_id',
   requireAuth,
   getTransportRoutePoints
+);
+
+router.get(
+  '/shared-trip-map/:negotiation_id',
+  requireAuth,
+  getSharedTripMap
 );
 
 module.exports = router;
