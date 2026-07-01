@@ -16,6 +16,7 @@ const {
   createTransportNegotiation,
   sendTransportMessage,
   getTransportNegotiationDetails,
+  getTransportRoutePoints,
   getTransportMessages,
   getMyTransportRequests,
   getRequestNegotiations, 
@@ -242,6 +243,12 @@ router.get(
   '/location-routes/:saved_location_id',
   requireAuth,
   getLocationRoutes
+);
+
+router.get(
+  '/request-routes/:request_id',
+  requireAuth,
+  getTransportRoutePoints
 );
 
 module.exports = router;

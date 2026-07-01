@@ -1034,6 +1034,31 @@ const getTransportNegotiationDetails = async (req, res) => {
   }
 };
 
+const getTransportRoutePoints = async (req, res) => {
+  try {
+    const { request_id } = req.params;
+
+    const result = await pool.query(
+      `
+      SELECT *
+      FROM transport_route_points
+      WHERE request_id = $1
+      ORDER BY route_phase ASC, point_order ASC
+      `,
+      [request_id]
+    );
+
+    res.json(result.rows);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error obteniendo rutas del viaje',
+    });
+  }
+};
+
 const getMyTransportRequests = async (req, res) => {
   try {
     const userId =
@@ -2711,6 +2736,7 @@ module.exports = {
   getSharedGuide,
   createTransportRequest,
   getTransportNegotiationDetails,
+  getTransportRoutePoints,
   getOpenTransportRequests,
   createTransportNegotiation,
   sendTransportMessage,
