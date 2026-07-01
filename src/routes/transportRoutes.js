@@ -36,7 +36,9 @@ const {
   cancelTransportRequest,
   createSavedLocation,
   getMySavedLocations,
-  deleteSavedLocation,  
+  deleteSavedLocation,
+  createLocationRoute,
+  getLocationRoutes,    
 } = require('../controllers/transportController');
 
 router.get(
@@ -228,6 +230,18 @@ router.delete(
   '/saved-locations/:id',
   requireAuth,
   deleteSavedLocation
+);
+
+router.post(
+  '/create-location-route',
+  requireAuth,
+  createLocationRoute
+);
+
+router.get(
+  '/location-routes/:saved_location_id',
+  requireAuth,
+  getLocationRoutes
 );
 
 module.exports = router;

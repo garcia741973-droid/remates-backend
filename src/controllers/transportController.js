@@ -2633,6 +2633,68 @@ const deleteSavedLocation = async (
   }
 };
 
+const createLocationRoute = async (req, res) => {
+  try {
+    const {
+      saved_location_id,
+      name,
+      route_type,
+      route_points,
+    } = req.body;
+
+    const result = await pool.query(
+      `
+      INSERT INTO transport_location_routes (
+        saved_location_id,
+        name,
+        route_type,
+        route_points
+      )
+      VALUES ($1,$2,$3,$4)
+      RETURNING *
+      `,
+      [
+        saved_location_id,
+        name,
+        route_type,
+        route_points,
+      ]
+    );
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error creando ruta',
+    });
+  }
+};
+
+const getLocationRoutes = async (req, res) => {
+  try {
+    const { saved_location_id } = req.params;
+
+    const result = await pool.query(
+      `
+      SELECT *
+      FROM transport_location_routes
+      WHERE saved_location_id = $1
+      ORDER BY created_at DESC
+      `,
+      [saved_location_id]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error obteniendo rutas',
+    });
+  }
+};
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -2667,4 +2729,6 @@ module.exports = {
   createSavedLocation,
   getMySavedLocations,
   deleteSavedLocation,
+  createLocationRoute,
+  getLocationRoutes,
 };
