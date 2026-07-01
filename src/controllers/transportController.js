@@ -356,6 +356,15 @@ const createGuide = async (req, res) => {
       ]
     );
 
+    await pool.query(
+      `
+      UPDATE transport_negotiations
+      SET status = 'loading_completed'
+      WHERE id = $1
+      `,
+      [negotiation_id]
+    );
+
     res.json(result.rows[0]);
 
   } catch (error) {
