@@ -365,6 +365,44 @@ const createGuide = async (req, res) => {
       [negotiation_id]
     );
 
+await admin
+  .firestore()
+  .collection('transport_negotiations')
+  .doc(negotiation_id.toString())
+  .collection('messages')
+  .add({
+    sender_id: 0,
+    system: true,
+    message:
+`📄 Manifiesto de transporte generado.
+
+🚛 Placa: ${truck.plate}
+👤 Conductor: ${driver_name}
+🪪 CI: ${driver_ci}
+
+📍 Origen: ${origin}
+📍 Destino: ${destination}
+
+🐂 MACHOS
+0-12: ${male_0_12}
+13-24: ${male_13_24}
+25-36: ${male_25_36}
++36: ${male_36_plus}
+
+🐄 HEMBRAS
+0-12: ${female_0_12}
+13-24: ${female_13_24}
+25-36: ${female_25_36}
++36: ${female_36_plus}
+
+🔗 Ver manifiesto:
+${process.env.APP_URL}/transport/shared-guide/${shareToken}`,
+    guide_url:
+      `${process.env.APP_URL}/transport/shared-guide/${shareToken}`,
+    created_at:
+      admin.firestore.FieldValue.serverTimestamp(),
+  });
+
     res.json(result.rows[0]);
 
   } catch (error) {
