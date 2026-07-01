@@ -15,6 +15,7 @@ const {
   getOpenTransportRequests,
   createTransportNegotiation,
   sendTransportMessage,
+  getTransportNegotiationDetails,
   getTransportMessages,
   getMyTransportRequests,
   getRequestNegotiations, 
@@ -101,6 +102,12 @@ router.get(
   '/messages/:negotiation_id',
   requireAuth,
   getTransportMessages
+);
+
+router.get(
+  '/negotiation-details/:negotiation_id',
+  requireAuth,
+  getTransportNegotiationDetails
 );
 
 router.get(
