@@ -1804,6 +1804,62 @@ const saveTracking = async (req, res) => {
   }
 };
 
+const startTrip = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    const { negotiation_id } = req.body;
+
+    const negotiationRes = await pool.query(
+      `
+      SELECT *
+      FROM transport_negotiations
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [negotiation_id]
+    );
+
+    if (negotiationRes.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Negociación no encontrada',
+      });
+    }
+
+    const negotiation = negotiationRes.rows[0];
+
+    if (negotiation.transporter_id !== userId) {
+      return res.status(403).json({
+        error:
+          'Solo el camionero puede iniciar viaje',
+      });
+    }
+
+    await pool.query(
+      `
+      UPDATE transport_negotiations
+      SET
+        status = 'trip_active',
+        trip_started_at = NOW()
+      WHERE id = $1
+      `,
+      [negotiation_id]
+    );
+
+    res.json({
+      success: true,
+      message: 'Viaje iniciado correctamente',
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error iniciando viaje',
+    });
+  }
+};
+
 const finishTrip = async (req, res) => {
   try {
     const userId = req.user.user_id;
@@ -2759,6 +2815,7 @@ module.exports = {
   getTripTracking,
   getMyTrips,
   getTripMapData,
+  startTrip,
   finishTrip,
   createDeliveryReport,
   getGuideByNegotiation, 

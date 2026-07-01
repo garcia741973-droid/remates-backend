@@ -27,6 +27,7 @@ const {
   getTripTracking,
   getMyTrips,
   getTripMapData,
+  startTrip,
   finishTrip,
   createDeliveryReport,
   getGuideByNegotiation,
@@ -153,6 +154,12 @@ router.post(
   '/save-tracking',
   requireAuth,
   saveTracking
+);
+
+router.post(
+  '/start-trip',
+  requireAuth,
+  startTrip
 );
 
 router.post(
