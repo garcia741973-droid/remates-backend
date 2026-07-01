@@ -2101,6 +2101,32 @@ const createDeliveryReport =
         [negotiation_id]
       );
 
+    await admin
+      .firestore()
+      .collection('transport_negotiations')
+      .doc(negotiation_id.toString())
+      .collection('messages')
+      .add({
+        sender_id: 0,
+        system: true,
+        message:
+    `✅ Entrega completada.
+
+    👤 Recibido por: ${receiver_name}
+    🪪 CI: ${receiver_ci}
+
+    📍 Punto final registrado.
+
+    📝 Observaciones:
+    ${notes && notes.trim().isNotEmpty ? notes : 'Sin observaciones'}`,
+        photo_url: delivery_photo_url,
+        signature_url: receiver_signature_url,
+        lat: delivery_lat,
+        lng: delivery_lng,
+        created_at:
+          admin.firestore.FieldValue.serverTimestamp(),
+      });
+
       res.json(
         result.rows[0]
       );
