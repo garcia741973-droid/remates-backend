@@ -3011,12 +3011,13 @@ const getRequesterTrips = async (req, res) => {
       LEFT JOIN transport_requests tr
         ON tr.id = tn.request_id
       WHERE tn.requester_id = $1
-        AND tn.status IN (
-          'paid',
-          'loading_completed',
-          'trip_active',
-          'delivery_pending'
-        )
+      AND tn.status IN (
+        'open',
+        'paid',
+        'loading_completed',
+        'trip_active',
+        'delivery_pending'
+      )
       ORDER BY tn.id DESC
       `,
       [userId]
