@@ -628,10 +628,10 @@ const getPublicTracking = async (req, res) => {
         tn.id AS negotiation_id,
         tn.status,
 
-        tg.plate,
-        tg.driver_name,
-        tg.origin,
-        tg.destination,
+        NULL AS plate,
+        tpt.driver_name,
+        tr.origin,
+        tr.destination,
 
         ttt.latitude,
         ttt.longitude,
@@ -643,8 +643,8 @@ const getPublicTracking = async (req, res) => {
       INNER JOIN transport_negotiations tn
         ON tn.id = tpt.negotiation_id
 
-      LEFT JOIN transport_guides tg
-        ON tg.negotiation_id = tn.id
+      LEFT JOIN transport_requests tr
+        ON tr.id = tn.request_id
 
       LEFT JOIN LATERAL (
         SELECT *
