@@ -356,15 +356,6 @@ const createGuide = async (req, res) => {
       ]
     );
 
-    await pool.query(
-      `
-      UPDATE transport_negotiations
-      SET status = 'loading_completed'
-      WHERE id = $1
-      `,
-      [negotiation_id]
-    );
-
 await admin
   .firestore()
   .collection('transport_negotiations')
@@ -1886,7 +1877,6 @@ const createDispatch = async (req, res) => {
           notes,
           userId,
           event_local_time,
-          signed_by,
         ]
       );
 
@@ -1986,7 +1976,7 @@ const prepareTrip = async (req, res) => {
     await pool.query(
       `
       UPDATE transport_negotiations
-      SET status = 'loading_completed'
+      SET status = 'trip_active'
       WHERE id = $1
       `,
       [negotiation_id]
@@ -2389,6 +2379,16 @@ const createDeliveryReport =
         lng: delivery_lng,
         created_at:
           admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      await sendUserNotification({
+        userId: negotiation.requester_id,
+        title: 'Entrega completada',
+        body: 'El camionero registró la entrega del ganado. Revisa la planilla de entrega.',
+        data: {
+          type: 'transport_delivery',
+          negotiation_id,
+        },
       });
 
       res.json(
