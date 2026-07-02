@@ -2560,31 +2560,49 @@ const getTripMapData = async (
         negotiation.requester_id ===
         req.user.user_id;
 
-      let route = null;
+        let route = null;
 
-      if (
-        negotiation.approx_dropoff_saved_location_id
-      ) {
-        const routeResult =
+        const requestResult =
           await pool.query(
             `
             SELECT *
-            FROM transport_location_routes
-            WHERE saved_location_id = $1
-            ORDER BY id ASC
+            FROM transport_requests
+            WHERE id = $1
             LIMIT 1
             `,
-            [
-              negotiation.approx_dropoff_saved_location_id
-            ]
+            [negotiation.request_id]
           );
 
         if (
-          routeResult.rows.length > 0
+          requestResult.rows.length > 0
         ) {
-          route = routeResult.rows[0];
+          const request =
+            requestResult.rows[0];
+
+          if (
+            request.approx_dropoff_saved_location_id
+          ) {
+            const routeResult =
+              await pool.query(
+                `
+                SELECT *
+                FROM transport_location_routes
+                WHERE saved_location_id = $1
+                ORDER BY id ASC
+                LIMIT 1
+                `,
+                [
+                  request.approx_dropoff_saved_location_id
+                ]
+              );
+
+            if (
+              routeResult.rows.length > 0
+            ) {
+              route = routeResult.rows[0];
+            }
+          }
         }
-      }
 
     const trackingResult =
       await pool.query(
