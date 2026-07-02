@@ -2560,17 +2560,18 @@ const getTripMapData = async (
         negotiation.requester_id ===
         req.user.user_id;
 
-    let route = null;
+      let route = null;
 
-    if (negotiation.route_id) {
       const routeResult =
         await pool.query(
           `
           SELECT *
-          FROM transport_routes
-          WHERE id = $1
+          FROM transport_location_routes
+          WHERE request_id = $1
+          ORDER BY id ASC
+          LIMIT 1
           `,
-          [negotiation.route_id]
+          [negotiation.request_id]
         );
 
       if (
@@ -2578,7 +2579,6 @@ const getTripMapData = async (
       ) {
         route = routeResult.rows[0];
       }
-    }
 
     const trackingResult =
       await pool.query(
