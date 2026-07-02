@@ -568,6 +568,7 @@ const getSharedGuide = async (req, res) => {
 const createPublicTracking = async (req, res) => {
   try {
     const { negotiation_id } = req.params;
+    const { driver_name } = req.body;
 
     const existing = await pool.query(
       `
@@ -591,12 +592,17 @@ const createPublicTracking = async (req, res) => {
       `
       INSERT INTO transport_public_tracking (
         negotiation_id,
-        token
+        token,
+        driver_name
       )
-      VALUES ($1, $2)
+      VALUES ($1, $2, $3)
       RETURNING *
       `,
-      [negotiation_id, token]
+      [
+        negotiation_id,
+        token,
+        driver_name,
+      ]
     );
 
     res.json(result.rows[0]);
