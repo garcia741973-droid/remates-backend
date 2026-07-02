@@ -1922,6 +1922,63 @@ const createDispatch = async (req, res) => {
   }
 };
 
+const prepareTrip = async (req, res) => {
+  try {
+    const userId =
+      req.user.user_id;
+
+    const {
+      negotiation_id,
+    } = req.body;
+
+    const negotiationRes =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_negotiations
+        WHERE id = $1
+        AND transporter_id = $2
+        AND status = 'paid'
+        LIMIT 1
+        `,
+        [
+          negotiation_id,
+          userId,
+        ]
+      );
+
+    if (
+      negotiationRes.rows.length === 0
+    ) {
+      return res.status(404).json({
+        error:
+          'Negociación no válida',
+      });
+    }
+
+    await pool.query(
+      `
+      UPDATE transport_negotiations
+      SET status = 'loading_completed'
+      WHERE id = $1
+      `,
+      [negotiation_id]
+    );
+
+    res.json({
+      success: true,
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error preparando viaje',
+    });
+  }
+};
+
 const saveTracking = async (req, res) => {
   try {
     const userId = req.user.user_id;
@@ -3279,4 +3336,5 @@ module.exports = {
   getLocationRoutes,
   getSharedTripMap,
   getRequesterTrips,
+  prepareTrip,
 };

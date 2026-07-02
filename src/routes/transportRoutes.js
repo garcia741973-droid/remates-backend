@@ -23,6 +23,7 @@ const {
   acceptTransportNegotiation, 
   createTransportPayment,
   createDispatch,
+  prepareTrip,
   saveTracking,
   getTripTracking,
   getMyTrips,
@@ -164,6 +165,12 @@ router.get(
   '/incoming-trips',
   requireAuth,
   getMyIncomingTrips
+);
+
+router.post(
+  '/prepare-trip',
+  requireAuth,
+  prepareTrip
 );
 
 router.post(
