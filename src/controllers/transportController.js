@@ -1896,6 +1896,8 @@ const createDispatch = async (req, res) => {
         system: true,
         message:
           `🚛 Carga despachada correctamente.
+          Lat: ${pickup_lat ?? 'No disponible'}
+          Lng: ${pickup_lng ?? 'No disponible'}
 
     📍 Punto de carga registrado.
     🕒 Hora: ${event_local_time}
@@ -1908,6 +1910,19 @@ const createDispatch = async (req, res) => {
         created_at:
           admin.firestore.FieldValue.serverTimestamp(),
       });
+
+    await sendUserNotification({
+      userId:
+        negotiation.requester_id,
+      title:
+        'Carga despachada',
+      body:
+        'El camionero registró la carga. Revisa el informe y genera la guía oficial.',
+      data: {
+        type: 'transport_dispatch',
+        negotiation_id,
+      },
+    });
 
     res.json(
       eventRes.rows[0]
