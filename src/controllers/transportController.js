@@ -2962,6 +2962,72 @@ const getSharedTripMap = async (req, res) => {
   }
 };
 
+const getRequesterTrips = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    const result = await pool.query(
+      `
+      SELECT
+        tn.id,
+        tn.status,
+        tn.origin,
+        tn.destination,
+        tn.quantity,
+        tn.destination_lat,
+        tn.destination_lng,
+        tt.plate,
+
+        (
+          SELECT tracked_at
+          FROM transport_trip_tracking
+          WHERE negotiation_id = tn.id
+          ORDER BY id DESC
+          LIMIT 1
+        ) as last_tracking,
+
+        (
+          SELECT latitude
+          FROM transport_trip_tracking
+          WHERE negotiation_id = tn.id
+          ORDER BY id DESC
+          LIMIT 1
+        ) as current_lat,
+
+        (
+          SELECT longitude
+          FROM transport_trip_tracking
+          WHERE negotiation_id = tn.id
+          ORDER BY id DESC
+          LIMIT 1
+        ) as current_lng
+
+      FROM transport_negotiations tn
+      LEFT JOIN transporter_trucks tt
+        ON tt.user_id = tn.transporter_id
+      WHERE tn.requester_id = $1
+        AND tn.status IN (
+          'paid',
+          'loading_completed',
+          'trip_active',
+          'delivery_pending'
+        )
+      ORDER BY tn.id DESC
+      `,
+      [userId]
+    );
+
+    res.json(result.rows);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error obteniendo viajes del ganadero',
+    });
+  }
+};
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -3002,4 +3068,5 @@ module.exports = {
   createLocationRoute,
   getLocationRoutes,
   getSharedTripMap,
+  getRequesterTrips,
 };
