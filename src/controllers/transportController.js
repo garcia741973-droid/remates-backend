@@ -1880,7 +1880,7 @@ const createDispatch = async (req, res) => {
     await pool.query(
       `
       UPDATE transport_negotiations
-      SET status = 'loading_completed'
+      SET status = 'trip_active'
       WHERE id = $1
       `,
       [negotiation_id]
