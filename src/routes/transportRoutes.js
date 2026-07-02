@@ -44,6 +44,8 @@ const {
   getLocationRoutes, 
   getSharedTripMap, 
   getRequesterTrips,  
+  createPublicTracking,
+  getPublicTracking,  
 } = require('../controllers/transportController');
 
 router.get(
@@ -79,6 +81,17 @@ router.get(
 router.get(
   '/shared-guide/:token',
   getSharedGuide
+);
+
+router.post(
+  '/create-public-tracking/:negotiation_id',
+  requireAuth,
+  createPublicTracking
+);
+
+router.get(
+  '/public-track/:token',
+  getPublicTracking
 );
 
 router.post(

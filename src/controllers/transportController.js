@@ -565,6 +565,114 @@ const getSharedGuide = async (req, res) => {
   }
 };
 
+const createPublicTracking = async (req, res) => {
+  try {
+    const { negotiation_id } = req.params;
+
+    const existing = await pool.query(
+      `
+      SELECT *
+      FROM transport_public_tracking
+      WHERE negotiation_id = $1
+      AND active = true
+      LIMIT 1
+      `,
+      [negotiation_id]
+    );
+
+    if (existing.rows.length > 0) {
+      return res.json(existing.rows[0]);
+    }
+
+    const token =
+      crypto.randomBytes(16).toString('hex');
+
+    const result = await pool.query(
+      `
+      INSERT INTO transport_public_tracking (
+        negotiation_id,
+        token
+      )
+      VALUES ($1, $2)
+      RETURNING *
+      `,
+      [negotiation_id, token]
+    );
+
+    res.json(result.rows[0]);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error creando tracking público',
+    });
+  }
+};
+
+const getPublicTracking = async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    const trackingRes = await pool.query(
+      `
+      SELECT
+        tpt.token,
+        tn.id AS negotiation_id,
+        tn.status,
+
+        tg.plate,
+        tg.driver_name,
+        tg.origin,
+        tg.destination,
+
+        ttt.latitude,
+        ttt.longitude,
+        ttt.speed,
+        ttt.tracked_at
+
+      FROM transport_public_tracking tpt
+
+      INNER JOIN transport_negotiations tn
+        ON tn.id = tpt.negotiation_id
+
+      LEFT JOIN transport_guides tg
+        ON tg.negotiation_id = tn.id
+
+      LEFT JOIN LATERAL (
+        SELECT *
+        FROM transport_trip_tracking
+        WHERE negotiation_id = tn.id
+        ORDER BY tracked_at DESC
+        LIMIT 1
+      ) ttt ON true
+
+      WHERE tpt.token = $1
+      AND tpt.active = true
+      LIMIT 1
+      `,
+      [token]
+    );
+
+    if (trackingRes.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Tracking no encontrado',
+      });
+    }
+
+    res.json(trackingRes.rows[0]);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error obteniendo tracking público',
+    });
+  }
+};
+
 const createTransportRequest = async (req, res) => {
   try {
     const userId = req.user.user_id;
@@ -3033,6 +3141,8 @@ const getRequesterTrips = async (req, res) => {
   }
 };
 
+
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -3041,6 +3151,8 @@ module.exports = {
   createGuide,
   getMyGuides,
   getSharedGuide,
+  createPublicTracking,
+  getPublicTracking,  
   createTransportRequest,
   getTransportNegotiationDetails,
   getTransportRoutePoints,
