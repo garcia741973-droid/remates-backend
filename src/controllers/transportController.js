@@ -2556,6 +2556,10 @@ const getTripMapData = async (
     const negotiation =
       negotiationResult.rows[0];
 
+      negotiation.is_requester =
+        negotiation.requester_id ===
+        req.user.user_id;
+
     let route = null;
 
     if (negotiation.route_id) {
