@@ -2539,6 +2539,60 @@ const getMyIncomingTrips = async (req, res) => {
   }
 };
   
+const getMyOpenNegotiations = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    const result = await pool.query(
+      `
+      SELECT DISTINCT ON (tn.id)
+        tn.id,
+        tn.status,
+        tn.created_at,
+
+        tr.origin,
+        tr.destination,
+        tr.quantity,
+        tr.animal_type,
+        tr.travel_date,
+        tr.notes,
+
+        tt.plate,
+        tt.brand,
+        tt.model
+
+      FROM transport_negotiations tn
+
+      JOIN transport_requests tr
+        ON tn.request_id = tr.id
+
+      JOIN transporter_trucks tt
+        ON tn.truck_id = tt.id
+
+      WHERE
+        tn.transporter_id = $1
+        AND tn.hidden_by_transporter = false
+        AND tn.status IN (
+          'open',
+          'payment_pending'
+        )
+
+      ORDER BY tn.id DESC
+      `,
+      [userId]
+    );
+
+    res.json(result.rows);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error obteniendo negociaciones abiertas',
+    });
+  }
+};
+
 const getTripMapData = async (
   req,
   res
@@ -3361,6 +3415,7 @@ module.exports = {
   saveTracking,
   getTripTracking,
   getMyTrips,
+  getMyOpenNegotiations,
   getMyIncomingTrips,
   getTripMapData,
   startTrip,

@@ -28,6 +28,7 @@ const {
   getTripTracking,
   getMyTrips,
   getMyIncomingTrips,
+  getMyOpenNegotiations,
   getTripMapData,
   startTrip,
   finishTrip,
@@ -159,6 +160,12 @@ router.get(
   '/my-trips',
   requireAuth,
   getMyTrips
+);
+
+router.get(
+  '/my-open-negotiations',
+  requireAuth,
+  getMyOpenNegotiations
 );
 
 router.get(
