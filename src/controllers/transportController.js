@@ -2562,22 +2562,28 @@ const getTripMapData = async (
 
       let route = null;
 
-      const routeResult =
-        await pool.query(
-          `
-          SELECT *
-          FROM transport_location_routes
-          WHERE request_id = $1
-          ORDER BY id ASC
-          LIMIT 1
-          `,
-          [negotiation.request_id]
-        );
-
       if (
-        routeResult.rows.length > 0
+        negotiation.approx_dropoff_saved_location_id
       ) {
-        route = routeResult.rows[0];
+        const routeResult =
+          await pool.query(
+            `
+            SELECT *
+            FROM transport_location_routes
+            WHERE saved_location_id = $1
+            ORDER BY id ASC
+            LIMIT 1
+            `,
+            [
+              negotiation.approx_dropoff_saved_location_id
+            ]
+          );
+
+        if (
+          routeResult.rows.length > 0
+        ) {
+          route = routeResult.rows[0];
+        }
       }
 
     const trackingResult =
