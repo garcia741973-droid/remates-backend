@@ -808,11 +808,26 @@ const getOpenTransportRequests = async (req, res) => {
         ON tr.approx_pickup_saved_location_id = pickup.id
       LEFT JOIN transport_saved_locations dropoff
         ON tr.approx_dropoff_saved_location_id = dropoff.id
-      WHERE tr.status = 'open'
+        WHERE tr.status = 'open'
+        AND tr.user_id != $1
         AND tr.id NOT IN (
           SELECT request_id
           FROM transport_request_rejections
           WHERE transporter_id = $1
+        )
+        AND tr.id NOT IN (
+          SELECT request_id
+          FROM transport_negotiations
+          WHERE transporter_id = $1
+          AND status IN (
+            'open',
+            'payment_pending',
+            'paid',
+            'loading_completed',
+            'trip_active',
+            'in_trip',
+            'delivery_pending'
+          )
         )
       ORDER BY tr.id DESC
       `,
@@ -844,6 +859,7 @@ const createTransportNegotiation = async (req, res) => {
         SELECT *
         FROM transport_requests
         WHERE id = $1
+        AND status = 'open'
         LIMIT 1
         `,
         [request_id]
@@ -860,6 +876,15 @@ const createTransportNegotiation = async (req, res) => {
 
     const request =
       requestRes.rows[0];
+
+    if (
+      request.user_id === transporterId
+    ) {
+      return res.status(400).json({
+        error:
+          'No puedes negociar tu propia solicitud',
+      });
+    }      
 
     /// 🔥 BUSCAR CAMIÓN ACTIVO
     const truckRes =
@@ -923,12 +948,14 @@ const createTransportNegotiation = async (req, res) => {
         FROM transport_negotiations
         WHERE request_id = $1
           AND transporter_id = $2
-          AND (
-            status IS NULL
-            OR status NOT IN (
-              'delivered',
-              'cancelled'
-            )
+          AND status IN (
+            'open',
+            'payment_pending',
+            'paid',
+            'loading_completed',
+            'trip_active',
+            'in_trip',
+            'delivery_pending'
           )
         LIMIT 1
         `,
@@ -1232,6 +1259,7 @@ const getMyTransportRequests = async (req, res) => {
           ) AS pending_negotiations
         FROM transport_requests tr
         WHERE tr.user_id = $1
+        AND tr.status != 'cancelled'
         ORDER BY tr.id DESC
         `,
         [userId]
@@ -1256,6 +1284,38 @@ const getRequestNegotiations = async (req, res) => {
     const { request_id } =
       req.params;
 
+    const userId =
+      req.user.user_id;
+
+    const requestRes =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_requests
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [request_id]
+      );
+
+    if (
+      requestRes.rows.length === 0
+    ) {
+      return res.status(404).json({
+        error:
+          'Solicitud no encontrada',
+      });
+    }
+
+    if (
+      requestRes.rows[0].user_id !== userId
+    ) {
+      return res.status(403).json({
+        error:
+          'No autorizado',
+      });
+    }
+
     const result =
       await pool.query(
         `
@@ -1268,6 +1328,16 @@ const getRequestNegotiations = async (req, res) => {
         JOIN transporter_trucks tt
           ON tn.truck_id = tt.id
         WHERE tn.request_id = $1
+        AND tn.status IN (
+          'open',
+          'payment_pending',
+          'paid',
+          'loading_completed',
+          'trip_active',
+          'in_trip',
+          'delivery_pending',
+          'delivered'
+        )
         ORDER BY tn.id DESC
         `,
         [request_id]
@@ -1303,6 +1373,7 @@ const acceptTransportNegotiation = async (req, res) => {
         SELECT *
         FROM transport_negotiations
         WHERE id = $1
+        AND status = 'open'
         LIMIT 1
         `,
         [negotiation_id]
@@ -1380,7 +1451,8 @@ const acceptTransportNegotiation = async (req, res) => {
       UPDATE transport_negotiations
       SET status = 'cancelled'
       WHERE request_id = $1
-        AND id != $2
+      AND id != $2
+      AND status = 'open'
       `,
       [
         negotiation.request_id,
@@ -2736,6 +2808,27 @@ const rejectTransportRequest =
 
       const { request_id } =
         req.body;
+
+      const requestRes =
+        await pool.query(
+          `
+          SELECT id
+          FROM transport_requests
+          WHERE id = $1
+          AND status = 'open'
+          LIMIT 1
+          `,
+          [request_id]
+        );
+
+      if (
+        requestRes.rows.length === 0
+      ) {
+        return res.status(404).json({
+          error:
+            'Solicitud no disponible',
+        });
+      }
 
       await pool.query(
         `
