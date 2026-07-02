@@ -3012,7 +3012,6 @@ const getRequesterTrips = async (req, res) => {
         ON tr.id = tn.request_id
       WHERE tn.requester_id = $1
       AND tn.status IN (
-        'open',
         'paid',
         'loading_completed',
         'trip_active',
