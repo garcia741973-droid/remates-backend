@@ -2971,11 +2971,14 @@ const getRequesterTrips = async (req, res) => {
       SELECT
         tn.id,
         tn.status,
-        tn.origin,
-        tn.destination,
-        tn.quantity,
+
+        tr.origin,
+        tr.destination,
+        tr.quantity,
+
         tn.destination_lat,
         tn.destination_lng,
+
         tt.plate,
 
         (
@@ -3005,6 +3008,8 @@ const getRequesterTrips = async (req, res) => {
       FROM transport_negotiations tn
       LEFT JOIN transporter_trucks tt
         ON tt.user_id = tn.transporter_id
+      LEFT JOIN transport_requests tr
+        ON tr.id = tn.request_id
       WHERE tn.requester_id = $1
         AND tn.status IN (
           'paid',
