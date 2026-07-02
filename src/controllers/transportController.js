@@ -1820,8 +1820,14 @@ const createDispatch = async (req, res) => {
       pickup_lat,
       pickup_lng,
       notes,
+      signed_by,
       event_local_time,
     } = req.body;
+
+    const localTimeFormatted =
+      new Date(
+        event_local_time || new Date()
+      ).toLocaleString('es-BO');
 
     const negotiationRes =
       await pool.query(
@@ -1880,6 +1886,7 @@ const createDispatch = async (req, res) => {
           notes,
           userId,
           event_local_time,
+          signed_by,
         ]
       );
 
@@ -1901,14 +1908,13 @@ const createDispatch = async (req, res) => {
         sender_id: 0,
         system: true,
         message:
-          `🚛 Carga despachada correctamente.
-          Lat: ${pickup_lat ?? 'No disponible'}
-          Lng: ${pickup_lng ?? 'No disponible'}
+        `🚛 Carga despachada correctamente.
 
-    📍 Punto de carga registrado.
-    🕒 Hora: ${event_local_time}
+        📍 Punto de carga registrado.
+        ✍️ Firma registrada por: ${signed_by}
+        🕒 Hora: ${localTimeFormatted}
 
-    📦 El ganadero debe tramitar y adjuntar la guía oficial para continuar.`,
+        📦 El ganadero debe tramitar y adjuntar la guía oficial para continuar.`,
         photo_url,
         signature_url,
         lat: pickup_lat,
