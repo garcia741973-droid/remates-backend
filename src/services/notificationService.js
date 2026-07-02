@@ -35,6 +35,7 @@ exports.sendPushNotification = async ({
                 SELECT DISTINCT fcm_token
                 FROM devices
                 WHERE user_id = ANY($1)
+                AND fcm_token IS NOT NULL
                 `,
                 [userIds],
             );
@@ -110,7 +111,7 @@ exports.sendPushNotification = async ({
 
                         badge: 1,
 
-                        contentAvailable: true,
+                        'content-available': 1,
                     },
                 },
             },
@@ -161,28 +162,44 @@ exports.sendPushNotification = async ({
             ),
         );
 
-        response.responses.forEach(
-            (resp, index) => {
+        for (const [index, resp] of response.responses.entries()) {
 
-                if (!resp.success) {
+            if (!resp.success) {
+
+                console.log(
+                    '🚨 FAILED TOKEN:',
+                    tokens[index]
+                );
+
+                console.log(
+                    '🚨 ERROR CODE:',
+                    resp.error?.code
+                );
+
+                console.log(
+                    '🚨 ERROR MESSAGE:',
+                    resp.error?.message
+                );
+
+                if (
+                    resp.error?.code ===
+                    'messaging/registration-token-not-registered'
+                ) {
+                    await pool.query(
+                        `
+                        DELETE FROM devices
+                        WHERE fcm_token = $1
+                        `,
+                        [tokens[index]]
+                    );
 
                     console.log(
-                        '🚨 FAILED TOKEN:',
+                        '🧹 TOKEN ELIMINADO:',
                         tokens[index]
-                    );
-
-                    console.log(
-                        '🚨 ERROR CODE:',
-                        resp.error?.code
-                    );
-
-                    console.log(
-                        '🚨 ERROR MESSAGE:',
-                        resp.error?.message
                     );
                 }
             }
-        );
+        }
 
         /// 🔥 EVENTO OPERATIVO
         await createOperationEvent({
