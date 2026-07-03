@@ -36,6 +36,7 @@ const {
   getGuideByNegotiation,
   archiveTransportNegotiation,
   getMyTripsHistory,
+  getRequesterTripsHistory,
   getTransportDashboard,
   rejectTransportRequest,
   cancelTransportRequest,
@@ -228,6 +229,12 @@ router.get(
   '/my-trips-history',
   requireAuth,
   getMyTripsHistory
+);
+
+router.get(
+  '/requester-trips-history',
+  requireAuth,
+  getRequesterTripsHistory
 );
 
 router.get(

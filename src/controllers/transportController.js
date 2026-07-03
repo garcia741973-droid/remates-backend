@@ -2979,6 +2979,62 @@ const getMyTripsHistory =
     }
   };
 
+const getRequesterTripsHistory =
+  async (req, res) => {
+    try {
+      const userId = req.user.user_id;
+
+      const result = await pool.query(
+        `
+        SELECT
+          tn.id,
+          tn.status,
+          tn.created_at,
+
+          tr.origin,
+          tr.destination,
+          tr.quantity,
+          tr.animal_type,
+
+          tt.plate,
+          tt.brand,
+          tt.model,
+
+          tvr.id AS review_id,
+          tvr.rating
+
+        FROM transport_negotiations tn
+
+        JOIN transport_requests tr
+          ON tn.request_id = tr.id
+
+        JOIN transporter_trucks tt
+          ON tn.truck_id = tt.id
+
+        LEFT JOIN transport_reviews tvr
+          ON tvr.negotiation_id = tn.id
+
+        WHERE tn.requester_id = $1
+        AND tn.status = 'delivered'
+
+        ORDER BY tn.id DESC
+        `,
+        [userId]
+      );
+
+      res.json(result.rows);
+
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        error:
+          'Error obteniendo historial del ganadero',
+      });
+    }
+  };
+
+
 const createTransportReview = async (
   req,
   res
@@ -3620,6 +3676,7 @@ module.exports = {
   getGuideByNegotiation, 
   archiveTransportNegotiation,
   getMyTripsHistory,
+  getRequesterTripsHistory,
   getTransportDashboard, 
   rejectTransportRequest, 
   cancelTransportRequest,
