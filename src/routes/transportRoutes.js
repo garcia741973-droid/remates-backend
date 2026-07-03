@@ -47,7 +47,8 @@ const {
   getSharedTripMap, 
   getRequesterTrips,  
   createPublicTracking,
-  getPublicTracking,  
+  getPublicTracking,
+  disablePublicTracking, 
 } = require('../controllers/transportController');
 
 router.get(
@@ -94,6 +95,12 @@ router.post(
 router.get(
   '/public-track/:token',
   getPublicTracking
+);
+
+router.put(
+  '/disable-public-tracking',
+  requireAuth,
+  disablePublicTracking
 );
 
 router.post(

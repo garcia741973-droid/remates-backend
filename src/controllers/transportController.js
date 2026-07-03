@@ -670,6 +670,60 @@ const getPublicTracking = async (req, res) => {
   }
 };
 
+const disablePublicTracking = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+    const { negotiation_id } = req.body;
+
+    const negotiationRes = await pool.query(
+      `
+      SELECT *
+      FROM transport_negotiations
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [negotiation_id]
+    );
+
+    if (negotiationRes.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Negociación no encontrada',
+      });
+    }
+
+    const negotiation = negotiationRes.rows[0];
+
+    if (
+      negotiation.requester_id !== userId &&
+      negotiation.transporter_id !== userId
+    ) {
+      return res.status(403).json({
+        error: 'No autorizado',
+      });
+    }
+
+    await pool.query(
+      `
+      UPDATE transport_public_tracking
+      SET active = false
+      WHERE negotiation_id = $1
+      `,
+      [negotiation_id]
+    );
+
+    res.json({
+      success: true,
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: 'Error desactivando tracking',
+    });
+  }
+};
+
 const createTransportRequest = async (req, res) => {
   try {
     const userId = req.user.user_id;
@@ -2870,18 +2924,15 @@ const getMyTripsHistory =
           LEFT JOIN transport_guides tg
             ON tg.negotiation_id = tn.id
 
-          WHERE
-          (
+            WHERE
             (
               tn.transporter_id = $1
-              AND tn.hidden_by_transporter = true
+              OR tn.requester_id = $1
             )
-            OR
-            (
-              tn.requester_id = $1
-              AND tn.hidden_by_requester = true
+            AND tn.status IN (
+              'delivered',
+              'cancelled'
             )
-          )
 
           ORDER BY tn.id, tg.created_at DESC
           `,
@@ -3420,6 +3471,7 @@ module.exports = {
   getSharedGuide,
   createPublicTracking,
   getPublicTracking,  
+  disablePublicTracking,
   createTransportRequest,
   getTransportNegotiationDetails,
   getTransportRoutePoints,
