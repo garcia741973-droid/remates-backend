@@ -1529,6 +1529,7 @@ const sendTransportMessage = async (req, res) => {
     .add({
         sender_id: senderId,
         message,
+        photo_url: photo_url || null,
         created_at:
         admin.firestore.FieldValue.serverTimestamp(),
     });
