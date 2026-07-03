@@ -20,7 +20,9 @@ const analyzePaymentProof =
               content: `
 Analiza este comprobante bancario boliviano.
 
-Debes extraer:
+Debes determinar si parece auténtico o presenta señales de fraude.
+
+Extrae:
 
 - monto_detectado
 - banco
@@ -28,8 +30,19 @@ Debes extraer:
 - nombre_emisor
 - fecha
 - hora
+- cuenta_destino
+- titular_destino
 
-Compara contra monto esperado.
+Valida:
+
+1. Si el comprobante está completo o parece recortado.
+2. Si hay signos de edición o manipulación digital.
+3. Si la información visible es suficiente para validar.
+4. Si el monto coincide o supera el monto esperado.
+5. Si el comprobante parece reciente y coherente.
+6. Si se observa claramente la cuenta destino.
+
+Si faltan datos importantes, baja la confianza.
 
 Responde SOLO JSON:
 
@@ -40,7 +53,11 @@ Responde SOLO JSON:
   "nombre_emisor": string,
   "fecha": "YYYY-MM-DD",
   "hora": "HH:mm",
-  "pago_valido": true/false,
+  "cuenta_destino": string,
+  "titular_destino": string,
+  "pago_valido": true,
+  "comprobante_completo": true,
+  "posible_manipulacion": false,
   "confianza": number,
   "notas": string
 }
