@@ -1467,17 +1467,32 @@ const sendTransportMessage = async (req, res) => {
     } = req.body;
 
     const forbiddenPatterns = [
-      /\d{7,}/,
+      /(?:\d[\s\-\.]?){7,}/,   // números con espacios, guiones o puntos
+      /\+?\d{7,}/,            // números directos con o sin +
+      /\+591/,                // Bolivia
       /whatsapp/i,
+      /wsp/i,
+      /wsap/i,
       /llámame/i,
       /llamame/i,
+      /escribime/i,
+      /escríbeme/i,
       /telegram/i,
-      /@/,
       /facebook/i,
       /instagram/i,
+      /messenger/i,
+      /contactame/i,
+      /contáctame/i,
+      /mi numero/i,
+      /mi número/i,
+      /mi celular/i,
+      /mi teléfono/i,
+      /mi telefono/i,
       /wa\.me/i,
       /t\.me/i,
-      /\+591/,
+      /https?:\/\//i,
+      /www\./i,
+      /@/,
     ];
 
     const blocked =
