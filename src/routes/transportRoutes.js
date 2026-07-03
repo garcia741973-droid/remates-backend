@@ -10,7 +10,8 @@ const {
   updateMyTruck,
   createTripCashbox,
   addTripCashboxItem,
-  getTripCashbox,  
+  getTripCashbox,
+  closeTripCashbox,  
   createGuide,
   getMyGuides,
   getSharedGuide,
@@ -90,6 +91,12 @@ router.get(
   '/trip-cashbox/:negotiation_id',
   requireAuth,
   getTripCashbox
+);
+
+router.put(
+  '/close-trip-cashbox',
+  requireAuth,
+  closeTripCashbox
 );
 
 router.post(

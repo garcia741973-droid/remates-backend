@@ -498,6 +498,37 @@ const getTripCashbox =
     }
   };  
 
+const closeTripCashbox =
+  async (req, res) => {
+    try {
+      const { cashbox_id } =
+        req.body;
+
+      const result =
+        await pool.query(
+          `
+          UPDATE transport_trip_cashboxes
+          SET
+            is_closed = true,
+            closed_at = NOW()
+          WHERE id = $1
+          RETURNING *
+          `,
+          [cashbox_id]
+        );
+
+      res.json(result.rows[0]);
+
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        error:
+          'Error cerrando caja',
+      });
+    }
+  };
+
 const createGuide = async (req, res) => {
   try {
     const userId = req.user.user_id;
@@ -3900,6 +3931,7 @@ module.exports = {
   createTripCashbox,
   addTripCashboxItem,
   getTripCashbox,
+  closeTripCashbox,
   createGuide,
   getMyGuides,
   getSharedGuide,
