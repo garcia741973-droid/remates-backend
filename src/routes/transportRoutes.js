@@ -9,6 +9,8 @@ const {
   toggleTruckAvailability,
   updateMyTruck,
   createTripCashbox,
+  addTripCashboxItem,
+  getTripCashbox,  
   createGuide,
   getMyGuides,
   getSharedGuide,
@@ -76,6 +78,18 @@ router.post(
   '/create-trip-cashbox',
   requireAuth,
   createTripCashbox
+);
+
+router.post(
+  '/trip-cashbox-item',
+  requireAuth,
+  addTripCashboxItem
+);
+
+router.get(
+  '/trip-cashbox/:negotiation_id',
+  requireAuth,
+  getTripCashbox
 );
 
 router.post(

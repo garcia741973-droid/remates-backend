@@ -335,6 +335,168 @@ const createTripCashbox = async (
   }
 };
 
+const addTripCashboxItem =
+  async (req, res) => {
+    try {
+      const {
+        cashbox_id,
+        type,
+        category,
+        amount,
+        notes,
+      } = req.body;
+
+      const cashbox =
+        await pool.query(
+          `
+          SELECT *
+          FROM transport_trip_cashboxes
+          WHERE id = $1
+          LIMIT 1
+          `,
+          [cashbox_id]
+        );
+
+      if (
+        cashbox.rows.length === 0
+      ) {
+        return res.status(404).json({
+          error:
+            'Caja no encontrada',
+        });
+      }
+
+      if (
+        cashbox.rows[0].is_closed
+      ) {
+        return res.status(400).json({
+          error:
+            'Caja cerrada',
+        });
+      }
+
+      const result =
+        await pool.query(
+          `
+          INSERT INTO transport_trip_cashbox_items (
+            cashbox_id,
+            type,
+            category,
+            amount,
+            notes
+          )
+          VALUES ($1,$2,$3,$4,$5)
+          RETURNING *
+          `,
+          [
+            cashbox_id,
+            type,
+            category,
+            amount,
+            notes || null,
+          ]
+        );
+
+      res.json(result.rows[0]);
+
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        error:
+          'Error agregando movimiento',
+      });
+    }
+  };
+
+const getTripCashbox =
+  async (req, res) => {
+    try {
+      const { negotiation_id } =
+        req.params;
+
+      const cashbox =
+        await pool.query(
+          `
+          SELECT *
+          FROM transport_trip_cashboxes
+          WHERE negotiation_id = $1
+          LIMIT 1
+          `,
+          [negotiation_id]
+        );
+
+      if (
+        cashbox.rows.length === 0
+      ) {
+        return res.json(null);
+      }
+
+      const items =
+        await pool.query(
+          `
+          SELECT *
+          FROM transport_trip_cashbox_items
+          WHERE cashbox_id = $1
+          ORDER BY created_at DESC
+          `,
+          [cashbox.rows[0].id]
+        );
+
+      const totals =
+        await pool.query(
+          `
+          SELECT
+            COALESCE(SUM(
+              CASE
+                WHEN type='income'
+                THEN amount
+              END
+            ),0) AS total_income,
+
+            COALESCE(SUM(
+              CASE
+                WHEN type='expense'
+                THEN amount
+              END
+            ),0) AS total_expenses
+          FROM transport_trip_cashbox_items
+          WHERE cashbox_id = $1
+          `,
+          [cashbox.rows[0].id]
+        );
+
+      res.json({
+        cashbox:
+          cashbox.rows[0],
+        items:
+          items.rows,
+        total_income:
+          totals.rows[0]
+              .total_income,
+        total_expenses:
+          totals.rows[0]
+              .total_expenses,
+        result:
+          Number(
+            totals.rows[0]
+                .total_income,
+          ) -
+          Number(
+            totals.rows[0]
+                .total_expenses,
+          ),
+      });
+
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        error:
+          'Error obteniendo caja',
+      });
+    }
+  };  
 
 const createGuide = async (req, res) => {
   try {
@@ -3736,6 +3898,8 @@ module.exports = {
   toggleTruckAvailability,
   updateMyTruck,
   createTripCashbox,
+  addTripCashboxItem,
+  getTripCashbox,
   createGuide,
   getMyGuides,
   getSharedGuide,
