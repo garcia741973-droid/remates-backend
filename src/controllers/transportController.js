@@ -2417,6 +2417,15 @@ const createDeliveryReport =
         [negotiation_id]
       );
 
+      await pool.query(
+        `
+        UPDATE transport_public_tracking
+        SET active = false
+        WHERE negotiation_id = $1
+        `,
+        [negotiation_id]
+      );      
+
     await admin
       .firestore()
       .collection('transport_negotiations')
