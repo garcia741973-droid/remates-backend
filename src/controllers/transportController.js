@@ -498,6 +498,104 @@ const getTripCashbox =
     }
   };  
 
+const getMyTripCashboxes =
+  async (req, res) => {
+    try {
+      const userId = req.user.user_id;
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+            tc.*,
+            tr.origin,
+            tr.destination,
+
+            COALESCE((
+              SELECT SUM(amount)
+              FROM transport_trip_cashbox_items
+              WHERE cashbox_id = tc.id
+              AND type = 'income'
+            ),0) AS total_income,
+
+            COALESCE((
+              SELECT SUM(amount)
+              FROM transport_trip_cashbox_items
+              WHERE cashbox_id = tc.id
+              AND type = 'expense'
+            ),0) AS total_expenses
+
+          FROM transport_trip_cashboxes tc
+          JOIN transport_negotiations tn
+            ON tn.id = tc.negotiation_id
+          JOIN transport_requests tr
+            ON tr.id = tn.request_id
+
+          WHERE tc.transporter_id = $1
+          ORDER BY tc.id DESC
+          `,
+          [userId]
+        );
+
+      res.json(result.rows);
+
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        error:
+          'Error obteniendo cajas',
+      });
+    }
+  };
+
+const getMyTruckReviews =
+  async (req, res) => {
+    try {
+      const userId = req.user.user_id;
+
+      const result =
+        await pool.query(
+          `
+          SELECT *
+          FROM transport_reviews
+          WHERE transporter_id = $1
+          ORDER BY id DESC
+          `,
+          [userId]
+        );
+
+      const avg =
+        await pool.query(
+          `
+          SELECT
+            COALESCE(
+              ROUND(AVG(rating),1),
+              0
+            ) AS avg_rating
+          FROM transport_reviews
+          WHERE transporter_id = $1
+          `,
+          [userId]
+        );
+
+      res.json({
+        avg_rating:
+          avg.rows[0].avg_rating,
+        reviews:
+          result.rows,
+      });
+
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        error:
+          'Error obteniendo calificaciones',
+      });
+    }
+  };  
+
 const closeTripCashbox =
   async (req, res) => {
     try {
@@ -3931,6 +4029,8 @@ module.exports = {
   createTripCashbox,
   addTripCashboxItem,
   getTripCashbox,
+  getMyTripCashboxes,
+  getMyTruckReviews,  
   closeTripCashbox,
   createGuide,
   getMyGuides,

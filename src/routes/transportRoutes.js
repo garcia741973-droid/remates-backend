@@ -11,6 +11,8 @@ const {
   createTripCashbox,
   addTripCashboxItem,
   getTripCashbox,
+  getMyTripCashboxes,
+  getMyTruckReviews,  
   closeTripCashbox,  
   createGuide,
   getMyGuides,
@@ -91,6 +93,18 @@ router.get(
   '/trip-cashbox/:negotiation_id',
   requireAuth,
   getTripCashbox
+);
+
+router.get(
+  '/my-trip-cashboxes',
+  requireAuth,
+  getMyTripCashboxes
+);
+
+router.get(
+  '/my-truck-reviews',
+  requireAuth,
+  getMyTruckReviews
 );
 
 router.put(
