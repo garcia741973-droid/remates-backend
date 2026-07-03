@@ -2920,7 +2920,9 @@ const getMyTripsHistory =
             tt.brand,
             tt.model,
 
-            tg.id AS guide_id
+            tg.id AS guide_id,
+            tvr.id AS review_id,
+            tvr.rating
 
           FROM transport_negotiations tn
 
@@ -2932,6 +2934,9 @@ const getMyTripsHistory =
 
           LEFT JOIN transport_guides tg
             ON tg.negotiation_id = tn.id
+
+          LEFT JOIN transport_reviews tvr
+            ON tvr.negotiation_id = tn.id
 
             WHERE
             (
@@ -2961,6 +2966,104 @@ const getMyTripsHistory =
       });
     }
   };
+
+const createTransportReview = async (
+  req,
+  res
+) => {
+  try {
+    const userId = req.user.user_id;
+
+    const {
+      negotiation_id,
+      rating,
+      comment,
+    } = req.body;
+
+    const negotiationRes =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_negotiations
+        WHERE id = $1
+        AND status = 'delivered'
+        LIMIT 1
+        `,
+        [negotiation_id]
+      );
+
+    if (
+      negotiationRes.rows.length === 0
+    ) {
+      return res.status(404).json({
+        error:
+          'Viaje no válido',
+      });
+    }
+
+    const negotiation =
+      negotiationRes.rows[0];
+
+    if (
+      negotiation.requester_id !== userId
+    ) {
+      return res.status(403).json({
+        error:
+          'Solo el ganadero puede calificar',
+      });
+    }
+
+    const existing =
+      await pool.query(
+        `
+        SELECT id
+        FROM transport_reviews
+        WHERE negotiation_id = $1
+        LIMIT 1
+        `,
+        [negotiation_id]
+      );
+
+    if (existing.rows.length > 0) {
+      return res.status(400).json({
+        error:
+          'Este viaje ya fue calificado',
+      });
+    }
+
+    const result =
+      await pool.query(
+        `
+        INSERT INTO transport_reviews (
+          negotiation_id,
+          requester_id,
+          transporter_id,
+          rating,
+          comment
+        )
+        VALUES ($1,$2,$3,$4,$5)
+        RETURNING *
+        `,
+        [
+          negotiation_id,
+          negotiation.requester_id,
+          negotiation.transporter_id,
+          rating,
+          comment || null,
+        ]
+      );
+
+    res.json(result.rows[0]);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error creando calificación',
+    });
+  }
+};
 
 const getTransportDashboard =
   async (req, res) => {
@@ -3516,4 +3619,5 @@ module.exports = {
   getSharedTripMap,
   getRequesterTrips,
   prepareTrip,
+  createTransportReview,
 };

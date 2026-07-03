@@ -49,6 +49,7 @@ const {
   createPublicTracking,
   getPublicTracking,
   disablePublicTracking, 
+  createTransportReview,
 } = require('../controllers/transportController');
 
 router.get(
@@ -311,6 +312,12 @@ router.get(
   '/requester-trips',
   requireAuth,
   getRequesterTrips
+);
+
+router.post(
+  '/create-review',
+  requireAuth,
+  createTransportReview
 );
 
 module.exports = router;
