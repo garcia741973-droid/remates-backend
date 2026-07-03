@@ -247,6 +247,95 @@ const updateMyTruck = async (req, res) => {
   }
 };
 
+const createTripCashbox = async (
+  req,
+  res
+) => {
+  try {
+    const transporterId =
+      req.user.user_id;
+
+    const {
+      negotiation_id,
+      trip_total,
+      advance_received,
+    } = req.body;
+
+    const existing =
+      await pool.query(
+        `
+        SELECT id
+        FROM transport_trip_cashboxes
+        WHERE negotiation_id = $1
+        LIMIT 1
+        `,
+        [negotiation_id]
+      );
+
+    if (existing.rows.length > 0) {
+      return res.status(400).json({
+        error:
+          'La caja ya existe',
+      });
+    }
+
+    const cashbox =
+      await pool.query(
+        `
+        INSERT INTO transport_trip_cashboxes (
+          negotiation_id,
+          transporter_id,
+          trip_total,
+          advance_received
+        )
+        VALUES ($1,$2,$3,$4)
+        RETURNING *
+        `,
+        [
+          negotiation_id,
+          transporterId,
+          trip_total || 0,
+          advance_received || 0,
+        ]
+      );
+
+    if (
+      Number(advance_received) > 0
+    ) {
+      await pool.query(
+        `
+        INSERT INTO transport_trip_cashbox_items (
+          cashbox_id,
+          type,
+          category,
+          amount,
+          notes
+        )
+        VALUES ($1,$2,$3,$4,$5)
+        `,
+        [
+          cashbox.rows[0].id,
+          'income',
+          'advance',
+          advance_received,
+          'Adelanto inicial',
+        ]
+      );
+    }
+
+    res.json(cashbox.rows[0]);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error creando caja',
+    });
+  }
+};
+
+
 const createGuide = async (req, res) => {
   try {
     const userId = req.user.user_id;
@@ -3646,6 +3735,7 @@ module.exports = {
   getMyTruck,
   toggleTruckAvailability,
   updateMyTruck,
+  createTripCashbox,
   createGuide,
   getMyGuides,
   getSharedGuide,

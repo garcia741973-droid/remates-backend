@@ -8,6 +8,7 @@ const {
   getMyTruck,
   toggleTruckAvailability,
   updateMyTruck,
+  createTripCashbox,
   createGuide,
   getMyGuides,
   getSharedGuide,
@@ -69,6 +70,12 @@ router.put(
   '/truck/availability',
   requireAuth,
   toggleTruckAvailability
+);
+
+router.post(
+  '/create-trip-cashbox',
+  requireAuth,
+  createTripCashbox
 );
 
 router.post(
