@@ -2008,16 +2008,59 @@ const createTransportPayment =
         aiResult
       );
 
-      let validationStatus = 'rejected';
+      /// VALIDAR REFERENCIA DUPLICADA
+      if (aiResult.referencia) {
+        const duplicate =
+          await pool.query(
+            `
+            SELECT id
+            FROM payment_validations
+            WHERE detected_reference = $1
+            LIMIT 1
+            `,
+            [aiResult.referencia]
+          );
 
-      /// SOLO SI EL MONTO COINCIDE
+        if (duplicate.rows.length > 0) {
+          return res.status(400).json({
+            error:
+              'Este comprobante ya fue usado anteriormente',
+          });
+        }
+      }
+
+      let validationStatus =
+        'rejected';
+
+      /// SOLO SI MONTO ES VÁLIDO
       if (aiResult.pago_valido) {
+        /// SI CUENTA O TITULAR FALLAN → RECHAZAR
         if (
+          aiResult.cuenta_correcta === false ||
+          aiResult.titular_correcto === false
+        ) {
+          validationStatus =
+            'rejected';
+        }
+
+        /// SI PARECE MANIPULADO → RECHAZAR
+        else if (
+          aiResult.posible_manipulacion === true
+        ) {
+          validationStatus =
+            'rejected';
+        }
+
+        /// APROBACIÓN AUTOMÁTICA
+        else if (
           aiResult.confianza >= 0.90
         ) {
           validationStatus =
             'approved';
-        } else if (
+        }
+
+        /// REVISIÓN MANUAL
+        else if (
           aiResult.confianza >= 0.70
         ) {
           validationStatus =
@@ -2226,34 +2269,76 @@ const createTransportPayment =
           });
         }
 
-        if (validationStatus === 'review') {
-          await sendUserNotification({
-            userId,
-            title: 'Pago en revisión',
-            body:
-              'El comprobante necesita revisión manual.',
-            data: {
-              type: 'payment_review',
-            },
-          });
-        }
+    if (validationStatus === 'review') {
+      /// AVISAR AL USUARIO
+      await sendUserNotification({
+        userId,
+        title: 'Pago en revisión',
+        body:
+          'El comprobante necesita revisión manual.',
+        data: {
+          type: 'payment_review',
+        },
+      });
 
-        if (validationStatus === 'rejected') {
-          await sendUserNotification({
-            userId,
-            title: 'Pago rechazado',
-            body:
-              aiResult.notas ||
-              'No se pudo validar el comprobante.',
-            data: {
-              type: 'payment_rejected',
-            },
-          });
-        }
+      /// AVISAR A SUPER ADMIN
+      const superAdmins =
+        await pool.query(
+          `
+          SELECT id
+          FROM users
+          WHERE role = 'super_admin'
+          `
+        );
 
-      res.json(
-        result.rows[0]
-      );
+      for (const adminUser of superAdmins.rows) {
+        await sendUserNotification({
+          userId: adminUser.id,
+          title:
+            'Nuevo pago para revisión',
+          body:
+            `Pago transporte #${negotiation_id} requiere revisión manual.`,
+          data: {
+            type:
+              'payment_validation_review',
+            validation_id:
+              result.rows[0].id,
+          },
+        });
+      }
+
+      return res.json({
+        success: true,
+        status: 'review',
+        message:
+          'Pago enviado a revisión manual',
+      });
+    }
+
+    if (validationStatus === 'rejected') {
+      await sendUserNotification({
+        userId,
+        title: 'Pago rechazado',
+        body:
+          aiResult.notas ||
+          'No se pudo validar el comprobante.',
+        data: {
+          type: 'payment_rejected',
+        },
+      });
+
+      return res.status(400).json({
+        success: false,
+        status: 'rejected',
+        message:
+          aiResult.notas ||
+          'Pago rechazado',
+      });
+    }
+
+    return res.json(
+      result.rows[0]
+    );
 
     } catch (error) {
       console.error(error);

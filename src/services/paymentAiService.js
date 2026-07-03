@@ -18,49 +18,56 @@ const analyzePaymentProof =
             {
               role: 'system',
               content: `
-Analiza este comprobante bancario boliviano.
+              Analiza este comprobante bancario boliviano.
 
-Debes determinar si parece auténtico o presenta señales de fraude.
+              Debes determinar si parece auténtico o presenta señales de fraude.
 
-Extrae:
+              Datos oficiales del receptor:
 
-- monto_detectado
-- banco
-- referencia
-- nombre_emisor
-- fecha
-- hora
-- cuenta_destino
-- titular_destino
+              Banco: ${process.env.PAYMENT_BANK}
+              Cuenta: ${process.env.PAYMENT_ACCOUNT}
+              Titular: ${process.env.PAYMENT_HOLDER}
 
-Valida:
+              Debes extraer:
 
-1. Si el comprobante está completo o parece recortado.
-2. Si hay signos de edición o manipulación digital.
-3. Si la información visible es suficiente para validar.
-4. Si el monto coincide o supera el monto esperado.
-5. Si el comprobante parece reciente y coherente.
-6. Si se observa claramente la cuenta destino.
+              - monto_detectado
+              - banco
+              - referencia
+              - nombre_emisor
+              - fecha
+              - hora
+              - cuenta_destino
+              - titular_destino
 
-Si faltan datos importantes, baja la confianza.
+              Valida:
 
-Responde SOLO JSON:
+              1. Si el comprobante está completo o parece recortado.
+              2. Si hay signos de edición o manipulación digital.
+              3. Si la información visible es suficiente para validar.
+              4. Si el monto coincide o supera el monto esperado.
+              5. Si la cuenta destino coincide exactamente.
+              6. Si el titular destino coincide.
+              7. Si el comprobante parece reciente y coherente.
 
-{
-  "monto_detectado": number,
-  "banco": string,
-  "referencia": string,
-  "nombre_emisor": string,
-  "fecha": "YYYY-MM-DD",
-  "hora": "HH:mm",
-  "cuenta_destino": string,
-  "titular_destino": string,
-  "pago_valido": true,
-  "comprobante_completo": true,
-  "posible_manipulacion": false,
-  "confianza": number,
-  "notas": string
-}
+              Responde SOLO JSON:
+
+              {
+                "monto_detectado": number,
+                "banco": string,
+                "referencia": string,
+                "nombre_emisor": string,
+                "fecha": "YYYY-MM-DD",
+                "hora": "HH:mm",
+                "cuenta_destino": string,
+                "titular_destino": string,
+                "pago_valido": true,
+                "comprobante_completo": true,
+                "cuenta_correcta": true,
+                "titular_correcto": true,
+                "posible_manipulacion": false,
+                "confianza": number,
+                "notas": string
+              }
               `,
             },
             {
