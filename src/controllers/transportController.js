@@ -1370,11 +1370,23 @@ const getRequestNegotiations = async (req, res) => {
     const result =
       await pool.query(
         `
-        SELECT
-          tn.*,
-          tt.plate,
-          tt.brand,
-          tt.model
+      SELECT
+        tn.*,
+        tt.plate,
+        tt.brand,
+        tt.model,
+
+        COALESCE((
+          SELECT ROUND(AVG(rating), 1)
+          FROM transport_reviews
+          WHERE transporter_id = tn.transporter_id
+        ), 0) AS avg_rating,
+
+        (
+          SELECT COUNT(*)
+          FROM transport_reviews
+          WHERE transporter_id = tn.transporter_id
+        ) AS total_reviews
         FROM transport_negotiations tn
         JOIN transporter_trucks tt
           ON tn.truck_id = tt.id
