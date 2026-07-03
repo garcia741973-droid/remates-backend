@@ -1463,6 +1463,7 @@ const sendTransportMessage = async (req, res) => {
     const {
       negotiation_id,
       message,
+      photo_url,
     } = req.body;
 
     const forbiddenPatterns = [
@@ -1499,15 +1500,17 @@ const sendTransportMessage = async (req, res) => {
         INSERT INTO transport_negotiation_messages (
           negotiation_id,
           sender_id,
-          message
+          message,
+          photo_url
         )
-        VALUES ($1,$2,$3)
+        VALUES ($1,$2,$3,$4)
         RETURNING *
         `,
         [
           negotiation_id,
           senderId,
           message,
+          photo_url || null,
         ]
       );
 
