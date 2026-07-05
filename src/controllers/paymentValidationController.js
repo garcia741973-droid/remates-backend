@@ -1,5 +1,12 @@
 const { pool } = require('../config/db');
 
+const admin =
+  require('../config/firebase');
+
+const {
+  sendUserNotification,
+} = require('../services/notificationService');
+
 const {
   analyzePaymentProof,
 } = require('../services/paymentAiService');
@@ -63,6 +70,13 @@ const approvePaymentValidation =
       const payment =
         paymentRes.rows[0];
 
+      if (payment.status === 'approved') {
+        return res.status(400).json({
+          error:
+            'Esta validación ya fue aprobada',
+        });
+      }
+
       await pool.query(
         `
         UPDATE payment_validations
@@ -77,6 +91,71 @@ const approvePaymentValidation =
         payment.module ===
         'transport'
       ) {
+        const negotiationRes =
+          await pool.query(
+            `
+            SELECT *
+            FROM transport_negotiations
+            WHERE id = $1
+            LIMIT 1
+            `,
+            [payment.reference_id]
+          );
+
+          if (negotiationRes.rows.length === 0) {
+            return res.status(404).json({
+              error:
+                'Negociación no encontrada',
+            });
+          }
+
+        const negotiation =
+          negotiationRes.rows[0];
+
+        const existingPayment =
+          await pool.query(
+            `
+            SELECT id
+            FROM transport_payments
+            WHERE negotiation_id = $1
+            LIMIT 1
+            `,
+            [payment.reference_id]
+          );
+
+        if (existingPayment.rows.length > 0) {
+          return res.status(400).json({
+            error:
+              'Este pago ya fue aprobado anteriormente',
+          });
+        }
+
+        /// CREAR PAGO REAL
+        await pool.query(
+          `
+          INSERT INTO transport_payments (
+            negotiation_id,
+            payer_user_id,
+            amount,
+            proof_image_url,
+            ai_verified,
+            ai_notes,
+            status
+          )
+          VALUES ($1,$2,$3,$4,$5,$6,$7)
+          `,
+          [
+            payment.reference_id,
+            payment.payer_user_id,
+            payment.expected_amount,
+            payment.proof_image_url,
+            true,
+            payment.ai_notes,
+            'approved',
+          ]
+        );
+
+        /// NEGOCIACIÓN PAGADA
         await pool.query(
           `
           UPDATE transport_negotiations
@@ -85,6 +164,150 @@ const approvePaymentValidation =
           `,
           [payment.reference_id]
         );
+
+        /// REQUEST PAGADO
+        await pool.query(
+          `
+          UPDATE transport_requests
+          SET status = 'paid'
+          WHERE id = $1
+          `,
+          [negotiation.request_id]
+        );
+
+        /// CAJA
+        await pool.query(
+          `
+          INSERT INTO cash_movements (
+            type,
+            category,
+            amount,
+            description,
+            reference_type,
+            reference_id,
+            proof_url,
+            created_by,
+            company_id
+          )
+          VALUES (
+            'income',
+            'Transporte',
+            $1,
+            $2,
+            $3,
+            $4,
+            $5,
+            $6,
+            $7
+          )
+          `,
+          [
+            payment.expected_amount,
+            `Pago transporte negociación #${payment.reference_id}`,
+            'transport_payment',
+            payment.reference_id,
+            payment.proof_image_url,
+            payment.payer_user_id,
+            1,
+          ]
+        );
+
+        /// OBTENER CONTACTOS
+        const usersRes =
+          await pool.query(
+            `
+            SELECT
+              r.name AS requester_name,
+              r.phone AS requester_phone,
+              t.name AS transporter_name,
+              t.phone AS transporter_phone
+            FROM transport_negotiations tn
+            JOIN users r
+              ON tn.requester_id = r.id
+            JOIN users t
+              ON tn.transporter_id = t.id
+            WHERE tn.id = $1
+            LIMIT 1
+            `,
+            [payment.reference_id]
+          );
+
+        const users =
+          usersRes.rows[0];
+
+        /// MENSAJE FIRESTORE
+        await admin
+          .firestore()
+          .collection(
+            'transport_negotiations'
+          )
+          .doc(
+            payment.reference_id.toString()
+          )
+          .collection('messages')
+          .add({
+            sender_id: 0,
+            system: true,
+            message:
+              `✅ Pago aprobado manualmente.
+
+        Pago aprobado correctamente.
+
+        Contactos liberados:
+
+        👨‍🌾 Ganadero:
+        ${users.requester_name}
+        ${users.requester_phone}
+
+        🚛 Transportista:
+        ${users.transporter_name}
+        ${users.transporter_phone}
+
+        📦 Ahora ve a MIS VIAJES para continuar:
+
+        • Crear despacho
+        • Confirmar carga
+        • Iniciar viaje
+        • Reportar avance
+        • Marcar entrega final
+
+        💬 Este chat seguirá disponible hasta la entrega.`,
+            created_at:
+              admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+        /// PUSH CAMIONERO
+        await sendUserNotification({
+          userId:
+            negotiation.transporter_id,
+          title:
+            'Pago aprobado',
+          body:
+            'El pago fue aprobado manualmente.',
+          data: {
+            type:
+              'transport_paid',
+            negotiation_id:
+              payment.reference_id,
+          },
+        });
+
+        /// PUSH GANADERO
+        await sendUserNotification({
+          userId:
+            negotiation.requester_id,
+          title:
+            'Pago aprobado',
+          body:
+            'Tu pago fue aprobado manualmente.',
+          data: {
+            type:
+              'transport_paid',
+            negotiation_id:
+              payment.reference_id,
+          },
+        });
+
       }
 
       res.json({
