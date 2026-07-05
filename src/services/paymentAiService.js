@@ -18,7 +18,16 @@ const analyzePaymentProof =
             {
               role: 'system',
               content: `
-              Analiza este comprobante bancario boliviano.
+              Analiza este comprobante de pago boliviano.
+
+              Puede ser:
+              - transferencia bancaria
+              - QR bancario
+              - Yape
+              - Tigo Money
+              - comprobante móvil oficial
+
+              Debes validar autenticidad y coincidencia del receptor.
 
               Debes determinar si parece auténtico o presenta señales de fraude.
 
