@@ -1,7 +1,7 @@
 const { pool } = require('../config/db');
 
 const admin =
-  require('../config/firebase');
+  require('firebase-admin');
 
 const {
   sendUserNotification,
