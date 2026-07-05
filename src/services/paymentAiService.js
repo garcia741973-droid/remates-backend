@@ -49,7 +49,23 @@ const analyzePaymentProof =
               - Si el titular visible coincide total o parcialmente con el titular oficial, marca:
                 titular_correcto = true
 
-              - Si banco, cuenta y titular parecen coherentes entre sí, puedes considerar el comprobante válido aunque algunos datos estén parcialmente ocultos.
+              - Nunca consideres válido un comprobante solo porque banco, cuenta y titular "parecen coherentes".
+
+              - Deben compararse contra los datos oficiales del receptor.
+
+              - Si el banco destino visible NO coincide con el banco oficial:
+                pago_valido = false
+
+              - Si la cuenta visible contradice claramente la cuenta oficial:
+                cuenta_correcta = false
+                pago_valido = false
+
+              - Si el titular visible contradice claramente al titular oficial:
+                titular_correcto = false
+                pago_valido = false
+
+              - Si banco, cuenta o titular pertenecen claramente a otra persona o entidad:
+                rechazo inmediato.
 
               - Solo marca cuenta_correcta = false cuando los números visibles contradigan claramente la cuenta oficial.
 
