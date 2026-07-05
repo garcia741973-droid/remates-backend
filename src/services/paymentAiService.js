@@ -10,9 +10,25 @@ const analyzePaymentProof =
     proofImageUrl,
     expectedAmount,
   }) => {
-    try {
-      const response =
-        await openai.chat.completions.create({
+        try {
+
+          console.log(
+            '🏦 PAYMENT_BANK 👉',
+            process.env.PAYMENT_BANK
+          );
+
+          console.log(
+            '💳 PAYMENT_ACCOUNT 👉',
+            process.env.PAYMENT_ACCOUNT
+          );
+
+          console.log(
+            '👤 PAYMENT_HOLDER 👉',
+            process.env.PAYMENT_HOLDER
+          );
+
+          const response =
+            await openai.chat.completions.create({
           model: 'gpt-4.1-mini',
           messages: [
             {
