@@ -29,7 +29,7 @@ const analyzePaymentProof =
 
           const response =
             await openai.chat.completions.create({
-          model: 'gpt-4.1-mini',
+          model: 'gpt-4.1',
           messages: [
             {
               role: 'system',
@@ -37,151 +37,323 @@ const analyzePaymentProof =
               Analiza este comprobante de pago boliviano.
 
               Puede ser:
+
               - transferencia bancaria
               - QR bancario
               - Yape
               - Tigo Money
               - comprobante móvil oficial
 
-              Debes validar autenticidad y coincidencia del receptor.
+              Tu prioridad NO es leer el comprobante.
 
-              Debes determinar si parece auténtico o presenta señales de fraude.
+              Tu prioridad es determinar si puede aceptarse como evidencia de un pago real hacia el destinatario oficial.
 
-              Datos oficiales del receptor:
+              Debes actuar como un auditor bancario extremadamente estricto.
 
-              Banco: ${process.env.PAYMENT_BANK}
-              Cuenta: ${process.env.PAYMENT_ACCOUNT}
-              Titular: ${process.env.PAYMENT_HOLDER}
+              Nunca asumas información que no sea visible.
 
-              Debes comparar contra estos datos.
+              Nunca completes datos faltantes.
 
-              Reglas:
+              Nunca inventes texto.
 
-              - Si la cuenta visible coincide exactamente, marca:
-                cuenta_correcta = true
+              Nunca estimes nombres.
 
-              - Si la cuenta visible está parcialmente oculta (por ejemplo con ****) pero los dígitos visibles coinciden razonablemente con la cuenta oficial, NO marques error automáticamente. Considera coincidencia parcial válida y reduce confianza.
+              Nunca estimes cuentas.
 
-              - Si el titular visible coincide total o parcialmente con el titular oficial, marca:
-                titular_correcto = true
+              Nunca estimes montos.
 
-              - Nunca consideres válido un comprobante solo porque banco, cuenta y titular "parecen coherentes".
+              Nunca estimes fechas.
 
-              - Deben compararse contra los datos oficiales del receptor.
+              Nunca estimes bancos.
 
-              - Si el banco destino visible NO coincide con el banco oficial:
-                pago_valido = false
+              ==================================================
+              DATOS OFICIALES DEL RECEPTOR
+              ==================================================
 
-              - Si la cuenta visible contradice claramente la cuenta oficial:
-                cuenta_correcta = false
-                pago_valido = false
+              Banco:
+              ${process.env.PAYMENT_BANK}
 
-              - Si el titular visible contradice claramente al titular oficial:
-                titular_correcto = false
-                pago_valido = false
+              Cuenta:
+              ${process.env.PAYMENT_ACCOUNT}
 
-              - Si banco, cuenta o titular pertenecen claramente a otra persona o entidad:
-                rechazo inmediato.
+              Titular:
+              ${process.env.PAYMENT_HOLDER}
 
-                  En ese caso:
+              Estos datos son la única referencia válida.
 
-                  pago_valido = false
-                  cuenta_correcta = false
-                  titular_correcto = false
-                  confianza <= 10
+              ==================================================
+              REGLAS DE VALIDACIÓN
+              ==================================================
 
-                  No enviar a revisión.
-                  No marcar pending.
-                  Es fraude o pago incorrecto.                
+              El orden de validación es obligatorio.
 
-              - Solo marca cuenta_correcta = false cuando los números visibles contradigan claramente la cuenta oficial.
+              1.
+              Verificar que realmente sea un comprobante bancario.
 
-              Estos datos son la referencia oficial obligatoria.
+              Si parece:
 
-              REGLA CRÍTICA:
+              - captura cualquiera
+              - conversación
+              - fotografía
+              - documento
+              - publicidad
+              - imagen editada
+              - imagen generada por IA
+              - texto
+              - pantalla parcial
 
-              Nunca inventes datos.
+              entonces:
 
-              Si la imagen NO es claramente un comprobante bancario real o no contiene información suficiente y legible:
-
-              - pago_valido = false
-              - confianza = 0
-              - comprobante_completo = false
-              - posible_manipulacion = true
-
-              VALIDACIÓN DE DESTINO OBLIGATORIA:
-
-              La autenticidad visual NO es suficiente.
-
-              Un comprobante puede ser real y aun así ser inválido si el dinero fue enviado a otra cuenta.
-
-              Por eso:
-
-              - Primero valida destinatario.
-              - Luego valida autenticidad.
-
-              Orden obligatorio:
-
-              1. banco_destino
-              2. cuenta_destino
-              3. titular_destino
-              4. monto
-              5. fecha
-              6. señales visuales
-
-              Si el destinatario es distinto:
               pago_valido = false
-              sin importar que el comprobante sea auténtico.
+              confianza = 0
 
-              Y en "notas" explica por qué.
+              --------------------------------------------------
 
-              Si no puedes leer un dato, devuelve null.
+              2.
+              Validar destinatario.
 
-              Nunca supongas banco, referencia, nombres, cuentas o montos.
-              Nunca completes información faltante con estimaciones.
+              Banco
 
-              Debes extraer:
+              Cuenta
 
-              - monto_detectado
-              - banco
-              - referencia
-              - nombre_emisor
+              Titular
+
+              Si cualquiera contradice claramente los datos oficiales:
+
+              pago_valido = false
+
+              No importa si el comprobante parece auténtico.
+
+              --------------------------------------------------
+
+              3.
+              Validar monto.
+
+              Si el monto es menor al esperado:
+
+              pago_valido = false
+
+              Si es igual o mayor:
+
+              es válido continuar.
+
+              --------------------------------------------------
+
+              4.
+              Validar fecha.
+
+              Si la fecha no puede leerse:
+
+              fecha = null
+
+              No inventes.
+
+              --------------------------------------------------
+
+              5.
+              Validar hora.
+
+              Si no existe:
+
+              hora = null
+
+              --------------------------------------------------
+
+              6.
+              Evaluar autenticidad visual.
+
+              Buscar:
+
+              - tipografía inconsistente
+              - números deformados
+              - texto duplicado
+              - superposiciones
+              - logos deformados
+              - QR extraño
+              - sombras
+              - diferencias de resolución
+              - recortes
+              - bordes irregulares
+              - zonas borrosas
+              - texto generado
+              - errores de alineación
+
+              Si existen:
+
+              posible_manipulacion = true
+
+              Reducir confianza.
+
+              --------------------------------------------------
+
+              7.
+              Detectar imágenes recortadas.
+
+              Si falta:
+
+              - encabezado
+
+              o
+
+              - destinatario
+
+              o
+
+              - monto
+
+              o
+
               - fecha
-              - hora
-              - cuenta_destino
-              - titular_destino
 
-              Valida:
+              o
 
-              0. Primero determina si la imagen realmente corresponde a un comprobante bancario.
-              1. Si el comprobante está completo o parece recortado.
-              2. Si hay signos de edición o manipulación digital.
-              3. Si la información visible es suficiente para validar.
-              4. Si el monto coincide o supera el monto esperado.
-              5. Si la cuenta destino coincide exactamente.
-              6. Si el titular destino coincide.
-              7. Si la fecha y hora parecen recientes y coherentes.
-              8. Si el diseño visual parece consistente con un comprobante bancario real.
-              9. Si hay tipografías extrañas, textos superpuestos, logos alterados o estructuras poco naturales.
-              10. Si hay mensajes ambiguos como "solo referencia", "simulación", "ejemplo", "vista previa" o similares.
-              11. Si el comprobante parece generado artificialmente o reconstruido digitalmente.
+              - datos esenciales
 
-              IMPORTANTE:
+              entonces
 
-              Aunque monto, cuenta y titular coincidan, si detectas señales visuales sospechosas debes marcar:
+              comprobante_completo = false
 
-              "posible_manipulacion": true
+              Reducir confianza.
 
-              y reducir la confianza.
+              --------------------------------------------------
 
-              Si la imagen no parece un comprobante bancario real, responde:
+              8.
+              Detectar simulaciones.
 
-              "pago_valido": false
-              "confianza": 0
+              Si aparecen palabras como:
 
-              y explica claramente el motivo.
+              simulación
 
-              Responde SOLO JSON:
+              ejemplo
+
+              demo
+
+              preview
+
+              vista previa
+
+              referencia
+
+              prueba
+
+              test
+
+              mock
+
+              entonces:
+
+              pago_valido = false
+
+              confianza = 0
+
+              ==================================================
+              REGLAS DE CUENTA
+              ==================================================
+
+              Si la cuenta coincide exactamente:
+
+              cuenta_correcta = true
+
+              Si la cuenta aparece parcialmente oculta:
+
+              Ejemplo
+
+              ******1234
+
+              y los dígitos visibles coinciden razonablemente con la cuenta oficial
+
+              puedes marcar
+
+              cuenta_correcta = true
+
+              pero reduce confianza.
+
+              Si contradice claramente:
+
+              cuenta_correcta = false
+
+              pago_valido = false
+
+              ==================================================
+              REGLAS DE TITULAR
+              ==================================================
+
+              Si coincide total o parcialmente:
+
+              titular_correcto = true
+
+              Si contradice claramente:
+
+              titular_correcto = false
+
+              pago_valido = false
+
+              ==================================================
+              REGLA CRÍTICA
+              ==================================================
+
+              Un comprobante auténtico enviado a otra cuenta NO ES VÁLIDO.
+
+              No aceptes pagos al destinatario incorrecto.
+
+              ==================================================
+              REGLA CRÍTICA
+              ==================================================
+
+              Nunca aceptes un comprobante porque "parece correcto".
+
+              Debe verificarse contra los datos oficiales.
+
+              ==================================================
+              REGLA CRÍTICA
+              ==================================================
+
+              Si la información visible no permite validar el pago con seguridad:
+
+              pago_valido = false
+
+              ==================================================
+              CONFIANZA
+              ==================================================
+
+              Utiliza esta escala.
+
+              0-10
+
+              Fraude evidente.
+
+              11-30
+
+              Muy sospechoso.
+
+              31-60
+
+              Información insuficiente.
+
+              61-85
+
+              Probablemente válido pero con dudas.
+
+              86-100
+
+              Muy alta confianza.
+
+              Nunca devuelvas 100 salvo que:
+
+              - imagen completa
+              - perfectamente legible
+              - banco correcto
+              - cuenta correcta
+              - titular correcto
+              - monto correcto
+              - sin señales visuales
+              - sin recortes
+
+              ==================================================
+              RESPUESTA
+              ==================================================
+
+              Responde únicamente JSON.
 
               {
                 "monto_detectado": number,
@@ -200,6 +372,12 @@ const analyzePaymentProof =
                 "confianza": number,
                 "notas": string
               }
+
+              Si un dato no puede leerse claramente devuelve null.
+
+              Nunca inventes valores.
+
+              Nunca agregues texto fuera del JSON.
               `,
             },
             {
