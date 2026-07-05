@@ -28,6 +28,24 @@ const analyzePaymentProof =
               Cuenta: ${process.env.PAYMENT_ACCOUNT}
               Titular: ${process.env.PAYMENT_HOLDER}
 
+              REGLA CRÍTICA:
+
+              Nunca inventes datos.
+
+              Si la imagen NO es claramente un comprobante bancario real o no contiene información suficiente y legible:
+
+              - pago_valido = false
+              - confianza = 0
+              - comprobante_completo = false
+              - posible_manipulacion = true
+
+              Y en "notas" explica por qué.
+
+              Si no puedes leer un dato, devuelve null.
+
+              Nunca supongas banco, referencia, nombres, cuentas o montos.
+              Nunca completes información faltante con estimaciones.
+
               Debes extraer:
 
               - monto_detectado
@@ -41,6 +59,7 @@ const analyzePaymentProof =
 
               Valida:
 
+              0. Primero determina si la imagen realmente corresponde a un comprobante bancario.
               1. Si el comprobante está completo o parece recortado.
               2. Si hay signos de edición o manipulación digital.
               3. Si la información visible es suficiente para validar.
@@ -95,7 +114,8 @@ const analyzePaymentProof =
                 {
                   type: 'text',
                   text:
-                    `Monto esperado: ${expectedAmount} Bs`,
+                    `Monto esperado: ${expectedAmount} Bs.
+                  Fecha actual del sistema: ${new Date().toISOString().split('T')[0]}`,
                 },
                 {
                   type: 'image_url',
