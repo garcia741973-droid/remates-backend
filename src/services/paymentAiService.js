@@ -67,6 +67,17 @@ const analyzePaymentProof =
               - Si banco, cuenta o titular pertenecen claramente a otra persona o entidad:
                 rechazo inmediato.
 
+                  En ese caso:
+
+                  pago_valido = false
+                  cuenta_correcta = false
+                  titular_correcto = false
+                  confianza <= 10
+
+                  No enviar a revisión.
+                  No marcar pending.
+                  Es fraude o pago incorrecto.                
+
               - Solo marca cuenta_correcta = false cuando los números visibles contradigan claramente la cuenta oficial.
 
               Estos datos son la referencia oficial obligatoria.
