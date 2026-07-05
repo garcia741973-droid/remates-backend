@@ -47,7 +47,26 @@ const analyzePaymentProof =
               4. Si el monto coincide o supera el monto esperado.
               5. Si la cuenta destino coincide exactamente.
               6. Si el titular destino coincide.
-              7. Si el comprobante parece reciente y coherente.
+              7. Si la fecha y hora parecen recientes y coherentes.
+              8. Si el diseño visual parece consistente con un comprobante bancario real.
+              9. Si hay tipografías extrañas, textos superpuestos, logos alterados o estructuras poco naturales.
+              10. Si hay mensajes ambiguos como "solo referencia", "simulación", "ejemplo", "vista previa" o similares.
+              11. Si el comprobante parece generado artificialmente o reconstruido digitalmente.
+
+              IMPORTANTE:
+
+              Aunque monto, cuenta y titular coincidan, si detectas señales visuales sospechosas debes marcar:
+
+              "posible_manipulacion": true
+
+              y reducir la confianza.
+
+              Si la imagen no parece un comprobante bancario real, responde:
+
+              "pago_valido": false
+              "confianza": 0
+
+              y explica claramente el motivo.
 
               Responde SOLO JSON:
 
