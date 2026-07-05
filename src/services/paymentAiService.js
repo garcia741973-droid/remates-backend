@@ -82,6 +82,30 @@ const analyzePaymentProof =
               - comprobante_completo = false
               - posible_manipulacion = true
 
+              VALIDACIÓN DE DESTINO OBLIGATORIA:
+
+              La autenticidad visual NO es suficiente.
+
+              Un comprobante puede ser real y aun así ser inválido si el dinero fue enviado a otra cuenta.
+
+              Por eso:
+
+              - Primero valida destinatario.
+              - Luego valida autenticidad.
+
+              Orden obligatorio:
+
+              1. banco_destino
+              2. cuenta_destino
+              3. titular_destino
+              4. monto
+              5. fecha
+              6. señales visuales
+
+              Si el destinatario es distinto:
+              pago_valido = false
+              sin importar que el comprobante sea auténtico.
+
               Y en "notas" explica por qué.
 
               Si no puedes leer un dato, devuelve null.
