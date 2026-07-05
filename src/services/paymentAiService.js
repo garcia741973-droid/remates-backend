@@ -37,6 +37,24 @@ const analyzePaymentProof =
               Cuenta: ${process.env.PAYMENT_ACCOUNT}
               Titular: ${process.env.PAYMENT_HOLDER}
 
+              Debes comparar contra estos datos.
+
+              Reglas:
+
+              - Si la cuenta visible coincide exactamente, marca:
+                cuenta_correcta = true
+
+              - Si la cuenta visible está parcialmente oculta (por ejemplo con ****) pero los dígitos visibles coinciden razonablemente con la cuenta oficial, NO marques error automáticamente. Considera coincidencia parcial válida y reduce confianza.
+
+              - Si el titular visible coincide total o parcialmente con el titular oficial, marca:
+                titular_correcto = true
+
+              - Si banco, cuenta y titular parecen coherentes entre sí, puedes considerar el comprobante válido aunque algunos datos estén parcialmente ocultos.
+
+              - Solo marca cuenta_correcta = false cuando los números visibles contradigan claramente la cuenta oficial.
+
+              Estos datos son la referencia oficial obligatoria.
+
               REGLA CRÍTICA:
 
               Nunca inventes datos.
