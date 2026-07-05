@@ -5,6 +5,7 @@ const {
   getPaymentValidations,
   approvePaymentValidation,
   rejectPaymentValidation,
+  deletePaymentValidation,
   recheckPaymentValidation,
   createManualPaymentValidation,
 } = require('../controllers/paymentValidationController');
@@ -35,6 +36,12 @@ router.put(
   '/:id/reject',
   requireAuth,
   rejectPaymentValidation
+);
+
+router.delete(
+  '/:id',
+  requireAuth,
+  deletePaymentValidation
 );
 
 router.post(

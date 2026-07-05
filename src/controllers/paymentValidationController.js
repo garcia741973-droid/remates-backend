@@ -355,6 +355,68 @@ const rejectPaymentValidation =
     }
   };
 
+/// 🔥 BORRAR SOLO PRUEBAS
+const deletePaymentValidation =
+  async (req, res) => {
+    try {
+      const { id } =
+        req.params;
+
+      const paymentRes =
+        await pool.query(
+          `
+          SELECT *
+          FROM payment_validations
+          WHERE id = $1
+          LIMIT 1
+          `,
+          [id]
+        );
+
+      if (
+        paymentRes.rows.length === 0
+      ) {
+        return res.status(404).json({
+          error:
+            'Validación no encontrada',
+        });
+      }
+
+      const payment =
+        paymentRes.rows[0];
+
+      /// SOLO PRUEBAS
+      if (
+        payment.module ===
+        'transport'
+      ) {
+        return res.status(400).json({
+          error:
+            'No se puede borrar una validación real',
+        });
+      }
+
+      await pool.query(
+        `
+        DELETE FROM payment_validations
+        WHERE id = $1
+        `,
+        [id]
+      );
+
+      res.json({
+        success: true,
+      });
+
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        error:
+          'Error borrando validación',
+      });
+    }
+  };
 
 /// 🔥 REANALIZAR IA
 const recheckPaymentValidation =
@@ -535,6 +597,7 @@ module.exports = {
   getPaymentValidations,
   approvePaymentValidation,
   rejectPaymentValidation,
+  deletePaymentValidation,
   recheckPaymentValidation,
   createManualPaymentValidation,
 };
