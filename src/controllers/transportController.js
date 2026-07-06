@@ -2008,6 +2008,13 @@ const createTransportPayment =
         aiResult
       );
 
+      const audit =
+        buildPaymentAudit({
+          aiResult,
+          proofImageUrl:
+            proof_image_url,
+        });
+
       /// VALIDAR REFERENCIA DUPLICADA
       if (aiResult.referencia) {
         const duplicate =
@@ -2029,49 +2036,38 @@ const createTransportPayment =
         }
       }
 
-      let validationStatus =
-        'rejected';
+      let validationStatus;
 
-      /// SOLO SI MONTO ES VÁLIDO
-      if (aiResult.pago_valido) {
-        /// SI CUENTA O TITULAR FALLAN → RECHAZAR
-        if (
-          aiResult.cuenta_correcta === false ||
-          aiResult.titular_correcto === false
-        ) {
-          validationStatus =
-            'rejected';
-        }
-
-        /// SI PARECE MANIPULADO → RECHAZAR
-        else if (
-          aiResult.posible_manipulacion === true
-        ) {
-          validationStatus =
-            'rejected';
-        }
-
-        /// APROBACIÓN AUTOMÁTICA
-        else if (
-          aiResult.confianza >= 0.90
-        ) {
-          validationStatus =
-            'approved';
-        }
-
-        /// REVISIÓN MANUAL
-        else if (
-          aiResult.confianza >= 0.70
-        ) {
-          validationStatus =
-            'review';
-        }
+      if (
+        audit.payment_valid &&
+        audit.account_match &&
+        audit.holder_match &&
+        audit.proof_complete &&
+        !audit.possible_manipulation &&
+        audit.ai_confidence >= 90
+      ) {
+        validationStatus = 'approved';
       }
 
-      const result =
+      else if (
+        !audit.payment_valid ||
+        !audit.account_match ||
+        !audit.holder_match ||
+        audit.possible_manipulation ||
+        audit.ai_confidence < 60
+      ) {
+        validationStatus = 'rejected';
+      }
+
+      else {
+        validationStatus = 'pending';
+      }
+
+    const result =
         await pool.query(
           `
           INSERT INTO payment_validations (
+
             module,
             reference_id,
             payer_user_id,
@@ -2085,15 +2081,48 @@ const createTransportPayment =
             detected_date,
             detected_time,
 
+            destination_account,
+            destination_holder,
+
+            account_match,
+            holder_match,
+
+            proof_complete,
+            possible_manipulation,
+
+            payment_valid,
+
             ai_verified,
             ai_confidence,
             ai_notes,
+
+            ai_model,
+            ai_json,
+            proof_hash,
+
             status
+
           )
           VALUES (
+
             $1,$2,$3,$4,$5,
+
             $6,$7,$8,$9,$10,$11,
-            $12,$13,$14,$15
+
+            $12,$13,
+
+            $14,$15,
+
+            $16,$17,
+
+            $18,
+
+            $19,$20,$21,
+
+            $22,$23,$24,
+
+            $25
+
           )
           RETURNING *
           `,
@@ -2104,16 +2133,32 @@ const createTransportPayment =
             expectedAmount,
             proof_image_url,
 
-            aiResult.monto_detectado,
-            aiResult.banco,
-            aiResult.referencia,
-            aiResult.nombre_emisor,
-            aiResult.fecha,
-            aiResult.hora,
+            audit.detected_amount,
+            audit.detected_bank,
+            audit.detected_reference,
+            audit.detected_sender,
+            audit.detected_date,
+            audit.detected_time,
 
-            aiResult.pago_valido,
-            aiResult.confianza,
-            aiResult.notas,
+            audit.destination_account,
+            audit.destination_holder,
+
+            audit.account_match,
+            audit.holder_match,
+
+            audit.proof_complete,
+            audit.possible_manipulation,
+
+            audit.payment_valid,
+
+            audit.ai_verified,
+            audit.ai_confidence,
+            audit.ai_notes,
+
+            audit.ai_model,
+            audit.ai_json,
+            audit.proof_hash,
+
             validationStatus,
           ]
         );
@@ -2269,7 +2314,7 @@ const createTransportPayment =
           });
         }
 
-    if (validationStatus === 'review') {
+    if (validationStatus === 'pending') {
       /// AVISAR AL USUARIO
       await sendUserNotification({
         userId,
@@ -2309,7 +2354,7 @@ const createTransportPayment =
 
       return res.json({
         success: true,
-        status: 'review',
+        status: 'pending',
         message:
           'Pago enviado a revisión manual',
       });
