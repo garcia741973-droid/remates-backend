@@ -776,19 +776,6 @@ exports.closeNegotiation = async (req, res) => {
       });
     }
 
-    const paymentConfig =
-      configRes.rows[0];
-
-    /// 🔥 CAMBIAR ESTADO
-    await pool.query(
-      `
-      UPDATE negotiations
-      SET status = 'payment_pending'
-      WHERE id = $1
-      `,
-      [id]
-    );
-
     res.json({
 
       success: true,
@@ -801,7 +788,7 @@ exports.closeNegotiation = async (req, res) => {
 
       qr_image_url: qr.qr_image_url,
 
-      status: 'payment_pending',
+      status: 'open',
     });
 
   } catch (error) {
