@@ -760,9 +760,32 @@ const createManualPaymentValidation =
             audit.ai_json,
             audit.proof_hash,
 
-            audit.payment_valid
-              ? 'approved'
-              : 'pending',
+            (() => {
+
+              if (
+                audit.payment_valid &&
+                audit.account_match &&
+                audit.holder_match &&
+                audit.proof_complete &&
+                !audit.possible_manipulation &&
+                audit.ai_confidence >= 90
+              ) {
+                return 'approved';
+              }
+
+              if (
+                !audit.payment_valid ||
+                !audit.account_match ||
+                !audit.holder_match ||
+                audit.possible_manipulation ||
+                audit.ai_confidence < 60
+              ) {
+                return 'rejected';
+              }
+
+              return 'pending';
+
+            })(),
           ]
         );
 
