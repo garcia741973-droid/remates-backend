@@ -1105,18 +1105,6 @@ exports.uploadPaymentProof = async (req, res) => {
         paymentStatus,
       ]
     );    
-    
-    /// 🔥 EL COMPROBANTE YA FUE RECIBIDO
-    /// LA NEGOCIACIÓN PASA A PAGO PENDIENTE
-
-    await pool.query(
-      `
-      UPDATE negotiations
-      SET status = 'payment_pending'
-      WHERE id = $1
-      `,
-      [negotiation.id]
-    );
 
     /// 🔥 CREAR PAYMENT
   if (paymentStatus === 'approved') {
@@ -1208,6 +1196,15 @@ exports.uploadPaymentProof = async (req, res) => {
     /// 🔥 SI EL PAGO NO FUE APROBADO, TERMINAR AQUÍ
     if (paymentStatus === 'pending') {
 
+      await pool.query(
+        `
+        UPDATE negotiations
+        SET status = 'payment_pending'
+        WHERE id = $1
+        `,
+        [negotiation.id]
+      );
+
       return res.json({
 
         success: true,
@@ -1222,6 +1219,15 @@ exports.uploadPaymentProof = async (req, res) => {
     }
 
     if (paymentStatus === 'rejected') {
+
+      await pool.query(
+        `
+        UPDATE negotiations
+        SET status = 'open'
+        WHERE id = $1
+        `,
+        [negotiation.id]
+      );
 
       return res.status(400).json({
 
