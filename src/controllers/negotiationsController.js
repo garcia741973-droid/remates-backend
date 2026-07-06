@@ -1002,12 +1002,9 @@ exports.uploadPaymentProof = async (req, res) => {
       !audit.payment_valid ||
       !audit.account_match ||
       !audit.holder_match ||
-      audit.possible_manipulation ||
       Number(audit.ai_confidence) < 60
     ) {
-
       paymentStatus = 'rejected';
-
     }
     else {
 
