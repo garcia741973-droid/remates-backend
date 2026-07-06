@@ -989,7 +989,7 @@ exports.uploadPaymentProof = async (req, res) => {
       audit.holder_match &&
       audit.proof_complete &&
       !audit.possible_manipulation &&
-      Number(audit.ai_confidence) >= 90
+      Number(audit.ai_confidence) >= 85
     ) {
 
       paymentStatus = 'approved';
