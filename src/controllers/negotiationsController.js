@@ -942,8 +942,13 @@ exports.uploadPaymentProof = async (req, res) => {
       aiResult,
     );
 
-    /// 🔥 VALIDAR REFERENCIA DUPLICADA
-    if (aiResult.referencia) {
+    /// 🔥 VALIDAR COMPROBANTE DUPLICADO
+    if (
+      aiResult.referencia &&
+      aiResult.fecha &&
+      aiResult.hora &&
+      aiResult.monto_detectado
+    ) {
 
       const duplicate =
         await pool.query(
@@ -951,9 +956,17 @@ exports.uploadPaymentProof = async (req, res) => {
           SELECT id
           FROM payment_validations
           WHERE detected_reference = $1
+            AND detected_date = $2
+            AND detected_time = $3
+            AND detected_amount = $4
           LIMIT 1
           `,
-          [aiResult.referencia]
+          [
+            aiResult.referencia,
+            aiResult.fecha,
+            aiResult.hora,
+            Number(aiResult.monto_detectado),
+          ]
         );
 
       if (duplicate.rows.length > 0) {
