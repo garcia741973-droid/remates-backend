@@ -12,6 +12,14 @@ const {
 const cloudinary = require('../config/cloudinary');
 const streamifier = require('streamifier');
 
+const {
+  analyzePaymentProof,
+} = require('../services/paymentAiService');
+
+const {
+  buildPaymentAudit,
+} = require('../services/paymentAuditService');
+
 /// 🔥 CREAR NEGOCIACIÓN
 exports.createNegotiation = async (req, res) => {
   try {
@@ -872,7 +880,188 @@ exports.uploadPaymentProof = async (req, res) => {
 
     const qr = qrRes.rows[0];
 
+    /// 🤖 ANALIZAR COMPROBANTE CON IA
+    const aiResult =
+      await analyzePaymentProof({
+
+        proofImageUrl:
+          proof_url,
+
+        expectedAmount:
+          Number(qr.amount),
+      });
+
+    console.log(
+      '🤖 AI RESULT:',
+      aiResult,
+    );
+
+    /// 🔥 VALIDAR REFERENCIA DUPLICADA
+    if (aiResult.referencia) {
+
+      const duplicate =
+        await pool.query(
+          `
+          SELECT id
+          FROM payment_validations
+          WHERE detected_reference = $1
+          LIMIT 1
+          `,
+          [aiResult.referencia]
+        );
+
+      if (duplicate.rows.length > 0) {
+
+        return res.status(400).json({
+          error:
+            'Este comprobante ya fue usado anteriormente',
+        });
+      }
+    }
+
+    /// 📋 CONSTRUIR AUDITORÍA
+    const audit =
+      buildPaymentAudit({
+
+        aiResult,
+
+        proofImageUrl:
+          proof_url,
+      });
+
+    console.log(
+      '📋 PAYMENT AUDIT:',
+      audit,
+    );
+
+    /// 🤖 DECIDIR ESTADO DEL PAGO
+    let paymentStatus;
+
+    if (
+      audit.payment_valid &&
+      audit.account_match &&
+      audit.holder_match &&
+      audit.proof_complete &&
+      !audit.possible_manipulation &&
+      Number(audit.ai_confidence) >= 90
+    ) {
+
+      paymentStatus = 'approved';
+
+    }
+    else if (
+      !audit.payment_valid ||
+      !audit.account_match ||
+      !audit.holder_match ||
+      audit.possible_manipulation ||
+      Number(audit.ai_confidence) < 60
+    ) {
+
+      paymentStatus = 'rejected';
+
+    }
+    else {
+
+      paymentStatus = 'pending';
+
+    }
+
+    console.log(
+      '💳 PAYMENT STATUS:',
+      paymentStatus,
+    );
+
+    /// 🔥 GUARDAR VALIDACIÓN IA
+    await pool.query(
+      `
+      INSERT INTO payment_validations
+      (
+        module,
+        reference_id,
+        payer_user_id,
+        expected_amount,
+        proof_image_url,
+
+        detected_amount,
+        detected_bank,
+        detected_reference,
+        detected_sender,
+        detected_date,
+        detected_time,
+
+        destination_account,
+        destination_holder,
+
+        account_match,
+        holder_match,
+
+        proof_complete,
+        possible_manipulation,
+        payment_valid,
+
+        ai_verified,
+        ai_confidence,
+        ai_notes,
+        ai_model,
+        ai_json,
+        proof_hash,
+
+        status
+      )
+      VALUES
+      (
+        $1,$2,$3,$4,$5,
+
+        $6,$7,$8,$9,$10,$11,
+
+        $12,$13,
+
+        $14,$15,
+
+        $16,$17,$18,
+
+        $19,$20,$21,$22,$23,$24,
+
+        $25
+      )
+      `,
+      [
+        'negotiation',
+        negotiation.id,
+        negotiation.buyer_id,
+        qr.amount,
+        proof_url,
+
+        audit.detected_amount,
+        audit.detected_bank,
+        audit.detected_reference,
+        audit.detected_sender,
+        audit.detected_date,
+        audit.detected_time,
+
+        audit.destination_account,
+        audit.destination_holder,
+
+        audit.account_match,
+        audit.holder_match,
+
+        audit.proof_complete,
+        audit.possible_manipulation,
+        audit.payment_valid,
+
+        audit.ai_verified,
+        audit.ai_confidence,
+        audit.ai_notes,
+        audit.ai_model,
+        JSON.stringify(audit.ai_json),
+        audit.proof_hash,
+
+        paymentStatus,
+      ]
+    );    
+    
     /// 🔥 CREAR PAYMENT
+  if (paymentStatus === 'approved') {
     await pool.query(
       `
       INSERT INTO negotiation_payments
@@ -884,9 +1073,50 @@ exports.uploadPaymentProof = async (req, res) => {
         amount,
         proof_url,
         status,
+
+        bank_detected,
+        reference_detected,
+        sender_name,
+        payment_date,
+        payment_time,
+
+        destination_account,
+        destination_holder,
+
+        account_match,
+        holder_match,
+
+        proof_complete,
+        possible_manipulation,
+        payment_valid,
+
+        ai_confidence,
+        ai_model,
+        ai_json,
+        proof_hash,
+
         unlocked_at
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+      VALUES
+      (
+        $1,$2,$3,$4,$5,$6,$7,
+
+        $8,$9,$10,$11,$12,
+
+        $13,$14,
+
+        $15,$16,
+
+        $17,$18,$19,
+
+        $20,$21,$22,$23,
+
+        CASE
+          WHEN $7 = 'approved'
+          THEN NOW()
+          ELSE NULL
+        END
+      )
       `,
       [
         negotiation.id,
@@ -895,9 +1125,61 @@ exports.uploadPaymentProof = async (req, res) => {
         negotiation.buyer_id,
         qr.amount,
         proof_url,
-        'uploaded'
+        paymentStatus,
+
+        audit.detected_bank,
+        audit.detected_reference,
+        audit.detected_sender,
+        audit.detected_date,
+        audit.detected_time,
+
+        audit.destination_account,
+        audit.destination_holder,
+
+        audit.account_match,
+        audit.holder_match,
+
+        audit.proof_complete,
+        audit.possible_manipulation,
+        audit.payment_valid,
+
+        audit.ai_confidence,
+        audit.ai_model,
+        JSON.stringify(audit.ai_json),
+        audit.proof_hash,
       ]
     );
+  }
+
+    /// 🔥 SI EL PAGO NO FUE APROBADO, TERMINAR AQUÍ
+    if (paymentStatus === 'pending') {
+
+      return res.json({
+
+        success: true,
+
+        status: 'pending',
+
+        message:
+          'El comprobante fue recibido y será revisado por un administrador.',
+
+        proof_url,
+      });
+    }
+
+    if (paymentStatus === 'rejected') {
+
+      return res.status(400).json({
+
+        success: false,
+
+        status: 'rejected',
+
+        error:
+          'El comprobante no pudo ser validado. Puedes subir uno nuevo.',
+
+      });
+    }
 
       /// 🔥 OBTENER COMPANY
       const lotCompanyRes =
