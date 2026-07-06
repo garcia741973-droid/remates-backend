@@ -51,15 +51,20 @@ const approvePaymentValidation =
         req.params;
 
       const paymentRes =
-        await pool.query(
-          `
-          SELECT *
-          FROM payment_validations
-          WHERE id = $1
-          LIMIT 1
-          `,
-          [id]
-        );
+      await pool.query(
+        `
+        UPDATE payment_validations
+        SET
+          status = 'approved',
+          reviewed_by = $2,
+          reviewed_at = NOW()
+        WHERE id = $1
+        `,
+        [
+          id,
+          req.user.user_id,
+        ]
+      );
 
       if (
         paymentRes.rows.length === 0
@@ -125,6 +130,24 @@ const approvePaymentValidation =
             `,
             [payment.reference_id]
           );
+
+          const duplicatedProof =
+            await pool.query(
+              `
+              SELECT id
+              FROM transport_payments
+              WHERE proof_hash = $1
+              LIMIT 1
+              `,
+              [payment.proof_hash]
+            );
+
+          if (duplicatedProof.rows.length > 0) {
+            return res.status(400).json({
+              error:
+                'Este comprobante ya fue utilizado anteriormente.',
+            });
+          }
 
         if (existingPayment.rows.length > 0) {
           return res.status(400).json({
@@ -535,34 +558,75 @@ const recheckPaymentValidation =
             payment.expected_amount,
         });
 
-      await pool.query(
-        `
-        UPDATE payment_validations
-        SET
-          detected_amount = $1,
-          detected_bank = $2,
-          detected_reference = $3,
-          detected_sender = $4,
-          detected_date = $5,
-          detected_time = $6,
-          ai_verified = $7,
-          ai_confidence = $8,
-          ai_notes = $9
-        WHERE id = $10
-        `,
-        [
-          aiResult.monto_detectado,
-          aiResult.banco,
-          aiResult.referencia,
-          aiResult.nombre_emisor,
-          aiResult.fecha,
-          aiResult.hora,
-          aiResult.pago_valido,
-          aiResult.confianza,
-          aiResult.notas,
-          id,
-        ]
-      );
+      const audit =
+        buildPaymentAudit({
+          aiResult,
+          proofImageUrl:
+            payment.proof_image_url,
+        });
+
+        await pool.query(
+          `
+          UPDATE payment_validations
+          SET
+            detected_amount = $1,
+            detected_bank = $2,
+            detected_reference = $3,
+            detected_sender = $4,
+            detected_date = $5,
+            detected_time = $6,
+
+            destination_account = $7,
+            destination_holder = $8,
+
+            account_match = $9,
+            holder_match = $10,
+
+            proof_complete = $11,
+            possible_manipulation = $12,
+
+            payment_valid = $13,
+
+            ai_verified = $14,
+            ai_confidence = $15,
+            ai_notes = $16,
+
+            ai_model = $17,
+            ai_json = $18,
+            proof_hash = $19
+
+          WHERE id = $20
+          `,
+          [
+            audit.detected_amount,
+            audit.detected_bank,
+            audit.detected_reference,
+            audit.detected_sender,
+            audit.detected_date,
+            audit.detected_time,
+
+            audit.destination_account,
+            audit.destination_holder,
+
+            audit.account_match,
+            audit.holder_match,
+
+            audit.proof_complete,
+            audit.possible_manipulation,
+
+            audit.payment_valid,
+
+            audit.ai_verified,
+            audit.ai_confidence,
+            audit.ai_notes,
+
+            audit.ai_model,
+            audit.ai_json,
+            audit.proof_hash,
+
+            id,
+          ]
+        );
 
       res.json({
         success: true,
