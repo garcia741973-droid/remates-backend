@@ -2165,29 +2165,105 @@ const createTransportPayment =
 
         if (validationStatus === 'approved') {
 
-          await pool.query(
-            `
-            INSERT INTO transport_payments (
-              negotiation_id,
-              payer_user_id,
-              amount,
-              proof_image_url,
-              ai_verified,
-              ai_notes,
-              status
-            )
-            VALUES ($1,$2,$3,$4,$5,$6,$7)
-            `,
-            [
-              negotiation_id,
-              userId,
-              expectedAmount,
-              proof_image_url,
-              true,
-              aiResult.notas,
-              'approved'
-            ]
-          );
+        await pool.query(
+          `
+          INSERT INTO transport_payments (
+
+            negotiation_id,
+            payer_user_id,
+            amount,
+            proof_image_url,
+
+            bank_detected,
+            reference_detected,
+            sender_name,
+
+            payment_date,
+            payment_time,
+
+            destination_account,
+            destination_holder,
+
+            account_match,
+            holder_match,
+
+            proof_complete,
+            possible_manipulation,
+
+            payment_valid,
+
+            ai_verified,
+            ai_confidence,
+            ai_notes,
+
+            ai_model,
+            ai_json,
+            proof_hash,
+
+            status
+
+          )
+          VALUES (
+
+            $1,$2,$3,$4,
+
+            $5,$6,$7,
+
+            $8,$9,
+
+            $10,$11,
+
+            $12,$13,
+
+            $14,$15,
+
+            $16,
+
+            $17,$18,$19,
+
+            $20,$21,$22,
+
+            $23
+
+          )
+          `,
+          [
+
+            negotiation_id,
+            userId,
+            expectedAmount,
+            proof_image_url,
+
+            audit.detected_bank,
+            audit.detected_reference,
+            audit.detected_sender,
+
+            audit.detected_date,
+            audit.detected_time,
+
+            audit.destination_account,
+            audit.destination_holder,
+
+            audit.account_match,
+            audit.holder_match,
+
+            audit.proof_complete,
+            audit.possible_manipulation,
+
+            audit.payment_valid,
+
+            audit.ai_verified,
+            audit.ai_confidence,
+            audit.ai_notes,
+
+            audit.ai_model,
+            audit.ai_json,
+            audit.proof_hash,
+
+            'approved'
+
+          ]
+        );
 
           /// NEGOCIACIÓN PAGADA
           await pool.query(
@@ -2381,9 +2457,12 @@ const createTransportPayment =
       });
     }
 
-    return res.json(
-      result.rows[0]
-    );
+    return res.json({
+        success: true,
+        status: validationStatus,
+        validation: result.rows[0],
+        ai_notes: audit.ai_notes,
+    });
 
     } catch (error) {
       console.error(error);
