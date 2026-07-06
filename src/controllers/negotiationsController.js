@@ -756,6 +756,29 @@ exports.closeNegotiation = async (req, res) => {
 
     const qr = qrRes.rows[0];
 
+    /// 🔥 OBTENER CONFIGURACIÓN DE COBRO
+    const configRes =
+      await pool.query(
+        `
+        SELECT amount
+        FROM system_payment_configs
+        WHERE code = 'contact_unlock'
+        AND is_active = true
+        LIMIT 1
+        `
+      );
+
+    if (configRes.rows.length === 0) {
+
+      return res.status(400).json({
+        error:
+          'No existe configuración de cobro'
+      });
+    }
+
+    const paymentConfig =
+      configRes.rows[0];
+
     /// 🔥 CAMBIAR ESTADO
     await pool.query(
       `
@@ -774,7 +797,7 @@ exports.closeNegotiation = async (req, res) => {
 
       lot_number: negotiation.lot_number,
 
-      amount: qr.amount,
+      amount: paymentConfig.amount,
 
       qr_image_url: qr.qr_image_url,
 
@@ -880,6 +903,29 @@ exports.uploadPaymentProof = async (req, res) => {
 
     const qr = qrRes.rows[0];
 
+    /// 🔥 OBTENER CONFIGURACIÓN DE COBRO
+    const configRes =
+      await pool.query(
+        `
+        SELECT amount
+        FROM system_payment_configs
+        WHERE code = 'contact_unlock'
+        AND is_active = true
+        LIMIT 1
+        `
+      );
+
+    if (configRes.rows.length === 0) {
+
+      return res.status(400).json({
+        error:
+          'No existe configuración de cobro'
+      });
+    }
+
+    const paymentConfig =
+      configRes.rows[0];
+    
     /// 🤖 ANALIZAR COMPROBANTE CON IA
     const aiResult =
       await analyzePaymentProof({
@@ -888,7 +934,7 @@ exports.uploadPaymentProof = async (req, res) => {
           proof_url,
 
         expectedAmount:
-          Number(qr.amount),
+          Number(paymentConfig.amount),
       });
 
     console.log(
@@ -1029,7 +1075,7 @@ exports.uploadPaymentProof = async (req, res) => {
         'negotiation',
         negotiation.id,
         negotiation.buyer_id,
-        qr.amount,
+        paymentConfig.amount,
         proof_url,
 
         audit.detected_amount,
@@ -1123,7 +1169,7 @@ exports.uploadPaymentProof = async (req, res) => {
         negotiation.lot_id,
         negotiation.seller_id,
         negotiation.buyer_id,
-        qr.amount,
+        paymentConfig.amount,
         proof_url,
         paymentStatus,
 
@@ -1231,7 +1277,7 @@ exports.uploadPaymentProof = async (req, res) => {
 
                   cash_company_id,
 
-                  qr.amount,
+                  paymentConfig.amount,
 
                   `Pago desbloqueo negociación #${negotiation.id}`,
 
