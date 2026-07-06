@@ -11,6 +11,9 @@ const {
   analyzePaymentProof,
 } = require('../services/paymentAiService');
 
+const {
+  buildPaymentAudit,
+} = require('../services/paymentAuditService');
 
 /// 🔥 LISTAR VALIDACIONES
 const getPaymentValidations =
@@ -134,24 +137,100 @@ const approvePaymentValidation =
         await pool.query(
           `
           INSERT INTO transport_payments (
+
             negotiation_id,
             payer_user_id,
             amount,
             proof_image_url,
+
+            bank_detected,
+            reference_detected,
+            sender_name,
+
+            payment_date,
+            payment_time,
+
+            destination_account,
+            destination_holder,
+
+            account_match,
+            holder_match,
+
+            proof_complete,
+            possible_manipulation,
+
+            payment_valid,
+
             ai_verified,
+            ai_confidence,
             ai_notes,
+
+            ai_model,
+            ai_json,
+            proof_hash,
+
             status
+
           )
-          VALUES ($1,$2,$3,$4,$5,$6,$7)
+          VALUES (
+
+            $1,$2,$3,$4,
+
+            $5,$6,$7,
+
+            $8,$9,
+
+            $10,$11,
+
+            $12,$13,
+
+            $14,$15,
+
+            $16,
+
+            $17,$18,$19,
+
+            $20,$21,$22,
+
+            $23
+
+          )
           `,
           [
+
             payment.reference_id,
             payment.payer_user_id,
             payment.expected_amount,
             payment.proof_image_url,
-            true,
+
+            payment.detected_bank,
+            payment.detected_reference,
+            payment.detected_sender,
+
+            payment.detected_date,
+            payment.detected_time,
+
+            payment.destination_account,
+            payment.destination_holder,
+
+            payment.account_match,
+            payment.holder_match,
+
+            payment.proof_complete,
+            payment.possible_manipulation,
+
+            payment.payment_valid,
+
+            payment.ai_verified,
+            payment.ai_confidence,
             payment.ai_notes,
+
+            payment.ai_model,
+            payment.ai_json,
+            payment.proof_hash,
+
             'approved',
+
           ]
         );
 
@@ -526,6 +605,13 @@ const createManualPaymentValidation =
         aiResult
       );
 
+      const audit =
+        buildPaymentAudit({
+          aiResult,
+          proofImageUrl:
+            proof_image_url,
+        });
+
       const result =
         await pool.query(
           `
@@ -543,15 +629,37 @@ const createManualPaymentValidation =
             detected_date,
             detected_time,
 
+            destination_account,
+            destination_holder,
+
+            account_match,
+            holder_match,
+
+            proof_complete,
+            possible_manipulation,
+
+            payment_valid,
+
             ai_verified,
             ai_confidence,
             ai_notes,
+
+            ai_model,
+            ai_json,
+            proof_hash,
+
             status
           )
           VALUES (
             $1,$2,$3,$4,$5,
             $6,$7,$8,$9,$10,$11,
-            $12,$13,$14,$15
+            $12,$13,
+            $14,$15,
+            $16,$17,
+            $18,
+            $19,$20,$21,
+            $22,$23,$24,
+            $25
           )
           RETURNING *
           `,
@@ -562,18 +670,33 @@ const createManualPaymentValidation =
             expected_amount,
             proof_image_url,
 
-            aiResult.monto_detectado,
-            aiResult.banco,
-            aiResult.referencia,
-            aiResult.nombre_emisor,
-            aiResult.fecha,
-            aiResult.hora,
+            audit.detected_amount,
+            audit.detected_bank,
+            audit.detected_reference,
+            audit.detected_sender,
+            audit.detected_date,
+            audit.detected_time,
 
-            aiResult.pago_valido,
-            aiResult.confianza,
-            aiResult.notas,
+            audit.destination_account,
+            audit.destination_holder,
 
-            aiResult.pago_valido
+            audit.account_match,
+            audit.holder_match,
+
+            audit.proof_complete,
+            audit.possible_manipulation,
+
+            audit.payment_valid,
+
+            audit.ai_verified,
+            audit.ai_confidence,
+            audit.ai_notes,
+
+            audit.ai_model,
+            audit.ai_json,
+            audit.proof_hash,
+
+            audit.payment_valid
               ? 'approved'
               : 'pending',
           ]
