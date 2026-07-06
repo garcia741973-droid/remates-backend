@@ -1157,11 +1157,7 @@ exports.uploadPaymentProof = async (req, res) => {
 
         $20,$21,$22,$23,
 
-        CASE
-          WHEN $7 = 'approved'
-          THEN NOW()
-          ELSE NULL
-        END
+        NOW()
       )
       `,
       [
