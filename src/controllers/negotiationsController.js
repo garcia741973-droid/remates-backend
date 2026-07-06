@@ -776,6 +776,9 @@ exports.closeNegotiation = async (req, res) => {
       });
     }
 
+    const paymentConfig =
+      configRes.rows[0];
+
     res.json({
 
       success: true,
