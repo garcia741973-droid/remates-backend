@@ -1106,6 +1106,18 @@ exports.uploadPaymentProof = async (req, res) => {
       ]
     );    
     
+    /// 🔥 EL COMPROBANTE YA FUE RECIBIDO
+    /// LA NEGOCIACIÓN PASA A PAGO PENDIENTE
+
+    await pool.query(
+      `
+      UPDATE negotiations
+      SET status = 'payment_pending'
+      WHERE id = $1
+      `,
+      [negotiation.id]
+    );
+
     /// 🔥 CREAR PAYMENT
   if (paymentStatus === 'approved') {
     await pool.query(
