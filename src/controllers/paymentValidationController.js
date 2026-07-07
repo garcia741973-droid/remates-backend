@@ -850,25 +850,86 @@ const approvePaymentValidation =
   };
 
 
-/// 🔥 RECHAZAR
-const rejectPaymentValidation =
-  async (req, res) => {
-    try {
-      const { id } =
-        req.params;
+    /// 🔥 RECHAZAR
+    const rejectPaymentValidation =
+      async (req, res) => {
+        try {
+          const { id } =
+            req.params;
 
+    /// 🔥 OBTENER VALIDACIÓN
+    const paymentRes =
       await pool.query(
         `
-        UPDATE payment_validations
-        SET status = 'rejected'
+        SELECT *
+        FROM payment_validations
         WHERE id = $1
+        LIMIT 1
         `,
         [id]
       );
 
-      res.json({
-        success: true,
+    if (
+      paymentRes.rows.length === 0
+    ) {
+      return res.status(404).json({
+        error:
+          'Validación no encontrada',
       });
+    }
+
+    const payment =
+      paymentRes.rows[0];
+
+    /// 🔥 MARCAR VALIDACIÓN COMO RECHAZADA
+    await pool.query(
+      `
+      UPDATE payment_validations
+      SET
+        status = 'rejected'
+      WHERE id = $1
+      `,
+      [id]
+    );
+
+    /// 🔥 SI ES MARKETPLACE
+    if (
+      payment.module ===
+      'negotiation'
+    ) {
+
+      await pool.query(
+        `
+        UPDATE negotiations
+        SET
+          status = 'open',
+          final_price = NULL
+        WHERE id = $1
+        `,
+        [payment.reference_id]
+      );
+    }
+
+    /// 🔥 SI ES TRANSPORTE
+    if (
+      payment.module ===
+      'transport'
+    ) {
+
+      await pool.query(
+        `
+        UPDATE transport_negotiations
+        SET
+          status = 'open'
+        WHERE id = $1
+        `,
+        [payment.reference_id]
+      );
+    }
+
+    res.json({
+      success: true,
+    });
 
     } catch (error) {
       console.error(error);
