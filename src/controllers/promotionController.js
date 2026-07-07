@@ -805,10 +805,11 @@ await pool.query(
             SET
                 payment_proof_url = $1,
                 status = $2
-            WHERE id = $2
+            WHERE id = $3
             `,
             [
                 payment_proof_url,
+                paymentStatus,
                 id,
             ],
         );
