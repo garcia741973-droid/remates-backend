@@ -1223,28 +1223,30 @@ exports.uploadPaymentProof = async (req, res) => {
       });
     }
 
-    if (paymentStatus === 'rejected') {
+      if (paymentStatus === 'rejected') {
 
-      await pool.query(
-        `
-        UPDATE negotiations
-        SET status = 'open'
-        WHERE id = $1
-        `,
-        [negotiation.id]
-      );
+        await pool.query(
+          `
+          UPDATE negotiations
+          SET
+            status = 'open',
+            final_price = NULL
+          WHERE id = $1
+          `,
+          [negotiation.id]
+        );
 
-      return res.status(400).json({
+        return res.status(400).json({
 
-        success: false,
+          success: false,
 
-        status: 'rejected',
+          status: 'rejected',
 
-        error:
-          'El comprobante no pudo ser validado. Puedes subir uno nuevo.',
+          error:
+            'El comprobante no pudo ser validado. Puedes subir uno nuevo.',
 
-      });
-    }
+        });
+      }
 
       /// 🔥 OBTENER COMPANY
       const lotCompanyRes =

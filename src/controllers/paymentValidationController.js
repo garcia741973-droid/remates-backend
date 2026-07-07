@@ -587,11 +587,13 @@ const approvePaymentValidation =
     SET
       status = 'sold',
       winner_user_id = $1,
-      sold_at = NOW()
-    WHERE id = $2
+      sold_at = NOW(),
+      final_price = $2
+    WHERE id = $3
     `,
     [
       negotiation.buyer_id,
+      negotiation.final_price,
       negotiation.lot_id,
     ]
   );
