@@ -1193,16 +1193,21 @@ exports.uploadPaymentProof = async (req, res) => {
     );
   }
 
-    /// 🔥 SI EL PAGO NO FUE APROBADO, TERMINAR AQUÍ
+    /// 🔥 SI EL PAGO QUEDA PENDIENTE, GUARDAR EL PRECIO NEGOCIADO
     if (paymentStatus === 'pending') {
 
       await pool.query(
         `
         UPDATE negotiations
-        SET status = 'payment_pending'
-        WHERE id = $1
+        SET
+          status = 'payment_pending',
+          final_price = $1
+        WHERE id = $2
         `,
-        [negotiation.id]
+        [
+          Number(final_price),
+          negotiation.id,
+        ]
       );
 
       return res.json({
@@ -1311,6 +1316,8 @@ exports.uploadPaymentProof = async (req, res) => {
 
         status = 'contacts_unlocked',
 
+        final_price = $1,
+
         contacts_unlocked_at = NOW(),
 
         review_available_at =
@@ -1318,14 +1325,17 @@ exports.uploadPaymentProof = async (req, res) => {
 
         closed_at = NOW()
 
-      WHERE id = $1
+      WHERE id = $2
       `,
-      [id]
+      [
+        Number(final_price),
+        id,
+      ]
     );
 
-    /// 🔥 OBTENER PRECIO FINAL NEGOCIADO
+    /// 🔥 PRECIO FINAL NEGOCIADO
     const negotiatedPrice =
-      final_price || null;
+      Number(final_price);
 
 
     /// 🔥 MARCAR LOTE VENDIDO
