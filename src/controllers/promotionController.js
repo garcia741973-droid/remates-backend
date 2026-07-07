@@ -1,27 +1,11 @@
 const { pool } =
     require('../config/db');
 
-const {
+    const {
     sendAdminNotification,
-    sendUserNotification,
 } = require(
     '../services/notificationService'
 );
-
-const {
-    analyzePaymentProof,
-} = require(
-    '../services/paymentAiService'
-);
-
-const {
-    buildPaymentAudit,
-} = require(
-    '../services/paymentAuditService'
-);
-
-const admin =
-    require('firebase-admin');
 
 /// 🔥 OBTENER PLANES ACTIVOS
 exports.getPlans = async (req, res) => {
@@ -94,8 +78,6 @@ exports.createPromotionRequest = async (
 
             entity_id,
 
-            payment_proof_url,
-
         } = req.body;
 
         /// 🔥 OBTENER PLAN
@@ -122,25 +104,6 @@ exports.createPromotionRequest = async (
         const plan =
             planResult.rows[0];
 
-        /// 🤖 ANALIZAR COMPROBANTE CON IA
-        const aiResult =
-            await analyzePaymentProof({
-
-                proofImageUrl:
-                    payment_proof_url,
-
-                expectedAmount:
-                    Number(plan.price),
-            });
-
-        console.log(
-            '🤖 AI RESULT:',
-            aiResult,
-        );
-
-        const paymentStatus =
-            aiResult.status;
-
         /// 🔥 CREAR SOLICITUD
         const result =
             await pool.query(
@@ -153,9 +116,7 @@ exports.createPromotionRequest = async (
                     promotion_plan_id,
                     entity_type,
                     entity_id,
-                    payment_proof_url,
-                    amount,
-                    status
+                    amount
                 )
                 VALUES
                 (
@@ -164,9 +125,7 @@ exports.createPromotionRequest = async (
                     $3,
                     $4,
                     $5,
-                    $6,
-                    $7,
-                    'pending'
+                    $6
                 )
                 RETURNING *
                 `,
@@ -182,137 +141,34 @@ exports.createPromotionRequest = async (
 
                     entity_id,
 
-                    payment_proof_url,
-
                     plan.price,
                 ],
             );
 
-        /// 🔥 AUDITORÍA IA
-        const audit =
-            buildPaymentAudit({
+            /// 🔥 NOTIFICAR SUPER ADMIN
+            await sendAdminNotification({
 
-                module:
-                    'promotion',
+                title:
+                    '⭐ Nueva solicitud premium',
 
-                entityId:
-                    result.rows[0].id,
+                body:
+                    `Usuario ${userId} solicitó promoción para lote ${entity_id}`,
 
-                userId,
+                data: {
 
-                expectedAmount:
-                    plan.price,
+                    type: 'premium_request',
 
-                proofUrl:
-                    payment_proof_url,
+                    request_id:
+                        result.rows[0].id.toString(),
 
-                aiResult,
+                    entity_id:
+                        entity_id.toString(),
+                },
             });
 
-        /// 🔥 GUARDAR VALIDACIÓN
-        await pool.query(
-
-            `
-            INSERT INTO payment_validations
-            (
-                module,
-                entity_id,
-                user_id,
-                expected_amount,
-                detected_amount,
-                proof_url,
-                receiver_name,
-                receiver_account,
-                detected_bank,
-                payment_date,
-                payment_time,
-                operation_number,
-                duplicate_operation,
-                duplicate_image,
-                confidence,
-                status,
-                ai_response,
-                audit
-            )
-            VALUES
-            (
-                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
-            )
-            `,
-            [
-
-                'promotion',
-
-                result.rows[0].id,
-
-                userId,
-
-                Number(plan.price),
-
-                aiResult.detected_amount,
-
-                payment_proof_url,
-
-                aiResult.receiver_name,
-
-                aiResult.receiver_account,
-
-                aiResult.detected_bank,
-
-                aiResult.payment_date,
-
-                aiResult.payment_time,
-
-                aiResult.operation_number,
-
-                aiResult.duplicate_operation,
-
-                aiResult.duplicate_image,
-
-                aiResult.confidence,
-
-                paymentStatus,
-
-                JSON.stringify(aiResult),
-
-                JSON.stringify(audit),
-            ],
-        );
-
-        /// 🔥 NOTIFICAR SUPER ADMIN
-        await sendAdminNotification({
-
-            title:
-                '⭐ Nueva solicitud premium',
-
-            body:
-                `Usuario ${userId} solicitó promoción para lote ${entity_id}`,
-
-            data: {
-
-                type:
-                    'premium_request',
-
-                request_id:
-                    result.rows[0].id.toString(),
-
-                entity_id:
-                    entity_id.toString(),
-            },
-        });
-
         res.json({
-
             success: true,
-
-            payment_status:
-                paymentStatus,
-
-            ai_result:
-                aiResult,
-
-            request:
-                result.rows[0],
+            request: result.rows[0],
         });
 
     } catch (err) {
@@ -323,7 +179,6 @@ exports.createPromotionRequest = async (
         );
 
         res.status(500).json({
-
             error:
                 'Error creando promoción',
         });
