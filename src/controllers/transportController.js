@@ -1955,6 +1955,7 @@ const acceptTransportNegotiation = async (req, res) => {
 
 const {
   analyzePaymentProof,
+  buildPaymentAudit,
 } = require('../services/paymentAiService');
 
 const createTransportPayment =
