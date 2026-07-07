@@ -638,13 +638,17 @@ exports.getMessages = async (req, res) => {
 
         ,
 
-        n.status as negotiation_status,
+      n.status as negotiation_status,
 
-        buyer.full_name as buyer_name,
-        buyer.phone as buyer_phone,
+      n.seller_id,
 
-        seller.full_name as seller_name,
-        seller.phone as seller_phone        
+      n.buyer_id,
+
+      buyer.full_name as buyer_name,
+      buyer.phone as buyer_phone,
+
+      seller.full_name as seller_name,
+      seller.phone as seller_phone     
 
       FROM negotiation_messages nm
 
