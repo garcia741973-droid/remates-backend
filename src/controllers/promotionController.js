@@ -1,11 +1,27 @@
 const { pool } =
     require('../config/db');
 
-    const {
+const {
     sendAdminNotification,
+    sendUserNotification,
 } = require(
     '../services/notificationService'
 );
+
+const {
+    analyzePaymentProof,
+} = require(
+    '../services/paymentAiService'
+);
+
+const {
+    buildPaymentAudit,
+} = require(
+    '../services/paymentAuditService'
+);
+
+const admin =
+    require('firebase-admin');
 
 /// 🔥 OBTENER PLANES ACTIVOS
 exports.getPlans = async (req, res) => {
@@ -106,6 +122,25 @@ exports.createPromotionRequest = async (
         const plan =
             planResult.rows[0];
 
+        /// 🤖 ANALIZAR COMPROBANTE CON IA
+        const aiResult =
+            await analyzePaymentProof({
+
+                proofImageUrl:
+                    payment_proof_url,
+
+                expectedAmount:
+                    Number(plan.price),
+            });
+
+        console.log(
+            '🤖 AI RESULT:',
+            aiResult,
+        );
+
+        const paymentStatus =
+            aiResult.status;
+
         /// 🔥 CREAR SOLICITUD
         const result =
             await pool.query(
@@ -119,7 +154,8 @@ exports.createPromotionRequest = async (
                     entity_type,
                     entity_id,
                     payment_proof_url,
-                    amount
+                    amount,
+                    status
                 )
                 VALUES
                 (
@@ -129,7 +165,8 @@ exports.createPromotionRequest = async (
                     $4,
                     $5,
                     $6,
-                    $7
+                    $7,
+                    'pending'
                 )
                 RETURNING *
                 `,
@@ -151,30 +188,131 @@ exports.createPromotionRequest = async (
                 ],
             );
 
-            /// 🔥 NOTIFICAR SUPER ADMIN
-            await sendAdminNotification({
+        /// 🔥 AUDITORÍA IA
+        const audit =
+            buildPaymentAudit({
 
-                title:
-                    '⭐ Nueva solicitud premium',
+                module:
+                    'promotion',
 
-                body:
-                    `Usuario ${userId} solicitó promoción para lote ${entity_id}`,
+                entityId:
+                    result.rows[0].id,
 
-                data: {
+                userId,
 
-                    type: 'premium_request',
+                expectedAmount:
+                    plan.price,
 
-                    request_id:
-                        result.rows[0].id.toString(),
+                proofUrl:
+                    payment_proof_url,
 
-                    entity_id:
-                        entity_id.toString(),
-                },
+                aiResult,
             });
 
+        /// 🔥 GUARDAR VALIDACIÓN
+        await pool.query(
+
+            `
+            INSERT INTO payment_validations
+            (
+                module,
+                entity_id,
+                user_id,
+                expected_amount,
+                detected_amount,
+                proof_url,
+                receiver_name,
+                receiver_account,
+                detected_bank,
+                payment_date,
+                payment_time,
+                operation_number,
+                duplicate_operation,
+                duplicate_image,
+                confidence,
+                status,
+                ai_response,
+                audit
+            )
+            VALUES
+            (
+                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
+            )
+            `,
+            [
+
+                'promotion',
+
+                result.rows[0].id,
+
+                userId,
+
+                Number(plan.price),
+
+                aiResult.detected_amount,
+
+                payment_proof_url,
+
+                aiResult.receiver_name,
+
+                aiResult.receiver_account,
+
+                aiResult.detected_bank,
+
+                aiResult.payment_date,
+
+                aiResult.payment_time,
+
+                aiResult.operation_number,
+
+                aiResult.duplicate_operation,
+
+                aiResult.duplicate_image,
+
+                aiResult.confidence,
+
+                paymentStatus,
+
+                JSON.stringify(aiResult),
+
+                JSON.stringify(audit),
+            ],
+        );
+
+        /// 🔥 NOTIFICAR SUPER ADMIN
+        await sendAdminNotification({
+
+            title:
+                '⭐ Nueva solicitud premium',
+
+            body:
+                `Usuario ${userId} solicitó promoción para lote ${entity_id}`,
+
+            data: {
+
+                type:
+                    'premium_request',
+
+                request_id:
+                    result.rows[0].id.toString(),
+
+                entity_id:
+                    entity_id.toString(),
+            },
+        });
+
         res.json({
+
             success: true,
-            request: result.rows[0],
+
+            payment_status:
+                paymentStatus,
+
+            ai_result:
+                aiResult,
+
+            request:
+                result.rows[0],
         });
 
     } catch (err) {
@@ -185,6 +323,7 @@ exports.createPromotionRequest = async (
         );
 
         res.status(500).json({
+
             error:
                 'Error creando promoción',
         });
