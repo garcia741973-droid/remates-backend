@@ -580,11 +580,60 @@ exports.uploadProof = async (
 
     try {
 
-        const { id } = req.params;
+const { id } = req.params;
 
-        const {
+const {
+    payment_proof_url,
+} = req.body;
+
+/// 🔥 OBTENER SOLICITUD
+const requestResult =
+    await pool.query(
+        `
+        SELECT
+            pr.*,
+            pp.price,
+            pp.days,
+            pp.priority
+        FROM promotion_requests pr
+        JOIN promotion_plans pp
+        ON pp.id = pr.promotion_plan_id
+        WHERE pr.id = $1
+        `,
+        [id],
+    );
+
+if (
+    requestResult.rows.length === 0
+) {
+
+    return res.status(404).json({
+        error:
+            'Solicitud no encontrada',
+    });
+}
+
+const request =
+    requestResult.rows[0];
+
+/// 🤖 ANALIZAR COMPROBANTE CON IA
+const aiResult =
+    await analyzePaymentProof({
+
+        proofImageUrl:
             payment_proof_url,
-        } = req.body;
+
+        expectedAmount:
+            Number(request.price),
+    });
+
+console.log(
+    '🤖 AI RESULT:',
+    aiResult,
+);
+
+const paymentStatus =
+    aiResult.status;
 
         await pool.query(
 
