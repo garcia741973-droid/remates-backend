@@ -9,6 +9,14 @@ const {
 } = require('../services/transportAiService');
 
 const {
+  analyzePaymentProof,
+} = require('../services/paymentAiService');
+
+const {
+  buildPaymentAudit,
+} = require('../services/paymentAuditService');
+
+const {
   sendUserNotification,
 } = require('../services/notificationService');
 
@@ -1953,10 +1961,6 @@ const acceptTransportNegotiation = async (req, res) => {
   }
 };
 
-const {
-  analyzePaymentProof,
-  buildPaymentAudit,
-} = require('../services/paymentAiService');
 
 const createTransportPayment =
   async (req, res) => {
