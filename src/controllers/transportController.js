@@ -12,9 +12,6 @@ const {
   sendUserNotification,
 } = require('../services/notificationService');
 
-const {
-  buildPaymentAudit,
-} = require('../services/paymentAuditService');
 
 const {
   analyzePaymentProof,
