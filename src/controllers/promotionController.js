@@ -788,17 +788,52 @@ await pool.query(
 
         } else {
 
-            /// 🔥 ACTUALIZAR SOLO ESTADO
+            /// ❌ RECHAZADO
+            if (
+                paymentStatus === 'rejected'
+            ) {
+
+                await pool.query(
+
+                    `
+                    UPDATE promotion_requests
+                    SET
+
+                        status = 'pending_payment',
+
+                        payment_proof_url = NULL
+
+                    WHERE id = $1
+                    `,
+                    [
+                        request.id,
+                    ],
+                );
+
+                return res.json({
+
+                    success: false,
+
+                    status: 'rejected',
+
+                    retry: true,
+
+                    message:
+                        audit.ai_notes ||
+                        'No pudimos validar el comprobante. Puedes subir otro e intentarlo nuevamente.',
+                });
+            }
+
+            /// 🟡 REVISIÓN MANUAL
             await pool.query(
 
                 `
                 UPDATE promotion_requests
                 SET
-                    status = $1
-                WHERE id = $2
+                    status = 'pending'
+                WHERE id = $1
                 `,
                 [
-                    paymentStatus,
                     request.id,
                 ],
             );
