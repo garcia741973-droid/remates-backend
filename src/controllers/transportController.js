@@ -12,6 +12,14 @@ const {
   sendUserNotification,
 } = require('../services/notificationService');
 
+const {
+  buildPaymentAudit,
+} = require('../services/paymentAuditService');
+
+const {
+  analyzePaymentProof,
+} = require('../services/paymentAiService');
+
 const registerTruck = async (req, res) => {
   try {
     const userId = req.user.user_id;
