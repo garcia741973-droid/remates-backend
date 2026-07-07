@@ -908,6 +908,55 @@ const approvePaymentValidation =
         `,
         [payment.reference_id]
       );
+
+      /// 🔥 OBTENER NEGOCIACIÓN
+      const negotiationRes =
+        await pool.query(
+          `
+          SELECT *
+          FROM negotiations
+          WHERE id = $1
+          LIMIT 1
+          `,
+          [payment.reference_id]
+        );
+
+      if (negotiationRes.rows.length > 0) {
+
+        const negotiation =
+          negotiationRes.rows[0];
+
+        try {
+
+          await sendUserNotification({
+
+            userId:
+              negotiation.seller_id,
+
+            title:
+              '❌ Comprobante rechazado',
+
+            body:
+              'Tu comprobante fue rechazado. Puedes subir uno nuevo para continuar con la negociación.',
+
+            data: {
+
+              type:
+                'payment_rejected',
+
+              negotiation_id:
+                negotiation.id,
+            },
+          });
+
+        } catch (e) {
+
+          console.log(
+            '❌ ERROR PUSH PAYMENT REJECTED',
+            e,
+          );
+        }
+      }
     }
 
     /// 🔥 SI ES TRANSPORTE

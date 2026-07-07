@@ -1214,6 +1214,38 @@ exports.uploadPaymentProof = async (req, res) => {
         ]
       );
 
+    /// 🔥 PUSH SUPER ADMIN
+    try {
+
+      await sendAdminNotification({
+
+        title:
+          '🟡 Comprobante pendiente',
+
+        body:
+          `La negociación #${negotiation.id} requiere revisión manual.`,
+
+        data: {
+
+          type:
+            'payment_pending_review',
+
+          negotiation_id:
+            negotiation.id.toString(),
+
+          lot_id:
+            negotiation.lot_id.toString(),
+        },
+      });
+
+    } catch (e) {
+
+      console.log(
+        '❌ ERROR PUSH PAYMENT PENDING',
+        e,
+      );
+    }
+
       return res.json({
 
         success: true,
