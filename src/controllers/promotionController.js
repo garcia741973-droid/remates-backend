@@ -769,6 +769,10 @@ await pool.query(
             ],
         );
 
+        /// 🔥 ACTUALIZAR OBJETO EN MEMORIA
+        request.payment_proof_url =
+            payment_proof_url;
+
         /// 🤖 APROBACIÓN AUTOMÁTICA POR IA
         if (
             paymentStatus === 'approved'
@@ -837,6 +841,17 @@ await pool.query(
                     request.id,
                 ],
             );
+
+            return res.json({
+
+                success: true,
+
+                status: 'pending',
+
+                message:
+                    'Tu comprobante fue recibido y quedó en revisión. Te notificaremos cuando sea aprobado.',
+            });
+
         }
 
         /// 🔥 PUSH SUPER ADMIN
