@@ -644,8 +644,159 @@ console.log(
     aiResult,
 );
 
-const paymentStatus =
-    aiResult.status;
+/// 📋 CONSTRUIR AUDITORÍA
+const audit =
+    buildPaymentAudit({
+
+        aiResult,
+
+        proofImageUrl:
+            payment_proof_url,
+    });
+
+console.log(
+    '📋 PAYMENT AUDIT:',
+    audit,
+);
+
+/// 🤖 DECIDIR ESTADO DEL PAGO
+let paymentStatus;
+
+if (
+
+    audit.payment_valid &&
+
+    audit.account_match &&
+
+    audit.holder_match &&
+
+    audit.proof_complete &&
+
+    !audit.possible_manipulation &&
+
+    Number(audit.ai_confidence) >= 85
+
+) {
+
+    paymentStatus =
+        'approved';
+
+}
+else if (
+
+    !audit.payment_valid ||
+
+    !audit.account_match ||
+
+    !audit.holder_match ||
+
+    Number(audit.ai_confidence) < 60
+
+) {
+
+    paymentStatus =
+        'rejected';
+
+}
+else {
+
+    paymentStatus =
+        'pending';
+}
+
+console.log(
+    '💳 PAYMENT STATUS:',
+    paymentStatus,
+);
+
+/// 🔥 GUARDAR VALIDACIÓN IA
+await pool.query(
+    `
+    INSERT INTO payment_validations
+    (
+        module,
+        reference_id,
+        payer_user_id,
+        expected_amount,
+        proof_image_url,
+
+        detected_amount,
+        detected_bank,
+        detected_reference,
+        detected_sender,
+        detected_date,
+        detected_time,
+
+        destination_account,
+        destination_holder,
+
+        account_match,
+        holder_match,
+
+        proof_complete,
+        possible_manipulation,
+        payment_valid,
+
+        ai_verified,
+        ai_confidence,
+        ai_notes,
+        ai_model,
+        ai_json,
+        proof_hash,
+
+        status
+    )
+    VALUES
+    (
+        $1,$2,$3,$4,$5,
+
+        $6,$7,$8,$9,$10,$11,
+
+        $12,$13,
+
+        $14,$15,
+
+        $16,$17,$18,
+
+        $19,$20,$21,$22,$23,$24,
+
+        $25
+    )
+    `,
+    [
+        'promotion',
+        request.id,
+        request.user_id,
+        request.price,
+        payment_proof_url,
+
+        audit.detected_amount,
+        audit.detected_bank,
+        audit.detected_reference,
+        audit.detected_sender,
+        audit.detected_date,
+        audit.detected_time,
+
+        audit.destination_account,
+        audit.destination_holder,
+
+        audit.account_match,
+        audit.holder_match,
+
+        audit.proof_complete,
+        audit.possible_manipulation,
+        audit.payment_valid,
+
+        audit.ai_verified,
+        audit.ai_confidence,
+        audit.ai_notes,
+        audit.ai_model,
+        JSON.stringify(audit.ai_json),
+        audit.proof_hash,
+
+        paymentStatus,
+    ]
+);
 
         await pool.query(
 
@@ -653,7 +804,7 @@ const paymentStatus =
             UPDATE promotion_requests
             SET
                 payment_proof_url = $1,
-                status = 'pending_approval'
+                status = $2
             WHERE id = $2
             `,
             [
