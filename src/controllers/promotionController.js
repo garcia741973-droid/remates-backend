@@ -197,6 +197,196 @@ exports.createPromotionRequest = async (
     }
 };
 
+/// 🔥 EJECUTAR APROBACIÓN DE PROMOCIÓN
+const executePromotionApproval =
+    async ({
+        request,
+        approvedBy,
+    }) => {
+
+        /// 🔥 VALIDAR LIMITE DESTACADOS
+        if (
+            request.entity_type === 'lot'
+        ) {
+
+            if (request.priority < 2) {
+
+                const activeResult =
+                    await pool.query(
+                        `
+                        SELECT COUNT(*) as total
+                        FROM lots
+                        WHERE
+                            promotion_priority = 1
+                            AND promoted_until IS NOT NULL
+                            AND promoted_until > NOW()
+                        `
+                    );
+
+                const activeTotal =
+                    parseInt(
+                        activeResult.rows[0].total
+                    );
+
+                if (activeTotal >= 10) {
+
+                    throw new Error(
+                        'Ya existen 10 destacados activos'
+                    );
+                }
+            }
+        }
+
+        const startDate =
+            new Date();
+
+        const endDate =
+            new Date();
+
+        endDate.setDate(
+            endDate.getDate() +
+            request.days,
+        );
+
+        const activeResult =
+            await pool.query(
+                `
+                SELECT COUNT(*) as total
+                FROM lots
+                WHERE
+                    promoted_until IS NOT NULL
+                    AND promoted_until > NOW()
+                `
+            );
+
+        const activeTotal =
+            parseInt(
+                activeResult.rows[0].total,
+            );
+
+        if (
+            activeTotal >= 10
+        ) {
+
+            throw new Error(
+                'No hay espacios disponibles en destacados'
+            );
+        }
+
+        if (
+            request.priority >= 2
+        ) {
+
+            const premiumResult =
+                await pool.query(
+                    `
+                    SELECT COUNT(*) as total
+                    FROM lots
+                    WHERE
+                        promotion_priority >= 2
+                        AND promoted_until IS NOT NULL
+                        AND promoted_until > NOW()
+                    `
+                );
+
+            const premiumTotal =
+                parseInt(
+                    premiumResult.rows[0].total,
+                );
+
+            if (
+                premiumTotal >= 3
+            ) {
+
+                throw new Error(
+                    'No hay espacios premium disponibles'
+                );
+            }
+        }
+
+        if (
+            request.entity_type ===
+            'lot'
+        ) {
+
+            await pool.query(
+                `
+                UPDATE lots
+                SET
+                    promoted_until = $1,
+                    promotion_priority = $2
+                WHERE id = $3
+                `,
+                [
+                    endDate,
+                    request.priority,
+                    request.entity_id,
+                ],
+            );
+        }
+
+        await pool.query(
+            `
+            UPDATE promotion_requests
+            SET
+                status = 'approved',
+                is_visible = true,
+                starts_at = $1,
+                ends_at = $2,
+                approved_at = NOW()
+            WHERE id = $3
+            `,
+            [
+                startDate,
+                endDate,
+                request.id,
+            ],
+        );
+
+        await pool.query(
+            `
+            INSERT INTO cash_movements
+            (
+                company_id,
+                type,
+                category,
+                amount,
+                description,
+                reference_type,
+                reference_id,
+                proof_url,
+                created_by
+            )
+            VALUES
+            (
+                $1,
+                'income',
+                'destacados',
+                $2,
+                $3,
+                'promotion',
+                $4,
+                $5,
+                $6
+            )
+            `,
+            [
+
+                request.company_id,
+
+                request.amount || 0,
+
+                `Promoción lote #${request.entity_id}`,
+
+                request.id,
+
+                request.payment_proof_url,
+
+                approvedBy,
+            ],
+        );
+    };
+
 /// 🔥 ADMIN APROBAR PROMOCIÓN
 exports.approvePromotion =
     async (req, res) => {
@@ -236,246 +426,13 @@ exports.approvePromotion =
             const request =
                 requestResult.rows[0];
 
-            /// 🔥 VALIDAR LIMITE DESTACADOS
-            if (
-                request.entity_type === 'lot'
-            ) {
+            await executePromotionApproval({
 
-                /// 🔥 SOLO DESTACADOS NORMALES
-                if (request.priority < 2) {
+                request,
 
-                    const activeResult =
-                        await pool.query(
-
-                            `
-                            SELECT COUNT(*) as total
-                            FROM lots
-                            WHERE
-
-                                promotion_priority = 1
-
-                                AND promoted_until IS NOT NULL
-
-                                AND promoted_until > NOW()
-                            `
-                        );
-
-                    const activeTotal =
-                        parseInt(
-                            activeResult.rows[0].total
-                        );
-
-                    console.log(
-                        '🔥 ACTIVE NORMAL FEATURED:',
-                        activeTotal,
-                    );
-
-                    if (activeTotal >= 10) {
-
-                        return res.status(400).json({
-
-                            error:
-                                'Ya existen 10 destacados activos',
-                        });
-                    }
-                }
-            }
-
-            /// 🔥 CALCULAR FECHAS
-            const startDate =
-                new Date();
-
-            const endDate =
-                new Date();
-
-            endDate.setDate(
-                endDate.getDate() +
-                    request.days,
-            );
-
-
-            /// 🔥 VALIDAR CUPOS ACTIVOS
-
-            const activeResult =
-                await pool.query(
-
-                    `
-                    SELECT COUNT(*) as total
-                    FROM lots
-                    WHERE
-
-                        promoted_until IS NOT NULL
-
-                        AND promoted_until > NOW()
-                    `
-                );
-
-            const activeTotal =
-                parseInt(
-                    activeResult.rows[0].total,
-                );
-
-            if (activeTotal >= 10) {
-
-                return res.status(400).json({
-
-                    error:
-                        'No hay espacios disponibles en destacados',
-                });
-            }
-
-            /// 🔥 VALIDAR PREMIUM
-            if (request.priority >= 2) {
-
-                const premiumResult =
-                    await pool.query(
-
-                        `
-                        SELECT COUNT(*) as total
-                        FROM lots
-                        WHERE
-
-                            promotion_priority >= 2
-
-                            AND promoted_until IS NOT NULL
-
-                            AND promoted_until > NOW()
-                        `
-                    );
-
-                const premiumTotal =
-                    parseInt(
-                        premiumResult.rows[0].total,
-                    );
-
-                if (premiumTotal >= 3) {
-
-                    return res.status(400).json({
-
-                        error:
-                            'No hay espacios premium disponibles',
-                    });
-                }
-            }
-
-            /// 🔥 SI ES LOTE
-            if (
-                request.entity_type ===
-                'lot'
-            ) {
-
-                console.log(
-                    '🔥 PROMOTING LOT:',
-                    request.entity_id,
-                );
-
-                console.log(
-                    '🔥 PRIORITY:',
-                    request.priority,
-                );
-
-                console.log(
-                    '🔥 END DATE:',
-                    endDate,
-                );
-
-                const updateResult =
-                    await pool.query(
-
-                        `
-                        UPDATE lots
-                        SET
-                            promoted_until = $1,
-                            promotion_priority = $2
-                        WHERE id = $3
-                        RETURNING *
-                        `,
-                        [
-                            endDate,
-                            request.priority,
-                            request.entity_id,
-                        ],
-                    );
-
-
-                    
-                console.log(
-                    '🔥 LOT UPDATED:',
-                    updateResult.rows[0],
-                );
-            }
-
-            /// 🔥 ACTUALIZAR REQUEST
-            await pool.query(
-
-                `
-                UPDATE promotion_requests
-                SET
-
-                    status = 'approved',
-
-                    is_visible = true,
-
-                    starts_at = $1,
-
-                    ends_at = $2,
-
-                    approved_at = NOW()
-
-                WHERE id = $3
-                `,
-                [
-                    startDate,
-                    endDate,
-                    id,
-                ],
-            );
-
-            /// 🔥 REGISTRAR INGRESO EN CAJA
-            await pool.query(
-
-                `
-                INSERT INTO cash_movements
-                (
-                    company_id,
-                    type,
-                    category,
-                    amount,
-                    description,
-                    reference_type,
-                    reference_id,
-                    proof_url,
-                    created_by
-                )
-
-                VALUES
-                (
-                    $1,
-                    'income',
-                    'destacados',
-                    $2,
-                    $3,
-                    'promotion',
-                    $4,
-                    $5,
-                    $6
-                )
-                `,
-                [
-
-                    request.company_id,
-
-                    request.amount || 0,
-
-                    `Promoción lote #${request.entity_id}`,
-
-                    request.id,
-
-                    request.payment_proof_url,
-
+                approvedBy:
                     req.user.user_id,
-                ],
-            );
+            });
 
             res.json({
                 success: true,
@@ -803,16 +760,49 @@ await pool.query(
             `
             UPDATE promotion_requests
             SET
-                payment_proof_url = $1,
-                status = $2
-            WHERE id = $3
+                payment_proof_url = $1
+            WHERE id = $2
             `,
             [
                 payment_proof_url,
-                paymentStatus,
                 id,
             ],
         );
+
+        /// 🤖 APROBACIÓN AUTOMÁTICA POR IA
+        if (
+            paymentStatus === 'approved'
+        ) {
+
+            console.log(
+                '🤖 AUTO APPROVING PROMOTION:',
+                request.id,
+            );
+
+            await executePromotionApproval({
+
+                request,
+
+                approvedBy: null,
+            });
+
+        } else {
+
+            /// 🔥 ACTUALIZAR SOLO ESTADO
+            await pool.query(
+
+                `
+                UPDATE promotion_requests
+                SET
+                    status = $1
+                WHERE id = $2
+                `,
+                [
+                    paymentStatus,
+                    request.id,
+                ],
+            );
+        }
 
         /// 🔥 PUSH SUPER ADMIN
         await sendAdminNotification({
