@@ -7,6 +7,18 @@ const { pool } =
     '../services/notificationService'
 );
 
+const {
+    analyzePaymentProof,
+} = require(
+    '../services/paymentAiService'
+);
+
+const {
+    buildPaymentAudit,
+} = require(
+    '../services/paymentAuditService'
+);
+
 /// 🔥 OBTENER PLANES ACTIVOS
 exports.getPlans = async (req, res) => {
 
