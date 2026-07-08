@@ -3333,6 +3333,47 @@ const getTripMapData = async (
     const negotiation =
       negotiationResult.rows[0];
 
+    /// RECEPCIÓN
+    negotiation.dispatch_exists =
+        [
+            'loading_completed',
+            'trip_active',
+            'delivery_pending',
+            'delivered',
+        ].includes(
+            negotiation.status,
+        );
+
+    /// MANIFIESTO
+    const guideResult =
+        await pool.query(
+            `
+            SELECT id
+            FROM transport_guides
+            WHERE negotiation_id = $1
+            LIMIT 1
+            `,
+            [negotiationId]
+        );
+
+    negotiation.guide_exists =
+        guideResult.rows.length > 0;
+
+    /// ENTREGA
+    const deliveryResult =
+        await pool.query(
+            `
+            SELECT id
+            FROM transport_delivery_reports
+            WHERE negotiation_id = $1
+            LIMIT 1
+            `,
+            [negotiationId]
+        );
+
+    negotiation.delivery_exists =
+        deliveryResult.rows.length > 0;
+      
       negotiation.is_requester =
         negotiation.requester_id ===
         req.user.user_id;
