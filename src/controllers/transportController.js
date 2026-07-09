@@ -1754,7 +1754,10 @@ const getMyTransportRequests = async (req, res) => {
           ) AS pending_negotiations
         FROM transport_requests tr
         WHERE tr.user_id = $1
-        AND tr.status != 'cancelled'
+        AND tr.status IN (
+            'open',
+            'payment_pending'
+        )
         ORDER BY tr.id DESC
         `,
         [userId]
