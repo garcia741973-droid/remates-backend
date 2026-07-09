@@ -2541,9 +2541,10 @@ const createDispatch = async (req, res) => {
           event_lng,
           notes,
           created_by,
-          event_local_time
+          event_local_time,
+          signed_by
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
         RETURNING *
         `,
         [
@@ -2556,6 +2557,7 @@ const createDispatch = async (req, res) => {
           notes,
           userId,
           event_local_time,
+          signed_by,
         ]
       );
 
