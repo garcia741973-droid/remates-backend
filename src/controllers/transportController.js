@@ -1516,6 +1516,43 @@ const sendTransportMessage = async (req, res) => {
       });
     }
 
+    /// 🔒 VALIDAR SI EL CHAT SIGUE DISPONIBLE
+    const negotiationRes =
+      await pool.query(
+        `
+        SELECT
+          status,
+          chat_available_until
+        FROM transport_negotiations
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [negotiation_id]
+      );
+
+    if (negotiationRes.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Negociación no encontrada',
+      });
+    }
+
+    const negotiation =
+      negotiationRes.rows[0];
+
+    if (
+      negotiation.status === 'delivered' &&
+      negotiation.chat_available_until &&
+      new Date() >
+        new Date(
+          negotiation.chat_available_until
+        )
+    ) {
+      return res.status(400).json({
+        error:
+          'Este chat se cerró automáticamente 48 horas después de finalizar el viaje.',
+      });
+    }
+
     /// 1. GUARDAR SQL (auditoría)
     const result =
       await pool.query(
@@ -3038,7 +3075,9 @@ const createDeliveryReport =
       await pool.query(
         `
         UPDATE transport_negotiations
-        SET status = 'delivered'
+        SET
+          status = 'delivered',
+          chat_available_until = NOW() + INTERVAL '48 hours'
         WHERE id = $1
         `,
         [negotiation_id]
@@ -3075,6 +3114,31 @@ const createDeliveryReport =
         signature_url: receiver_signature_url,
         lat: delivery_lat,
         lng: delivery_lng,
+        created_at:
+          admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    /// ✅ MENSAJE CIERRE DEL CHAT
+    await admin
+      .firestore()
+      .collection('transport_negotiations')
+      .doc(negotiation_id.toString())
+      .collection('messages')
+      .add({
+        sender_id: 0,
+        system: true,
+        message:
+    `━━━━━━━━━━━━━━━━━━
+
+    ✅ El viaje ha finalizado correctamente.
+
+    Este chat permanecerá disponible durante las próximas 48 horas para consultas relacionadas con este transporte.
+
+    Transcurrido ese tiempo el chat se cerrará automáticamente y permanecerá disponible únicamente para consulta.
+
+    Gracias por utilizar Plaza Ganadera Transporte.
+
+    ━━━━━━━━━━━━━━━━━━`,
         created_at:
           admin.firestore.FieldValue.serverTimestamp(),
       });
