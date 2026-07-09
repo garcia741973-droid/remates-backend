@@ -3244,9 +3244,11 @@ const getMyTrips = async (req, res) => {
         AND tn.hidden_by_requester = false
       )
     )
-    AND tn.status NOT IN (
-      'delivered',
-      'cancelled'
+    AND tn.status IN (
+    'paid',
+    'trip_active',
+    'loading_completed',
+    'delivery_pending'
     )
 
     ORDER BY tn.id, tg.created_at DESC
