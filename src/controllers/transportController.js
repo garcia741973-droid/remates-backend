@@ -3589,7 +3589,21 @@ const getMyTripsHistory =
             tt.model,
 
             tg.id AS guide_id,
+
+            dispatch_event.event_local_time
+                AS dispatch_time,
+
+            dispatch_event.signed_by
+                AS sender_name,
+
+            tdr.delivered_at,
+
+            tdr.receiver_name,
+
+            tg.driver_name,
+
             tvr.id AS review_id,
+
             tvr.rating
 
           FROM transport_negotiations tn
@@ -3602,6 +3616,13 @@ const getMyTripsHistory =
 
           LEFT JOIN transport_guides tg
             ON tg.negotiation_id = tn.id
+
+          LEFT JOIN transport_delivery_reports tdr
+            ON tdr.negotiation_id = tn.id
+
+          LEFT JOIN transport_trip_events dispatch_event
+            ON dispatch_event.negotiation_id = tn.id
+          AND dispatch_event.event_type = 'dispatch'
 
           LEFT JOIN transport_reviews tvr
             ON tvr.negotiation_id = tn.id
@@ -3616,7 +3637,7 @@ const getMyTripsHistory =
               'cancelled'
             )
 
-          ORDER BY tn.id, tg.created_at DESC
+          ORDER BY tn.id, dispatch_event.event_local_time DESC NULLS LAST
           `,
           [userId]
         );
@@ -3656,7 +3677,22 @@ const getRequesterTripsHistory =
           tt.brand,
           tt.model,
 
+          tg.id AS guide_id,
+
+          dispatch_event.event_local_time
+              AS dispatch_time,
+
+          dispatch_event.signed_by
+              AS sender_name,
+
+          tdr.delivered_at,
+
+          tdr.receiver_name,
+
+          tg.driver_name,
+
           tvr.id AS review_id,
+
           tvr.rating
 
         FROM transport_negotiations tn
@@ -3666,6 +3702,16 @@ const getRequesterTripsHistory =
 
         JOIN transporter_trucks tt
           ON tn.truck_id = tt.id
+
+        LEFT JOIN transport_guides tg
+          ON tg.negotiation_id = tn.id
+
+        LEFT JOIN transport_delivery_reports tdr
+          ON tdr.negotiation_id = tn.id
+
+        LEFT JOIN transport_trip_events dispatch_event
+          ON dispatch_event.negotiation_id = tn.id
+        AND dispatch_event.event_type = 'dispatch'
 
         LEFT JOIN transport_reviews tvr
           ON tvr.negotiation_id = tn.id
