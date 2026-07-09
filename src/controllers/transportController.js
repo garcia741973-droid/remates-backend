@@ -1517,7 +1517,7 @@ const sendTransportMessage = async (req, res) => {
     }
 
     /// 🔒 VALIDAR SI EL CHAT SIGUE DISPONIBLE
-    const negotiationRes =
+    const chatRes =
       await pool.query(
         `
         SELECT
@@ -1530,21 +1530,21 @@ const sendTransportMessage = async (req, res) => {
         [negotiation_id]
       );
 
-    if (negotiationRes.rows.length === 0) {
+    if (chatRes.rows.length === 0) {
       return res.status(404).json({
         error: 'Negociación no encontrada',
       });
     }
 
-    const negotiation =
-      negotiationRes.rows[0];
+    const chatNegotiation =
+      chatRes.rows[0];
 
     if (
-      negotiation.status === 'delivered' &&
-      negotiation.chat_available_until &&
+      chatNegotiation.status === 'delivered' &&
+      chatNegotiation.chat_available_until &&
       new Date() >
         new Date(
-          negotiation.chat_available_until
+          chatNegotiation.chat_available_until
         )
     ) {
       return res.status(400).json({
