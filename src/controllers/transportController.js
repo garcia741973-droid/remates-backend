@@ -3835,6 +3835,67 @@ const createTransportReview = async (
   }
 };
 
+const getMyRatings = async (
+  req,
+  res
+) => {
+  try {
+
+    const userId =
+      req.user.user_id;
+
+    const result =
+      await pool.query(
+        `
+        SELECT
+          tr.id,
+          tr.rating,
+          tr.comment,
+          tr.created_at,
+
+          tn.id AS negotiation_id,
+
+          req.origin,
+          req.destination,
+          req.quantity,
+          req.animal_type,
+
+          truck.plate
+
+        FROM transport_reviews tr
+
+        JOIN transport_negotiations tn
+          ON tn.id = tr.negotiation_id
+
+        JOIN transport_requests req
+          ON req.id = tn.request_id
+
+        LEFT JOIN transporter_trucks truck
+          ON truck.id = tn.truck_id
+
+        WHERE tr.transporter_id = $1
+
+        ORDER BY tr.created_at DESC
+        `,
+        [userId]
+      );
+
+    res.json(
+      result.rows,
+    );
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error obteniendo calificaciones',
+    });
+
+  }
+};
+
 const getTransportDashboard =
   async (req, res) => {
     try {
@@ -4397,4 +4458,5 @@ module.exports = {
   getRequesterTrips,
   prepareTrip,
   createTransportReview,
+  getMyRatings,
 };
