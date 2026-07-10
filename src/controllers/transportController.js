@@ -3080,10 +3080,57 @@ const createDeliveryReport =
         UPDATE transport_negotiations
         SET
           status = 'delivered',
+          delivered_at = NOW(),
+          real_destination_lat = $2,
+          real_destination_lng = $3,
           chat_available_until = NOW() + INTERVAL '48 hours'
         WHERE id = $1
         `,
-        [negotiation_id]
+        [
+          negotiation_id,
+          delivery_lat,
+          delivery_lng,
+        ]
+      );
+
+      await pool.query(
+        `
+        INSERT INTO transport_trip_events (
+          negotiation_id,
+          event_type,
+          photo_url,
+          signature_url,
+          notes,
+          created_by,
+          event_local_time,
+          event_lat,
+          event_lng,
+          signed_by
+        )
+        VALUES (
+          $1,
+          'delivery',
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          $7,
+          $8,
+          $9
+        )
+        `,
+        [
+          negotiation_id,
+          delivery_photo_url,
+          receiver_signature_url,
+          notes,
+          userId,
+          event_local_time || new Date(),
+          delivery_lat,
+          delivery_lng,
+          receiver_name,
+        ]
       );
 
       await pool.query(
