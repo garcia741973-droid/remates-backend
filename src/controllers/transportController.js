@@ -3992,9 +3992,10 @@ const getTransportDashboard =
             transporter_id = $1
             OR requester_id = $1
           )
-          AND status NOT IN (
-            'delivered',
-            'cancelled'
+          AND status IN (
+            'trip_active',
+            'in_trip',
+            'delivery_pending'
           )
           `,
           [userId]
