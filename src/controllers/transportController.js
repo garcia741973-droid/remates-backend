@@ -3404,16 +3404,21 @@ const getTripMapData = async (
     const negotiation =
       negotiationResult.rows[0];
 
-    /// RECEPCIÓN
-    negotiation.dispatch_exists =
-        [
-            'loading_completed',
-            'trip_active',
-            'delivery_pending',
-            'delivered',
-        ].includes(
-            negotiation.status,
+    /// DESPACHO
+    const dispatchResult =
+        await pool.query(
+            `
+            SELECT id
+            FROM transport_trip_events
+            WHERE negotiation_id = $1
+            AND event_type = 'dispatch'
+            LIMIT 1
+            `,
+            [negotiationId]
         );
+
+    negotiation.dispatch_exists =
+        dispatchResult.rows.length > 0;
 
     /// MANIFIESTO
     const guideResult =
