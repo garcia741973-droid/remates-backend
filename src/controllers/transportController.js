@@ -1817,13 +1817,25 @@ const getRequestNegotiations = async (req, res) => {
     const result =
       await pool.query(
         `
-      SELECT
-        tn.*,
-        tt.plate,
-        tt.brand,
-        tt.model,
+        SELECT
+          tn.*,
 
-        COALESCE((
+          u.full_name,
+
+          tt.plate,
+          tt.brand,
+          tt.model,
+          tt.year,
+
+          tt.capacity_large,
+          tt.capacity_small,
+
+          tt.has_trailer,
+          tt.trailer_capacity,
+
+          tt.front_photo,
+
+          COALESCE((
           SELECT ROUND(AVG(rating), 1)
           FROM transport_reviews
           WHERE transporter_id = tn.transporter_id
@@ -1835,8 +1847,12 @@ const getRequestNegotiations = async (req, res) => {
           WHERE transporter_id = tn.transporter_id
         ) AS total_reviews
         FROM transport_negotiations tn
+
         JOIN transporter_trucks tt
           ON tn.truck_id = tt.id
+
+        JOIN users u
+          ON u.id = tn.transporter_id
         WHERE tn.request_id = $1
         AND tn.status IN (
           'open',
