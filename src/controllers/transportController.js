@@ -774,6 +774,11 @@ await admin
 25-36: ${female_25_36}
 +36: ${female_36_plus}
 
+CON ESTOS DATOS PUEDE GENERAR LA GUIA
+PUEDE ADJUNTAR EN ESTE CHAT ARRIBA 
+CON EL BOTON 📄 SERA ENVIADO AL CAMIONERO
+CUANDO ESTE TENGA SEÑAL
+
 🔗 Ver manifiesto:
 ${process.env.APP_URL}/transport/shared-guide/${shareToken}`,
     guide_url:
