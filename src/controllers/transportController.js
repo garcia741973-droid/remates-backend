@@ -2363,7 +2363,7 @@ const createTransportPayment =
             ${users.transporter_name}
             ${users.transporter_phone}
 
-            📦 Ahora ve a MIS VIAJES para continuar:
+            📦 Ahora ve a 👉 MIS VIAJES 👈 para continuar:
 
             • Crear despacho
             • Confirmar carga
