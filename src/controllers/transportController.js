@@ -554,7 +554,23 @@ const getMyTripCashboxes =
               FROM transport_trip_cashbox_items
               WHERE cashbox_id = tc.id
               AND type = 'expense'
-            ),0) AS total_expenses
+            ),0) AS total_expenses,
+
+            (
+              COALESCE((
+                SELECT SUM(amount)
+                FROM transport_trip_cashbox_items
+                WHERE cashbox_id = tc.id
+                  AND type = 'income'
+              ),0)
+              -
+              COALESCE((
+                SELECT SUM(amount)
+                FROM transport_trip_cashbox_items
+                WHERE cashbox_id = tc.id
+                  AND type = 'expense'
+              ),0)
+            ) AS result
 
           FROM transport_trip_cashboxes tc
           JOIN transport_negotiations tn
