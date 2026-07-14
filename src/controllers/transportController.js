@@ -269,6 +269,29 @@ const createTripCashbox = async (
       advance_received,
     } = req.body;
 
+    const openCashbox =
+      await pool.query(
+        `
+        SELECT
+          id,
+          negotiation_id
+        FROM transport_trip_cashboxes
+        WHERE transporter_id = $1
+          AND is_closed = false
+        LIMIT 1
+        `,
+        [transporterId]
+      );
+
+    if (openCashbox.rows.length > 0) {
+      return res.status(400).json({
+        error:
+          'Debes cerrar la caja del viaje actual antes de crear una nueva.',
+        negotiation_id:
+          openCashbox.rows[0].negotiation_id,
+      });
+    }
+
     const existing =
       await pool.query(
         `
