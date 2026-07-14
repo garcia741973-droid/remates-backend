@@ -563,7 +563,9 @@ const getMyTripCashboxes =
             ON tr.id = tn.request_id
 
           WHERE tc.transporter_id = $1
-          ORDER BY tc.id DESC
+          ORDER BY
+            tc.is_closed ASC,
+            tc.id DESC
           `,
           [userId]
         );
@@ -630,8 +632,51 @@ const getMyTruckReviews =
 const closeTripCashbox =
   async (req, res) => {
     try {
+
+      const transporterId =
+        req.user.user_id;
+
       const { cashbox_id } =
         req.body;
+
+      const cashbox =
+        await pool.query(
+          `
+          SELECT *
+          FROM transport_trip_cashboxes
+          WHERE id = $1
+          LIMIT 1
+          `,
+          [cashbox_id]
+        );
+
+      if (
+        cashbox.rows.length === 0
+      ) {
+        return res.status(404).json({
+          error:
+            'Caja no encontrada',
+        });
+      }
+
+      if (
+        cashbox.rows[0].transporter_id !=
+        transporterId
+      ) {
+        return res.status(403).json({
+          error:
+            'No tienes permiso para cerrar esta caja',
+        });
+      }
+
+      if (
+        cashbox.rows[0].is_closed
+      ) {
+        return res.status(400).json({
+          error:
+            'La caja ya fue cerrada',
+        });
+      }
 
       const result =
         await pool.query(
@@ -649,6 +694,7 @@ const closeTripCashbox =
       res.json(result.rows[0]);
 
     } catch (error) {
+
       console.error(error);
 
       res.status(500).json({
