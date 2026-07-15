@@ -4658,21 +4658,24 @@ const importLocation = async (
       locationRes.rows[0];
 
     const duplicate =
-      await pool.query(
-        `
-        SELECT id
-        FROM transport_saved_locations
-        WHERE
-          user_id = $1
-        AND
-          name = $2
-        LIMIT 1
-        `,
-        [
-          userId,
-          location.name,
-        ]
-      );
+          await pool.query(
+            `
+            SELECT id
+            FROM transport_saved_locations
+            WHERE
+              user_id = $1
+            AND
+              latitude = $2
+            AND
+              longitude = $3
+            LIMIT 1
+            `,
+            [
+              userId,
+              location.latitude,
+              location.longitude,
+            ]
+          );
 
     if (
       duplicate.rows.length > 0
