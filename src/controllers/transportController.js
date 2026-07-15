@@ -4578,6 +4578,8 @@ const importLocation = async (
 ) => {
   try {
 
+  await pool.query('BEGIN');  
+
     const userId =
       req.user.user_id;
 
@@ -4774,6 +4776,8 @@ const importLocation = async (
       ]
     );
 
+    await pool.query('COMMIT');
+
     res.json({
       success: true,
       location:
@@ -4782,13 +4786,15 @@ const importLocation = async (
         routes.rows.length,
     });
 
-  } catch (error) {
+    } catch (error) {
+
+    await pool.query('ROLLBACK');
 
     console.error(error);
 
     res.status(500).json({
-      error:
-        'Error importando ubicación',
+        error:
+          'Error importando ubicación',
     });
 
   }
