@@ -49,6 +49,7 @@ const {
   createSavedLocation,
   getMySavedLocations,
   deleteSavedLocation,
+  shareLocation,
   createLocationRoute,
   getLocationRoutes, 
   getSharedTripMap, 
@@ -332,6 +333,12 @@ router.delete(
   '/saved-locations/:id',
   requireAuth,
   deleteSavedLocation
+);
+
+router.post(
+  '/share-location',
+  requireAuth,
+  shareLocation
 );
 
 router.post(

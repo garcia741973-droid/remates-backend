@@ -4441,6 +4441,137 @@ const deleteSavedLocation = async (
   }
 };
 
+function generateShareToken() {
+  const number =
+      Math.floor(
+          100000 +
+          Math.random() * 900000,
+      );
+
+  return `PG${number}`;
+}
+
+const shareLocation = async (
+  req,
+  res
+) => {
+  try {
+
+    const userId =
+        req.user.user_id;
+
+    const {
+      saved_location_id,
+      share_message,
+    } = req.body;
+
+    const location =
+        await pool.query(
+      `
+      SELECT *
+      FROM transport_saved_locations
+      WHERE id = $1
+      AND user_id = $2
+      `,
+      [
+        saved_location_id,
+        userId,
+      ]
+    );
+
+    if (
+      location.rows.length === 0
+    ) {
+      return res.status(404).json({
+        error:
+          'Ubicación no encontrada',
+      });
+    }
+
+    await pool.query(
+      `
+      UPDATE transport_location_share_tokens
+      SET expires_at = NOW()
+      WHERE saved_location_id = $1
+      AND expires_at > NOW()
+      `,
+      [
+        saved_location_id,
+      ]
+    );
+
+    let token;
+    let exists = true;
+
+    while (exists) {
+
+      token =
+          generateShareToken();
+
+      const verify =
+          await pool.query(
+        `
+        SELECT id
+        FROM transport_location_share_tokens
+        WHERE share_token = $1
+        `,
+        [token]
+      );
+
+      exists =
+          verify.rows.length > 0;
+    }
+
+    const expires =
+        new Date(
+          Date.now() +
+          (48 * 60 * 60 * 1000),
+        );
+
+    await pool.query(
+      `
+      INSERT INTO transport_location_share_tokens (
+        saved_location_id,
+        created_by,
+        share_token,
+        expires_at,
+        share_message
+      )
+      VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5
+      )
+      `,
+      [
+        saved_location_id,
+        userId,
+        token,
+        expires,
+        share_message || null,
+      ]
+    );
+
+    res.json({
+      success: true,
+      token,
+      expires_at: expires,
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error:
+          'Error compartiendo ubicación',
+    });
+
+  }
+};
+
 const createLocationRoute = async (req, res) => {
   try {
     const {
@@ -4680,6 +4811,7 @@ module.exports = {
   createSavedLocation,
   getMySavedLocations,
   deleteSavedLocation,
+  shareLocation,
   createLocationRoute,
   getLocationRoutes,
   getSharedTripMap,
