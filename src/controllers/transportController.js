@@ -4756,7 +4756,8 @@ const importLocation = async (
 
     }
 
-    await pool.query(
+    const updateToken =
+        await pool.query(
       `
       UPDATE transport_location_share_tokens
       SET
@@ -4768,13 +4769,28 @@ const importLocation = async (
 
         used_at = NOW()
 
-      WHERE id = $2
+      WHERE
+        id = $2
+      AND
+        times_used < max_uses
+
+      RETURNING id
       `,
       [
         userId,
         share.id,
       ]
     );
+
+    if (
+      updateToken.rows.length === 0
+    ) {
+
+      throw new Error(
+        'Token ya utilizado'
+      );
+
+    }
 
     await pool.query('COMMIT');
 
