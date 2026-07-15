@@ -4769,7 +4769,7 @@ const importLocation = async (
           newLocation.rows[0].id,
           route.name,
           route.route_type,
-          route.route_points,
+          JSON.stringify(route.route_points),
           route.distance_km,
           route.duration_minutes,
         ]
