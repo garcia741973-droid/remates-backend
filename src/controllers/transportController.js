@@ -4746,9 +4746,6 @@ const importLocation = async (
       of routes.rows
     ) {
 
-      console.log('TIPO:', typeof route.route_points);
-      console.log(route.route_points);
-
       await pool.query(
         `
         INSERT INTO transport_location_routes (
