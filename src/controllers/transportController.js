@@ -4558,6 +4558,10 @@ const shareLocation = async (
       success: true,
       token,
       expires_at: expires,
+      location_name:
+          location.rows[0].name,
+      message:
+          share_message ?? '',
     });
 
   } catch (error) {
