@@ -4442,13 +4442,24 @@ const deleteSavedLocation = async (
 };
 
 function generateShareToken() {
-  const number =
-      Math.floor(
-          100000 +
-          Math.random() * 900000,
-      );
 
-  return `PG${number}`;
+  const chars =
+      'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+  let token = 'PG';
+
+  for (let i = 0; i < 6; i++) {
+
+    token += chars[
+      Math.floor(
+        Math.random() * chars.length
+      )
+    ];
+
+  }
+
+  return token;
+
 }
 
 const shareLocation = async (
