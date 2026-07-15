@@ -50,6 +50,7 @@ const {
   getMySavedLocations,
   deleteSavedLocation,
   shareLocation,
+  importLocation,
   createLocationRoute,
   getLocationRoutes, 
   getSharedTripMap, 
@@ -339,6 +340,12 @@ router.post(
   '/share-location',
   requireAuth,
   shareLocation
+);
+
+router.post(
+  '/import-location',
+  requireAuth,
+  importLocation
 );
 
 router.post(

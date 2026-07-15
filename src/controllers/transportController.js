@@ -4572,6 +4572,228 @@ const shareLocation = async (
   }
 };
 
+const importLocation = async (
+  req,
+  res
+) => {
+  try {
+
+    const userId =
+      req.user.user_id;
+
+    const {
+      token,
+    } = req.body;
+
+    const tokenRes =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_location_share_tokens
+        WHERE share_token = $1
+        LIMIT 1
+        `,
+        [token]
+      );
+
+    if (
+      tokenRes.rows.length === 0
+    ) {
+      return res.status(404).json({
+        error:
+          'Token no encontrado',
+      });
+    }
+
+    const share =
+      tokenRes.rows[0];
+
+    if (
+      new Date() >
+      new Date(
+        share.expires_at
+      )
+    ) {
+      return res.status(400).json({
+        error:
+          'Este token expiró',
+      });
+    }
+
+    if (
+      share.times_used >=
+      share.max_uses
+    ) {
+      return res.status(400).json({
+        error:
+          'Este token ya fue utilizado',
+      });
+    }
+
+    const locationRes =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_saved_locations
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [
+          share.saved_location_id,
+        ]
+      );
+
+    if (
+      locationRes.rows.length === 0
+    ) {
+      return res.status(404).json({
+        error:
+          'Ubicación no encontrada',
+      });
+    }
+
+    const location =
+      locationRes.rows[0];
+
+    const duplicate =
+      await pool.query(
+        `
+        SELECT id
+        FROM transport_saved_locations
+        WHERE
+          user_id = $1
+        AND
+          name = $2
+        LIMIT 1
+        `,
+        [
+          userId,
+          location.name,
+        ]
+      );
+
+    if (
+      duplicate.rows.length > 0
+    ) {
+      return res.status(400).json({
+        error:
+          'Ya tienes una ubicación con ese nombre',
+      });
+    }
+
+    const newLocation =
+      await pool.query(
+        `
+        INSERT INTO transport_saved_locations (
+
+          user_id,
+          name,
+          type,
+          latitude,
+          longitude,
+          notes
+
+        )
+        VALUES (
+          $1,$2,$3,$4,$5,$6
+        )
+        RETURNING *
+        `,
+        [
+          userId,
+          location.name,
+          location.type,
+          location.latitude,
+          location.longitude,
+          location.notes,
+        ]
+      );
+
+    const routes =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_location_routes
+        WHERE saved_location_id = $1
+        `,
+        [
+          share.saved_location_id,
+        ]
+      );
+
+    for (
+      const route
+      of routes.rows
+    ) {
+
+      await pool.query(
+        `
+        INSERT INTO transport_location_routes (
+
+          saved_location_id,
+          name,
+          route_type,
+          route_points,
+          distance_km,
+          duration_minutes
+
+        )
+        VALUES (
+          $1,$2,$3,$4,$5,$6
+        )
+        `,
+        [
+          newLocation.rows[0].id,
+          route.name,
+          route.route_type,
+          route.route_points,
+          route.distance_km,
+          route.duration_minutes,
+        ]
+      );
+
+    }
+
+    await pool.query(
+      `
+      UPDATE transport_location_share_tokens
+      SET
+
+        times_used =
+          times_used + 1,
+
+        used_by = $1,
+
+        used_at = NOW()
+
+      WHERE id = $2
+      `,
+      [
+        userId,
+        share.id,
+      ]
+    );
+
+    res.json({
+      success: true,
+      location:
+        newLocation.rows[0],
+      imported_routes:
+        routes.rows.length,
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error importando ubicación',
+    });
+
+  }
+};
+
 const createLocationRoute = async (req, res) => {
   try {
     const {
@@ -4812,6 +5034,7 @@ module.exports = {
   getMySavedLocations,
   deleteSavedLocation,
   shareLocation,
+  importLocation,
   createLocationRoute,
   getLocationRoutes,
   getSharedTripMap,
