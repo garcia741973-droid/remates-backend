@@ -4836,30 +4836,36 @@ const importLocation = async (
 
 const createLocationRoute = async (req, res) => {
   try {
-    const {
-      saved_location_id,
-      name,
-      route_type,
-      route_points,
-    } = req.body;
+        const {
+          saved_location_id,
+          name,
+          route_type,
+          route_points,
+          distance_km,
+          duration_minutes,
+        } = req.body;
 
     const result = await pool.query(
       `
-      INSERT INTO transport_location_routes (
-        saved_location_id,
-        name,
-        route_type,
-        route_points
-      )
-      VALUES ($1,$2,$3,$4)
-      RETURNING *
+        INSERT INTO transport_location_routes (
+            saved_location_id,
+            name,
+            route_type,
+            route_points,
+            distance_km,
+            duration_minutes
+        )
+        VALUES ($1,$2,$3,$4,$5,$6)
+        RETURNING *
       `,
-      [
-        saved_location_id,
-        name,
-        route_type,
-        route_points,
-      ]
+        [
+            saved_location_id,
+            name,
+            route_type,
+            route_points,
+            distance_km,
+            duration_minutes,
+        ]
     );
 
     res.json(result.rows[0]);
