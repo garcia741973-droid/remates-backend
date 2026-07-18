@@ -3608,6 +3608,7 @@ const getTripMapData = async (
         req.user.user_id;
 
         let route = null;
+        let request = null;
 
         const requestResult =
           await pool.query(
@@ -3623,8 +3624,8 @@ const getTripMapData = async (
         if (
           requestResult.rows.length > 0
         ) {
-          const request =
-            requestResult.rows[0];
+
+            request = requestResult.rows[0];
 
           if (
             request.approx_dropoff_saved_location_id
@@ -3662,12 +3663,12 @@ const getTripMapData = async (
         [negotiationId]
       );
 
-    res.json({
-      negotiation,
-      route,
-      tracking:
-          trackingResult.rows,
-    });
+      res.json({
+        negotiation,
+        request,
+        route,
+        tracking: trackingResult.rows,
+      });
   } catch (error) {
     console.error(error);
     res.status(500).json({
