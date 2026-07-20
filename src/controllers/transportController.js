@@ -3663,6 +3663,10 @@ const getTripMapData = async (
         [negotiationId]
       );
 
+      console.log('====================');
+      console.log(request);
+      console.log('====================');
+
       res.json({
         negotiation,
         request,
