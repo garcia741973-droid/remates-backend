@@ -1326,6 +1326,17 @@ const getOpenTransportRequests = async (req, res) => {
   try {
     const userId = req.user.user_id;
 
+    const { lat, lng, radius } = req.query;
+
+    const currentLat =
+      lat ? parseFloat(lat) : null;
+
+    const currentLng =
+      lng ? parseFloat(lng) : null;
+
+    const radiusKm =
+      radius ? parseFloat(radius) : null;
+
     const result = await pool.query(
       `
       SELECT
