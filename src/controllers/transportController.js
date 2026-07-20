@@ -1374,7 +1374,18 @@ const getOpenTransportRequests = async (req, res) => {
       [userId]
     );
 
-    res.json(result.rows);
+    let requests = result.rows;
+
+    // Si no viene filtro, devolver exactamente igual que hoy.
+    if (
+      currentLat == null ||
+      currentLng == null ||
+      radiusKm == null
+    ) {
+      return res.json(requests);
+    }
+
+    res.json(requests);
 
   } catch (error) {
     console.error(error);
