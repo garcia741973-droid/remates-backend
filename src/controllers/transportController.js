@@ -1414,7 +1414,7 @@ const getOpenTransportRequests = async (req, res) => {
 
     let requests = result.rows;
 
-    // Si no viene filtro, devolver exactamente igual que hoy.
+    // Sin filtro: comportamiento actual.
     if (
       currentLat == null ||
       currentLng == null ||
@@ -1423,7 +1423,51 @@ const getOpenTransportRequests = async (req, res) => {
       return res.json(requests);
     }
 
-    res.json(requests);
+    // Con filtro.
+    requests = requests
+      .map((request) => {
+
+        // No tiene coordenadas:
+        // siempre mostrar.
+        if (
+          request.approx_pickup_lat == null ||
+          request.approx_pickup_lng == null
+        ) {
+
+          request.distance_km = null;
+
+          return request;
+
+        }
+
+        const distanceKm =
+          calculateDistanceKm(
+            currentLat,
+            currentLng,
+            parseFloat(request.approx_pickup_lat),
+            parseFloat(request.approx_pickup_lng),
+          );
+
+        request.distance_km = Number(
+          distanceKm.toFixed(1),
+        );
+
+        return request;
+
+      })
+      .filter((request) => {
+
+        // Sin coordenadas:
+        // siempre aparece.
+        if (request.distance_km == null) {
+          return true;
+        }
+
+        return request.distance_km <= radiusKm;
+
+      });
+
+    return res.json(requests);
 
   } catch (error) {
     console.error(error);
