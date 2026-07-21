@@ -3782,6 +3782,12 @@ const getTripMapData = async (
           }
         }
 
+    console.log('');
+    console.log('========================');
+    console.log('TRIP MAP REQUEST');
+    console.log('negotiationId:', negotiationId);
+    console.log('========================');
+
     const trackingResult =
       await pool.query(
         `
@@ -3792,6 +3798,13 @@ const getTripMapData = async (
         `,
         [negotiationId]
       );
+
+    console.log('');
+    console.log('========================');
+    console.log('TRACKING ENCONTRADO');
+    console.log(trackingResult.rows.length);
+    console.log(trackingResult.rows);
+    console.log('========================');
 
       console.log('====================');
       console.log(request);
