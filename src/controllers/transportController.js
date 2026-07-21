@@ -3478,6 +3478,32 @@ const getMyTrips = async (req, res) => {
 
       tg.id AS guide_id
 
+    ,
+
+    (
+      SELECT tracked_at
+      FROM transport_trip_tracking
+      WHERE negotiation_id = tn.id
+      ORDER BY id DESC
+      LIMIT 1
+    ) AS last_tracking,
+
+    (
+      SELECT latitude
+      FROM transport_trip_tracking
+      WHERE negotiation_id = tn.id
+      ORDER BY id DESC
+      LIMIT 1
+    ) AS current_lat,
+
+    (
+      SELECT longitude
+      FROM transport_trip_tracking
+      WHERE negotiation_id = tn.id
+      ORDER BY id DESC
+      LIMIT 1
+    ) AS current_lng
+      
     FROM transport_negotiations tn
 
     JOIN transport_requests tr
