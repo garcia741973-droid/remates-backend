@@ -62,6 +62,18 @@ const {
   getMyRatings,
 } = require('../controllers/transportController');
 
+router.post(
+  '/register-truck',
+  requireAuth,
+  registerTruck
+);
+
+router.get(
+  '/my-truck',
+  requireAuth,
+  getMyTruck
+);
+
 router.get(
   '/my-truck',
   requireAuth,
