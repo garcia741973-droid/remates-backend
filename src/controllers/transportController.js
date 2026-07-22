@@ -534,6 +534,12 @@ const getMyTripCashboxes =
     try {
       const userId = req.user.user_id;
 
+      console.log('');
+      console.log('============================');
+      console.log('MY CASHBOXES');
+      console.log('USER:', userId);
+      console.log('============================');
+
       const result =
         await pool.query(
           `
@@ -585,6 +591,19 @@ const getMyTripCashboxes =
           `,
           [userId]
         );
+
+        console.log('Encontradas:', result.rows.length);
+
+        result.rows.forEach(c => {
+            console.log(
+                c.id,
+                c.negotiation_id,
+                c.is_closed,
+                c.transporter_id
+            );
+        });
+
+        console.log('============================');
 
       res.json(result.rows);
 
