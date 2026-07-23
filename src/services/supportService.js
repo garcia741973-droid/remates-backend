@@ -6,11 +6,11 @@ const { pool } =
 /// CREAR CONVERSACIÓN
 /// =======================================
 
+const crypto = require('crypto');
+
 async function createSupportRequest({
 
     userId,
-
-    firebase_id,
 
     module,
 
@@ -18,13 +18,17 @@ async function createSupportRequest({
 
 }) {
 
+    const conversationId =
+        'support_' +
+        crypto.randomUUID();
+
     const result =
         await pool.query(
 
 `
 INSERT INTO support_requests (
 
-    firebase_id,
+    conversation_id,
 
     user_id,
 
@@ -50,7 +54,7 @@ RETURNING *;
 `,
 
 [
-    firebase_id,
+    conversationId,
 
     userId,
 

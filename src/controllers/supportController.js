@@ -21,8 +21,6 @@ async function createSupportRequest(
 
         const {
 
-            firebase_id,
-
             module,
 
             subject,
@@ -33,8 +31,6 @@ async function createSupportRequest(
             await supportService.createSupportRequest({
 
                 userId,
-
-                firebase_id,
 
                 module,
 
