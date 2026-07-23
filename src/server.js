@@ -172,6 +172,9 @@ const cattleRoutes =
 
 const transportRoutes = require('./routes/transportRoutes');
 
+const supportRoutes =
+    require('./routes/supportRoutes');
+
 app.use(
   '/market-analytics',
   marketAnalyticsRoutes
@@ -241,6 +244,11 @@ app.use('/lots', lotsRoutes);
 app.use('/auctions', auctionsRoutes);
 
 app.use('/transport', transportRoutes);
+
+app.use(
+  '/support',
+  supportRoutes,
+);
 
 const paymentConfigRoutes =
   require('./routes/paymentConfigRoutes');
