@@ -18,6 +18,44 @@ async function createSupportRequest({
 
 }) {
 
+    /// =======================================
+    /// ¿YA EXISTE UN CASO ABIERTO?
+    /// =======================================
+
+    const existing =
+        await pool.query(
+
+`
+SELECT *
+
+FROM support_requests
+
+WHERE user_id = $1
+
+AND module = $2
+
+AND status = 'open'
+
+LIMIT 1;
+`,
+
+[
+    userId,
+    module,
+]
+
+);
+
+    if (existing.rows.length > 0) {
+
+        return existing.rows[0];
+
+    }
+
+    /// =======================================
+    /// CREAR NUEVO CASO
+    /// =======================================
+
     const conversationId =
         'support_' +
         crypto.randomUUID();
@@ -55,11 +93,8 @@ RETURNING *;
 
 [
     conversationId,
-
     userId,
-
     module,
-
     subject,
 ]
 
