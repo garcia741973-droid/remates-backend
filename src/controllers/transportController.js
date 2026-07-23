@@ -4326,6 +4326,21 @@ const getTransportDashboard =
           [userId]
         );
 
+      const drivingTripsRes =
+        await pool.query(
+          `
+          SELECT COUNT(*)::int AS total
+          FROM transport_negotiations
+          WHERE transporter_id = $1
+            AND status IN (
+              'trip_active',
+              'in_trip',
+              'delivery_pending'
+            )
+          `,
+          [userId]
+        );
+
       const historyRes =
         await pool.query(
           `
@@ -4344,14 +4359,12 @@ const getTransportDashboard =
           [userId]
         );
 
-      res.json({
-        trucks:
-          truckRes.rows[0].total,
-        active_trips:
-          activeTripsRes.rows[0].total,
-        history:
-          historyRes.rows[0].total,
-      });
+    res.json({
+      trucks: truckRes.rows[0].total,
+      active_trips: activeTripsRes.rows[0].total,
+      driving_trips: drivingTripsRes.rows[0].total,
+      history: historyRes.rows[0].total,
+    });
 
     } catch (error) {
       console.error(error);
