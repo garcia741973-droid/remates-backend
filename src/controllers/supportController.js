@@ -16,15 +16,8 @@ async function createSupportRequest(
 
     try {
 
-        console.log('');
-        console.log('==========================');
-        console.log('REQ.USER');
-        console.log(req.user);
-        console.log('==========================');
-        console.log('');
-
         const userId =
-            req.user.id;
+            req.user.user_id;
 
         const {
 
