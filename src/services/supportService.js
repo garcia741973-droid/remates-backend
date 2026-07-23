@@ -176,9 +176,41 @@ ORDER BY created_at ASC;
 /// RESOLVER
 /// =======================================
 
+const admin =
+    require('firebase-admin');
+
 async function resolveRequest(
     id,
 ) {
+
+    /// 🔥 OBTENER CONVERSACIÓN
+
+    const support =
+        await pool.query(
+
+`
+SELECT
+    conversation_id
+FROM support_requests
+WHERE id = $1
+LIMIT 1;
+`,
+
+[id]
+
+);
+
+    if (
+        support.rows.length === 0
+    ) {
+
+        return;
+    }
+
+    const conversationId =
+        support.rows[0].conversation_id;
+
+    /// 🔥 ACTUALIZAR SQL
 
     await pool.query(
 
@@ -197,6 +229,62 @@ WHERE id=$1;
 [id]
 
 );
+
+    /// 🔥 MENSAJE AUTOMÁTICO
+
+    await admin
+        .firestore()
+
+        .collection(
+            'support_conversations',
+        )
+
+        .doc(
+            conversationId,
+        )
+
+        .collection(
+            'messages',
+        )
+
+        .add({
+
+            sender_id: 0,
+
+            sender_name:
+                'Sistema',
+
+            system: true,
+
+            message:
+                '✅ Este caso fue resuelto por nuestro equipo de soporte.\n\nGracias por utilizar Plaza Ganadera.',
+
+            created_at:
+                admin.firestore.FieldValue.serverTimestamp(),
+
+        });
+
+    /// 🔥 CAMBIAR ESTADO FIRESTORE
+
+    await admin
+        .firestore()
+
+        .collection(
+            'support_conversations',
+        )
+
+        .doc(
+            conversationId,
+        )
+
+        .update({
+
+            status: 'resolved',
+
+            resolved_at:
+                admin.firestore.FieldValue.serverTimestamp(),
+
+        });
 
 }
 
