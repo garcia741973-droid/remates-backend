@@ -64,11 +64,13 @@ exports.login = async (req, res) => {
 
       return res.json({
 
-        token,
+          token,
 
-        role: user.role,
+          user_id: user.id,
 
-        company_id: user.company_id,
+          role: user.role,
+
+          company_id: user.company_id,
       });
     }  
 
