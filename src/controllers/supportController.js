@@ -355,6 +355,43 @@ async function sendSupportMessage(
 
 }
 
+async function markConversationRead(
+    req,
+    res,
+) {
+
+    try {
+
+        await supportService.markConversationRead({
+
+            support_id:
+                req.body.support_id,
+
+            isSupport:
+                req.body.is_support === true,
+
+        });
+
+        res.json({
+
+            success: true,
+
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        res.status(500).json({
+
+            success: false,
+
+        });
+
+    }
+
+}
+
 module.exports = {
 
     createSupportRequest,
@@ -374,5 +411,7 @@ module.exports = {
     confirmDeviceCommand,
 
     sendSupportMessage,
+
+    markConversationRead,
 
 };
