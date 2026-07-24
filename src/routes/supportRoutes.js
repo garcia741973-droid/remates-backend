@@ -24,6 +24,8 @@ const {
 
     confirmDeviceCommand,
 
+    sendSupportMessage,
+
 } = require('../controllers/supportController');
 
 
@@ -41,6 +43,12 @@ router.get(
     '/my-conversations',
     requireAuth,
     getMySupportRequests,
+);
+
+router.post(
+    '/send-message',
+    requireAuth,
+    sendSupportMessage,
 );
 
 router.get(

@@ -310,6 +310,54 @@ async function sendDiagnostic(
 
 }
 
+async function sendSupportMessage(
+    req,
+    res,
+) {
+
+    try {
+
+        await supportService.sendMessage({
+
+            support_id:
+                req.body.support_id,
+
+            sender_id:
+                req.user.user_id,
+
+            sender_name:
+                req.user.full_name,
+
+            system: false,
+
+            message:
+                req.body.message,
+
+            isSupport:
+                req.user.role === 'super_admin',
+
+        });
+
+        res.json({
+
+            success: true,
+
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        res.status(500).json({
+
+            success: false,
+
+        });
+
+    }
+
+}
+
 module.exports = {
 
     createSupportRequest,
@@ -327,5 +375,7 @@ module.exports = {
     getPendingDeviceCommand,
 
     confirmDeviceCommand,
+
+    sendSupportMessage,
 
 };
