@@ -179,6 +179,14 @@ ORDER BY created_at ASC;
 const admin =
     require('firebase-admin');
 
+const {
+
+    sendAdminNotification,
+
+    sendUserNotification,
+
+} = require('./notificationService');
+
 async function resolveRequest(
     id,
 ) {
@@ -360,6 +368,201 @@ LIMIT 1;
 
 }
 
+/// =======================================
+/// ENVIAR MENSAJE
+/// =======================================
+
+async function sendMessage({
+
+    support_id,
+
+    sender_id,
+
+    sender_name,
+
+    system = false,
+
+    message,
+
+    isSupport,
+
+}) {
+
+    const support =
+        await pool.query(
+
+`
+SELECT
+
+conversation_id,
+
+user_id,
+
+module
+
+FROM support_requests
+
+WHERE id = $1
+
+LIMIT 1;
+`,
+
+[support_id]
+
+);
+
+    if (
+        support.rows.length === 0
+    ) {
+
+        throw new Error(
+            'Caso no encontrado.'
+        );
+
+    }
+
+    const conversation =
+        support.rows[0];
+
+    /// 🔥 Guardar mensaje
+
+    await admin
+        .firestore()
+
+        .collection(
+            'support_conversations',
+        )
+
+        .doc(
+            conversation.conversation_id,
+        )
+
+        .collection(
+            'messages',
+        )
+
+        .add({
+
+            sender_id,
+
+            sender_name,
+
+            system,
+
+            message,
+
+            created_at:
+                admin.firestore.FieldValue.serverTimestamp(),
+
+        });
+
+    /// 🔥 Actualizar conversación
+
+    finalData = {
+
+        last_message: message,
+
+        last_sender: sender_id,
+
+        updated_at:
+            admin.firestore.FieldValue.serverTimestamp(),
+
+    };
+
+    if (isSupport) {
+
+        finalData.unread_support = 0;
+
+        finalData.unread_user =
+            admin.firestore.FieldValue.increment(1);
+
+    } else {
+
+        finalData.unread_user = 0;
+
+        finalData.unread_support =
+            admin.firestore.FieldValue.increment(1);
+
+    }
+
+    await admin
+        .firestore()
+        .collection('support_conversations')
+        .doc(conversation.conversation_id)
+        .set(
+            finalData,
+            {
+                merge: true,
+            },
+        );
+
+    /// =======================================
+    /// PUSH
+    /// =======================================
+
+    if (isSupport) {
+
+        await sendUserNotification({
+
+            userId:
+                conversation.user_id,
+
+            title:
+                'Centro de Resolución',
+
+            body:
+                message,
+
+            data: {
+
+                type:
+                    'support',
+
+                support_id,
+
+                conversation_id:
+                    conversation.conversation_id,
+
+                module:
+                    conversation.module,
+
+            },
+
+        });
+
+    }
+
+    else {
+
+        await sendAdminNotification({
+
+            title:
+                'Nuevo mensaje de soporte',
+
+            body:
+                message,
+
+            data: {
+
+                type:
+                    'support',
+
+                support_id,
+
+                conversation_id:
+                    conversation.conversation_id,
+
+                module:
+                    conversation.module,
+
+            },
+
+        });
+
+    }
+
+}
+
 module.exports = {
 
     createSupportRequest,
@@ -371,5 +574,7 @@ module.exports = {
     resolveRequest,
 
     sendDiagnostic,
+
+    sendMessage,
 
 };
