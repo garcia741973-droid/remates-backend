@@ -1,6 +1,8 @@
 const { pool } =
     require('../config/db');
 
+const admin =
+    require('firebase-admin');
 
 /// =======================================
 /// CREAR CONVERSACIÓN
@@ -288,6 +290,77 @@ WHERE id=$1;
 
 }
 
+async function sendDiagnostic({
+
+    support_id,
+
+    message,
+
+}) {
+
+    const support =
+        await pool.query(
+
+`
+SELECT
+
+conversation_id
+
+FROM support_requests
+
+WHERE id = $1
+
+LIMIT 1;
+`,
+
+[support_id]
+
+);
+
+    if (
+        support.rows.length === 0
+    ) {
+
+        throw new Error(
+            'Caso no encontrado.'
+        );
+
+    }
+
+    await admin
+
+        .firestore()
+
+        .collection(
+            'support_conversations',
+        )
+
+        .doc(
+            support.rows[0]
+                .conversation_id,
+        )
+
+        .collection(
+            'messages',
+        )
+
+        .add({
+
+            sender_id: 0,
+
+            sender_name:
+                'Sistema',
+
+            system: true,
+
+            message,
+
+            created_at:
+                admin.firestore.FieldValue.serverTimestamp(),
+
+        });
+
+}
 
 module.exports = {
 
@@ -298,5 +371,7 @@ module.exports = {
     getOpenRequests,
 
     resolveRequest,
+
+    sendDiagnostic,
 
 };

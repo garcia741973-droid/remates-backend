@@ -273,6 +273,42 @@ async function confirmDeviceCommand(
 
 }
 
+async function sendDiagnostic(
+    req,
+    res,
+) {
+
+    try {
+
+        await supportService.sendDiagnostic({
+
+            support_id:
+                req.body.support_id,
+
+            message:
+                req.body.message,
+
+        });
+
+        res.json({
+
+            success: true,
+
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        res.status(500).json({
+
+            success: false,
+
+        });
+
+    }
+
+}
 
 module.exports = {
 
@@ -285,6 +321,8 @@ module.exports = {
     resolveSupportRequest,
 
     sendDeviceCommand,
+
+    sendDiagnostic,
 
     getPendingDeviceCommand,
 

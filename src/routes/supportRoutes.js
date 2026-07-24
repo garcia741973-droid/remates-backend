@@ -18,6 +18,8 @@ const {
 
     sendDeviceCommand,
 
+    sendDiagnostic,
+
     getPendingDeviceCommand,
 
     confirmDeviceCommand,
@@ -75,5 +77,12 @@ router.post(
     requireAuth,
     sendDeviceCommand,
 );
+
+router.post(
+    '/send-diagnostic',
+    requireAuth,
+    sendDiagnostic,
+);
+
 
 module.exports = router;
