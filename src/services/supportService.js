@@ -1,8 +1,6 @@
 const { pool } =
     require('../config/db');
 
-const admin =
-    require('firebase-admin');
 
 /// =======================================
 /// CREAR CONVERSACIÓN
