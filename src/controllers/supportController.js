@@ -216,7 +216,7 @@ async function getPendingDeviceCommand(
 
         const command =
             await deviceCommandService.getPendingCommand(
-                req.user.id,
+                req.user.user_id,
             );
 
         res.json({

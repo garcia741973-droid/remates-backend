@@ -1,5 +1,38 @@
+const admin = require('firebase-admin');
+
 const { pool } =
     require('../config/db');
+
+const {
+    sendUserNotification,
+} = require('./notificationService');
+
+
+/// =======================================
+/// HELPERS
+/// =======================================
+
+const COMMAND_LABELS = {
+
+    restart_sync:
+        '🔄 Reiniciar sincronización',
+
+    clear_hive:
+        '🧹 Limpiar Hive',
+
+    clear_cache:
+        '🗑 Limpiar caché',
+
+    resend_pending:
+        '📤 Reenviar pendientes',
+
+    diagnostic:
+        '📍 Solicitar diagnóstico',
+
+    restart_app:
+        '📲 Reiniciar aplicación',
+
+};
 
 
 /// =======================================
@@ -8,7 +41,7 @@ const { pool } =
 
 async function sendCommand({
 
-    user_id,
+    support_id,
 
     command,
 
@@ -16,48 +49,187 @@ async function sendCommand({
 
 }) {
 
-    const result =
+    /// 🔥 BUSCAR CASO
+
+    const support =
         await pool.query(
 
-`
-INSERT INTO device_commands (
+            `
+            SELECT
 
-    user_id,
+                id,
 
-    command,
+                user_id,
 
-    payload
+                conversation_id,
 
-)
+                status
 
-VALUES (
+            FROM support_requests
 
-    $1,
+            WHERE id = $1
 
-    $2,
+            LIMIT 1;
+            `,
 
-    $3
+            [support_id]
 
-)
+        );
 
-RETURNING *;
-`,
+    if (
+        support.rows.length === 0
+    ) {
 
-[
-    user_id,
+        throw new Error(
+            'Caso de soporte no encontrado.'
+        );
 
-    command,
+    }
 
-    payload || {},
-]
+    const supportData =
+        support.rows[0];
 
-);
+    if (
 
-    return result.rows[0];
+        supportData.status !== 'open'
+
+    ) {
+
+        throw new Error(
+
+            'El caso de soporte ya fue resuelto.'
+
+        );
+
+    }
+
+    /// 🔥 INSERTAR COMANDO
+
+    const inserted =
+        await pool.query(
+
+            `
+            INSERT INTO support_device_commands (
+
+                support_id,
+
+                user_id,
+
+                command,
+
+                payload,
+
+                status
+
+            )
+
+            VALUES (
+
+                $1,
+
+                $2,
+
+                $3,
+
+                $4,
+
+                'pending'
+
+            )
+
+            RETURNING *;
+            `,
+
+            [
+                supportData.id,
+
+                supportData.user_id,
+
+                command,
+
+                payload || {},
+
+            ]
+
+        );
+
+    const deviceCommand =
+        inserted.rows[0];
+
+    /// 🔥 MENSAJE FIRESTORE
+
+    await admin
+
+        .firestore()
+
+        .collection(
+            'support_conversations',
+        )
+
+        .doc(
+            supportData.conversation_id,
+        )
+
+        .collection(
+            'messages',
+        )
+
+        .add({
+
+            sender_id: 0,
+
+            sender_name:
+                'Sistema',
+
+            system: true,
+
+            support_id:
+                supportData.id,
+
+            command,
+
+            message:
+
+            `${COMMAND_LABELS[command] || command}
+
+            La orden fue enviada correctamente al dispositivo.
+
+            ⏳ Esperando confirmación...`,
+
+            created_at:
+                admin.firestore.FieldValue.serverTimestamp(),
+
+        });
+
+    /// 🔥 PUSH
+
+    await sendUserNotification({
+
+        userId:
+            supportData.user_id,
+
+        title:
+            'Centro de Resolución',
+
+        body:
+            COMMAND_LABELS[command] ||
+            command,
+
+        data: {
+
+            type: 'support_command',
+
+            command: String(command),
+
+            command_id: String(deviceCommand.id),
+
+        },
+
+    });
+
+    return deviceCommand;
 
 }
-
-
 /// =======================================
 /// OBTENER COMANDO PENDIENTE
 /// =======================================
@@ -69,28 +241,28 @@ async function getPendingCommand(
     const result =
         await pool.query(
 
-`
-SELECT *
+            `
+            SELECT *
 
-FROM device_commands
+            FROM support_device_commands
 
-WHERE
+            WHERE
 
-user_id = $1
+            user_id = $1
 
-AND status = 'pending'
+            AND status = 'pending'
 
-ORDER BY created_at ASC
+            ORDER BY created_at ASC
 
-LIMIT 1;
-`,
+            LIMIT 1;
+            `,
 
-[userId]
+            [userId]
 
-);
+        );
 
     if (
-        result.rows.length == 0
+        result.rows.length === 0
     ) {
 
         return null;
@@ -110,26 +282,123 @@ async function confirmCommand(
     id,
 ) {
 
-    await pool.query(
+    /// 🔥 ACTUALIZAR SQL
 
-`
-UPDATE device_commands
+    const updated =
+        await pool.query(
 
-SET
+            `
+            UPDATE support_device_commands
 
-status='executed',
+            SET
 
-executed_at=NOW()
+            status='executed',
 
-WHERE id=$1;
-`,
+            executed_at=NOW()
 
-[id]
+            WHERE id=$1
 
-);
+            AND status='pending'
+
+            RETURNING *;
+            `,
+
+            [id]
+
+        );
+
+    if (
+        updated.rows.length === 0
+    ) {
+
+        return;
+
+    }
+
+    const command =
+        updated.rows[0];
+
+    /// 🔥 BUSCAR CONVERSACIÓN
+
+    const support =
+        await pool.query(
+
+            `
+            SELECT
+                conversation_id
+            FROM support_requests
+            WHERE id = $1
+            LIMIT 1;
+            `,
+
+            [
+                command.support_id,
+            ]
+
+        );
+
+    if (
+        support.rows.length === 0
+    ) {
+
+        return;
+
+    }
+
+    const conversationId =
+        support.rows[0]
+            .conversation_id;
+
+    /// 🔥 MENSAJE FIRESTORE
+
+    await admin
+
+        .firestore()
+
+        .collection(
+            'support_conversations',
+        )
+
+        .doc(
+            conversationId,
+        )
+
+        .collection(
+            'messages',
+        )
+
+        .add({
+
+            sender_id: 0,
+
+            sender_name:
+                'Sistema',
+
+            system: true,
+
+            support_id:
+                command.support_id,
+
+            command:
+                command.command,
+
+            message:
+
+                `✅ ${COMMAND_LABELS[command.command] || command.command}
+
+                La acción fue ejecutada correctamente por el dispositivo.`,
+
+            created_at:
+                admin.firestore.FieldValue.serverTimestamp(),
+
+        });
 
 }
 
+
+/// =======================================
+/// EXPORTS
+/// =======================================
 
 module.exports = {
 
