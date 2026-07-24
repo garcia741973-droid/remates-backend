@@ -2662,6 +2662,31 @@ const createTransportPayment =
               negotiation_id,
             },
           });
+
+          /// 🔔 AVISAR A SUPER ADMIN
+
+          await sendAdminNotification({
+
+            title: '💰 Nuevo pago Plaza Transporte',
+
+            body:
+                `Pago #${negotiation_id} aprobado automáticamente por IA.`,
+
+            data: {
+
+              type: 'transport_payment',
+
+              validation_id:
+                  result.rows[0].id,
+
+              negotiation_id,
+
+              status: 'approved',
+
+            },
+
+          });
+
         }
 
     if (validationStatus === 'pending') {
