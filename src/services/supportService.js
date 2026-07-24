@@ -164,10 +164,41 @@ WHERE status='open'
 
 ORDER BY created_at ASC;
 `
-
 );
 
-    return result.rows;
+    const firestore =
+        admin.firestore();
+
+    const support = [];
+
+    for (const row of result.rows) {
+
+        const conversation =
+            await firestore
+
+                .collection(
+                    'support_conversations',
+                )
+
+                .doc(
+                    row.conversation_id,
+                )
+
+                .get();
+
+        row.unread_support =
+
+            conversation.exists
+
+                ? conversation.data().unread_support ?? 0
+
+                : 0;
+
+        support.push(row);
+
+    }
+
+    return support;
 
 }
 
