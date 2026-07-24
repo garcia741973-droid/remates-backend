@@ -73,7 +73,7 @@ async function getMySupportRequests(
 
         const support =
             await supportService.getUserRequests(
-                req.user.id,
+                req.user.user_id
             );
 
         res.json({
