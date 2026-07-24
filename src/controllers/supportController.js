@@ -331,7 +331,7 @@ async function sendSupportMessage(
                 req.body.message,
 
             isSupport:
-                req.user.role === 'super_admin',
+                req.body.is_support === true,
 
         });
 
