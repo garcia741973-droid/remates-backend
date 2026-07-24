@@ -130,7 +130,39 @@ ORDER BY created_at DESC;
 
 );
 
-    return result.rows;
+    const firestore =
+        admin.firestore();
+
+    finalResult = [];
+
+    for (const row of result.rows) {
+
+        const conversation =
+            await firestore
+
+                .collection(
+                    'support_conversations',
+                )
+
+                .doc(
+                    row.conversation_id,
+                )
+
+                .get();
+
+        row.unread_user =
+
+            conversation.exists
+
+                ? conversation.data().unread_user ?? 0
+
+                : 0;
+
+        finalResult.push(row);
+
+    }
+
+    return finalResult;
 
 }
 
