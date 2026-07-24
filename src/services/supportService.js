@@ -424,6 +424,33 @@ LIMIT 1;
     const conversation =
         support.rows[0];
 
+    /// 🔥 OBTENER NOMBRE DEL REMITENTE
+
+    const sender =
+        await pool.query(
+
+    `
+    SELECT full_name
+
+    FROM users
+
+    WHERE id = $1
+
+    LIMIT 1;
+    `,
+
+    [sender_id]
+
+    );
+
+    const realSenderName =
+
+        sender.rows.length > 0
+
+            ? sender.rows[0].full_name
+
+            : 'Usuario';
+
     /// 🔥 Guardar mensaje
 
     await admin
@@ -445,7 +472,8 @@ LIMIT 1;
 
             sender_id,
 
-            sender_name,
+            sender_name:
+                realSenderName,
 
             system,
 

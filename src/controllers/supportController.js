@@ -325,9 +325,6 @@ async function sendSupportMessage(
             sender_id:
                 req.user.user_id,
 
-            sender_name:
-                req.user.full_name,
-
             system: false,
 
             message:
