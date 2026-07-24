@@ -26,6 +26,8 @@ const {
 
     sendSupportMessage,
 
+    markConversationRead,
+
 } = require('../controllers/supportController');
 
 
@@ -49,6 +51,12 @@ router.post(
     '/send-message',
     requireAuth,
     sendSupportMessage,
+);
+
+router.post(
+    '/read',
+    requireAuth,
+    markConversationRead,
 );
 
 router.get(

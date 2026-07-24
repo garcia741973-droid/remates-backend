@@ -591,6 +591,70 @@ LIMIT 1;
 
 }
 
+/// =======================================
+/// MARCAR MENSAJES COMO LEÍDOS
+/// =======================================
+
+async function markConversationRead({
+
+    support_id,
+
+    isSupport,
+
+}) {
+
+    const support =
+        await pool.query(
+
+`
+SELECT conversation_id
+
+FROM support_requests
+
+WHERE id = $1
+
+LIMIT 1;
+`,
+
+[support_id]
+
+);
+
+    if (support.rows.length === 0) {
+
+        return;
+
+    }
+
+    const data = {};
+
+    if (isSupport) {
+
+        data.unread_support = 0;
+
+    } else {
+
+        data.unread_user = 0;
+
+    }
+
+    await admin
+        .firestore()
+        .collection(
+            'support_conversations',
+        )
+        .doc(
+            support.rows[0].conversation_id,
+        )
+        .set(
+            data,
+            {
+                merge: true,
+            },
+        );
+
+}
+
 module.exports = {
 
     createSupportRequest,
@@ -604,5 +668,7 @@ module.exports = {
     sendDiagnostic,
 
     sendMessage,
+
+    markConversationRead,
 
 };
