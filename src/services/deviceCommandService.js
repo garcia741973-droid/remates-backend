@@ -32,6 +32,9 @@ const COMMAND_LABELS = {
     restart_app:
         '📲 Reiniciar aplicación',
 
+    emergency_recovery:
+        '🚨 Recuperación de emergencia',
+
 };
 
 
