@@ -18,6 +18,7 @@ const {
 
 const {
   sendUserNotification,
+  sendAdminNotification,
 } = require('../services/notificationService');
 
 const registerTruck = async (req, res) => {
