@@ -132,6 +132,13 @@ exports.sendPushNotification = async ({
             };
         }
 
+        console.log('');
+        console.log('==========================');
+        console.log('FCM MESSAGE');
+        console.log(JSON.stringify(message, null, 2));
+        console.log('==========================');
+        console.log('');
+
         const response =
             await admin.messaging()
                 .sendEachForMulticast(
