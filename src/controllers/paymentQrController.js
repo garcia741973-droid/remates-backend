@@ -87,33 +87,33 @@ exports.createQr = async (
       `
     );
 
-    /// 🔥 CREAR NUEVO
-    const { rows } =
-      await pool.query(
-        `
-        INSERT INTO payment_qrs
-        (
+  /// 🔥 CREAR NUEVO
+  const { rows } =
+    await pool.query(
+      `
+      INSERT INTO payment_qrs
+      (
+      qr_image_url,
+      amount,
+      is_active,
+      valid_from,
+      valid_until
+      )
+      VALUES
+      (
+      $1,
+      $2,
+      true,
+      NOW(),
+      NULL
+      )
+      RETURNING *
+      `,
+      [
         qr_image_url,
-        amount,
-        is_active,
-        valid_from,
-        valid_until
-        )
-        VALUES
-        (
-        $1,
-        $2,
-        true,
-        NOW(),
-        NOW() + INTERVAL '30 days'
-        )
-        RETURNING *
-        `,
-        [
-          qr_image_url,
-          amount || 70,
-        ]
-      );
+        amount || 70,
+      ]
+    );
 
     res.json(rows[0]);
 
