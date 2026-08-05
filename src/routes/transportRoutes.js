@@ -60,6 +60,8 @@ const {
   disablePublicTracking, 
   createTransportReview,
   getMyRatings,
+  getTransportConsent,
+  acceptTransportConsent,
 } = require('../controllers/transportController');
 
 router.post(
@@ -74,11 +76,6 @@ router.get(
   getMyTruck
 );
 
-router.get(
-  '/my-truck',
-  requireAuth,
-  getMyTruck
-);
 
 router.put(
   '/update-my-truck',
@@ -400,6 +397,18 @@ router.get(
   '/my-ratings',
   requireAuth,
   getMyRatings
+);
+
+router.get(
+  '/consent',
+  requireAuth,
+  getTransportConsent
+);
+
+router.post(
+  '/consent',
+  requireAuth,
+  acceptTransportConsent
 );
 
 module.exports = router;

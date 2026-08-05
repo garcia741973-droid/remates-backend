@@ -5235,7 +5235,114 @@ const getRequesterTrips = async (req, res) => {
   }
 };
 
+const getTransportConsent = async (
+  req,
+  res
+) => {
+  try {
 
+    const userId =
+      req.user.user_id;
+
+    const result =
+      await pool.query(
+        `
+        SELECT
+          accepted,
+          accepted_at
+        FROM transport_user_consents
+        WHERE user_id = $1
+        LIMIT 1
+        `,
+        [userId]
+      );
+
+    if (
+      result.rows.length === 0
+    ) {
+      return res.json({
+        accepted: false,
+      });
+    }
+
+    res.json(result.rows[0]);
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error obteniendo consentimiento',
+    });
+
+  }
+};
+
+const acceptTransportConsent = async (
+  req,
+  res
+) => {
+  try {
+
+    const userId =
+      req.user.user_id;
+
+    const {
+      app_version,
+    } = req.body;
+
+    await pool.query(
+      `
+      INSERT INTO transport_user_consents (
+
+        user_id,
+        accepted,
+        accepted_at,
+        ip_address,
+        app_version
+
+      )
+      VALUES (
+        $1,
+        true,
+        NOW(),
+        $2,
+        $3
+      )
+
+      ON CONFLICT (user_id)
+
+      DO UPDATE SET
+
+        accepted = true,
+        accepted_at = NOW(),
+        ip_address = EXCLUDED.ip_address,
+        app_version = EXCLUDED.app_version,
+        updated_at = NOW()
+      `,
+      [
+        userId,
+        req.ip,
+        app_version || null,
+      ]
+    );
+
+    res.json({
+      success: true,
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error:
+        'Error guardando consentimiento',
+    });
+
+  }
+};
 
 module.exports = {
   registerTruck,
@@ -5294,4 +5401,6 @@ module.exports = {
   prepareTrip,
   createTransportReview,
   getMyRatings,
+  getTransportConsent,
+  acceptTransportConsent,
 };
