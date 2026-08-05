@@ -5250,8 +5250,9 @@ const getTransportConsent = async (
         SELECT
           accepted,
           accepted_at
-        FROM transport_user_consents
+        FROM user_consents
         WHERE user_id = $1
+          AND consent_type = 'transport_location'
         LIMIT 1
         `,
         [userId]
@@ -5288,43 +5289,40 @@ const acceptTransportConsent = async (
     const userId =
       req.user.user_id;
 
-    const {
-      app_version,
-    } = req.body;
-
     await pool.query(
       `
-      INSERT INTO transport_user_consents (
+      INSERT INTO user_consents (
 
         user_id,
+        consent_type,
         accepted,
-        accepted_at,
-        ip_address,
-        app_version
+        version,
+        accepted_at
 
       )
       VALUES (
+
         $1,
+        'transport_location',
         true,
-        NOW(),
-        $2,
-        $3
+        1,
+        NOW()
+
       )
 
-      ON CONFLICT (user_id)
+      ON CONFLICT (
+        user_id,
+        consent_type
+      )
 
       DO UPDATE SET
 
         accepted = true,
         accepted_at = NOW(),
-        ip_address = EXCLUDED.ip_address,
-        app_version = EXCLUDED.app_version,
-        updated_at = NOW()
+        version = EXCLUDED.version
       `,
       [
         userId,
-        req.ip,
-        app_version || null,
       ]
     );
 
