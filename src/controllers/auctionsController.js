@@ -263,6 +263,9 @@ exports.setCurrentLot = async (req, res) => {
 
       id: auction.id,
 
+      company_id:
+          auction.company_id,      
+
       name: auction.name,
 
       status: auction.status,
