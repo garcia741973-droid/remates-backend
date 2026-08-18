@@ -1,5 +1,9 @@
 const { pool } = require('../config/db');
 
+const {
+  RoomServiceClient,
+} = require('livekit-server-sdk');
+
 exports.placeBid = async (req, res) => {
   const client = await pool.connect();
 
@@ -603,17 +607,17 @@ exports.hammerLot = async (
 
         closed_at = NOW(),
 
-      sold_at = CASE
-        WHEN $1::varchar = 'sold'
-        THEN NOW()
-        ELSE sold_at
-      END,
+        sold_at = CASE
+          WHEN $1::varchar = 'sold'
+          THEN NOW()
+          ELSE sold_at
+        END,
 
-      passed_at = CASE
-        WHEN $1::varchar = 'passed'
-        THEN NOW()
-        ELSE passed_at
-      END
+        passed_at = CASE
+          WHEN $1::varchar = 'passed'
+          THEN NOW()
+          ELSE passed_at
+        END
 
       WHERE id = $4
       `,
@@ -665,45 +669,48 @@ exports.hammerLot = async (
       await client.query(
 
         `
-          INSERT INTO auction_sales (
+        INSERT INTO auction_sales (
 
-            auction_id,
+          auction_id,
 
-            lot_id,
+          lot_id,
 
-            buyer_user_id,
+          buyer_user_id,
 
-            final_price,
+          final_price,
 
-            sale_type,
+          sale_type,
 
-            sale_source,
+          sale_source,
 
-            total_amount,
+          total_amount,
 
-            certificate_generated
-          )
-          VALUES (
-            $1,$2,$3,$4,$5,$6,$7,$8
-          )
+          certificate_generated
+
+        )
+        VALUES (
+          $1,$2,$3,$4,$5,$6,$7,$8
+        )
         `,
-          [
-            auction_id,
+        [
 
-            lot_id,
+          auction_id,
 
-            winnerUserId,
+          lot_id,
 
-            finalPrice,
+          winnerUserId,
 
-            lot.sale_type,
+          finalPrice,
 
-            lastBid?.bid_source || 'online',
+          lot.sale_type,
 
-            totalAmount,
+          lastBid?.bid_source ||
+              'online',
 
-            false,
-          ]
+          totalAmount,
+
+          false,
+        ]
       );
     }
 
@@ -742,7 +749,8 @@ exports.hammerLot = async (
     const auctionClosed =
         !hasMoreLots;
 
-    /// 🔥 SI NO QUEDAN MÁS LOTES → CERRAR REMATE
+    /// 🔥 SI NO QUEDAN MÁS LOTES
+    /// CERRAR REMATE EN BASE DE DATOS
     if (!hasMoreLots) {
 
       await client.query(
@@ -763,9 +771,10 @@ exports.hammerLot = async (
       );
     }
 
+    /// 🔥 CONFIRMAR TRANSACCIÓN
     await client.query(
       'COMMIT'
-    );    
+    );
 
     /// 🔥 SOCKETS
     const io =
@@ -813,6 +822,7 @@ exports.hammerLot = async (
     /// 🔥 SI AUTO CERRÓ EL REMATE
     if (auctionClosed) {
 
+      /// 🔥 AVISAR A TODOS LOS CLIENTES
       io.to(
         `auction_${auction_id}`
       ).emit(
@@ -823,7 +833,36 @@ exports.hammerLot = async (
           auction_id,
         }
       );
-    }    
+
+      /// 🔥 DESTRUIR ROOM DE LIVEKIT
+      try {
+
+        const roomService =
+            new RoomServiceClient(
+
+          process.env.LIVEKIT_URL,
+
+          process.env.LIVEKIT_API_KEY,
+
+          process.env.LIVEKIT_API_SECRET,
+        );
+
+        await roomService.deleteRoom(
+          `auction_${auction_id}`
+        );
+
+        console.log(
+          `🔥 LIVEKIT ROOM CERRADA AUTOMÁTICAMENTE auction_${auction_id}`
+        );
+
+      } catch (livekitError) {
+
+        console.log(
+          '⚠️ LIVEKIT DELETE ROOM ERROR:',
+          livekitError.message,
+        );
+      }
+    }
 
     res.json({
 
@@ -838,30 +877,38 @@ exports.hammerLot = async (
       winner_user_id:
           winnerUserId,
 
-      next_lot_id: null,
+      next_lot_id:
+          null,
+
+      auction_closed:
+          auctionClosed,
     });
 
-    } catch (error) {
+  } catch (error) {
+
+    try {
 
       await client.query(
         'ROLLBACK'
       );
 
-      console.error(
-        'ERROR HAMMER:',
-        error
-      );
+    } catch (_) {}
 
-      res.status(500).json({
+    console.error(
+      'ERROR HAMMER:',
+      error
+    );
 
-        error:
-            'Error cerrando lote',
-      });
+    res.status(500).json({
 
-    } finally {
+      error:
+          'Error cerrando lote',
+    });
 
-      client.release();
-    }
+  } finally {
+
+    client.release();
+  }
 };
 
 exports.getLatestBids = async (
