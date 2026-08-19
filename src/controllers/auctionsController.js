@@ -1166,7 +1166,8 @@ exports.updateStreamSettings = async (
 
         camera_count = $1,
 
-        camera_mode = $2,
+        camera_mode =
+          $2::varchar,
 
         camera_switch_seconds = $3,
 
@@ -1177,7 +1178,9 @@ exports.updateStreamSettings = async (
         camera_last_switched_at =
           CASE
 
-            WHEN $2 = 'auto'
+            WHEN $2::varchar =
+              'auto'::varchar
+
             THEN NOW()
 
             ELSE camera_last_switched_at
@@ -1186,7 +1189,7 @@ exports.updateStreamSettings = async (
 
         updated_at = NOW()
 
-        WHERE auction_id = $6
+      WHERE auction_id = $6
 
       RETURNING *
       `,
