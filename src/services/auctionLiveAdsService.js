@@ -166,17 +166,56 @@ async function startAdBreak(
     const settings =
         settingsResult.rows[0];
 
+    console.log(
+    '📢 START AD BREAK DEBUG =>',
+    {
+        auction_id:
+            auctionId,
+
+        rows:
+            settingsResult.rows,
+
+        settings:
+            settings,
+
+        ads_enabled:
+            settings?.ads_enabled,
+
+        ads_enabled_type:
+            typeof settings?.ads_enabled,
+    },
+    );
+
+    if (!settings) {
+
+    console.log(
+        `❌ NO EXISTEN STREAM SETTINGS REMATE ${auctionId}`,
+    );
+
+    return;
+    }
+
     if (
-      !settings ||
-      settings.ads_enabled !== true
+    settings.ads_enabled !== true
     ) {
 
-      console.log(
+    console.log(
         `📢 ADS DESACTIVADOS REMATE ${auctionId}`,
-      );
+        {
+        value:
+            settings.ads_enabled,
 
-      return;
+        type:
+            typeof settings.ads_enabled,
+        },
+    );
+
+    return;
     }
+
+    console.log(
+    `✅ ADS HABILITADOS REMATE ${auctionId}`,
+    );
 
     const ad =
         await getFirstActiveAd(
