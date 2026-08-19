@@ -21,6 +21,8 @@ const {
 
   setActiveCamera,
 
+  setActiveAudio,
+
 } = require('../controllers/auctionsController');
 
 const { requireAuth } = require('../middleware/authMiddleware');
@@ -101,6 +103,17 @@ router.post(
   requireAuth,
 
   setActiveCamera,
+
+);
+
+/// 🔥 CAMBIAR AUDIO ACTIVO
+router.post(
+
+  '/active-audio',
+
+  requireAuth,
+
+  setActiveAudio,
 
 );
 

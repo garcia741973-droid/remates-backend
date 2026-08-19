@@ -1421,3 +1421,195 @@ exports.setActiveCamera = async (
     });
   }
 };
+
+exports.setActiveAudio = async (
+  req,
+  res,
+) => {
+
+  try {
+
+    if (
+      req.user.role !== 'admin'
+    ) {
+
+      return res.status(403).json({
+
+        error:
+          'No autorizado',
+      });
+    }
+
+    const {
+
+      auction_id,
+
+      audio,
+
+    } = req.body;
+
+    if (
+      audio !== 'camera_1' &&
+      audio !== 'camera_2'
+    ) {
+
+      return res.status(400).json({
+
+        error:
+          'Fuente de audio inválida',
+      });
+    }
+
+    /// 🔥 VALIDAR REMATE
+    const auctionResult =
+        await pool.query(
+
+      `
+      SELECT
+        id,
+        company_id,
+        status
+      FROM auctions
+      WHERE id = $1
+      `,
+      [auction_id]
+    );
+
+    const auction =
+        auctionResult.rows[0];
+
+    if (!auction) {
+
+      return res.status(404).json({
+
+        error:
+          'Remate no encontrado',
+      });
+    }
+
+    /// 🔒 VALIDAR EMPRESA
+    if (
+      auction.company_id !==
+      req.user.company_id
+    ) {
+
+      return res.status(403).json({
+
+        error:
+          'No autorizado',
+      });
+    }
+
+    /// 🔒 SOLO SI ESTÁ LIVE
+    if (
+      auction.status !== 'live'
+    ) {
+
+      return res.status(400).json({
+
+        error:
+          'El remate no está en vivo',
+      });
+    }
+
+    /// 🔥 TRAER SETTINGS
+    const settingsResult =
+        await pool.query(
+
+      `
+      SELECT
+        camera_count
+      FROM auction_stream_settings
+      WHERE auction_id = $1
+      `,
+      [auction_id]
+    );
+
+    const settings =
+        settingsResult.rows[0];
+
+    if (!settings) {
+
+      return res.status(404).json({
+
+        error:
+          'Configuración de transmisión no encontrada',
+      });
+    }
+
+    /// 🔒 SI SOLO HAY UNA CÁMARA
+    /// NO PERMITIR AUDIO DESDE CAMERA_2
+    if (
+      settings.camera_count === 1 &&
+      audio === 'camera_2'
+    ) {
+
+      return res.status(400).json({
+
+        error:
+          'Este remate está configurado con una sola cámara',
+      });
+    }
+
+    /// 🔥 ACTUALIZAR AUDIO ACTIVO
+    const result =
+        await pool.query(
+
+      `
+      UPDATE auction_stream_settings
+
+      SET
+        active_audio = $1,
+        updated_at = NOW()
+
+      WHERE auction_id = $2
+
+      RETURNING *
+      `,
+      [
+        audio,
+        auction_id,
+      ]
+    );
+
+    /// 🔥 SOCKET
+    const io =
+        req.app.get('io');
+
+    io.to(
+      `auction_${auction_id}`
+    ).emit(
+
+      'activeAudioChanged',
+
+      {
+
+        auction_id,
+
+        active_audio:
+            audio,
+      }
+    );
+
+    res.json({
+
+      success: true,
+
+      stream_settings:
+          result.rows[0],
+    });
+
+  } catch (error) {
+
+    console.error(
+      'SET ACTIVE AUDIO ERROR:',
+      error,
+    );
+
+    res.status(500).json({
+
+      error:
+        'Error cambiando audio activo',
+    });
+  }
+};
