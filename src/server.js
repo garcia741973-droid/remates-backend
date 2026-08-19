@@ -186,6 +186,12 @@ const auctionLiveAdsRoutes =
     './routes/auctionLiveAdsRoutes'
   );
 
+const {
+  startAuctionLiveAdsService,
+} = require(
+  './services/auctionLiveAdsService'
+);
+
 app.use(
   '/market-analytics',
   marketAnalyticsRoutes
@@ -422,6 +428,10 @@ const io = new Server(server, {
 
 app.set('io', io);
 
+/// 📢 PUBLICIDAD AUTOMÁTICA
+startAuctionLiveAdsService(
+  io,
+);
 
 /// 🎥 CAMBIO AUTOMÁTICO
 /// DE CÁMARAS EN REMATES

@@ -4,6 +4,12 @@ const {
   RoomServiceClient,
 } = require('livekit-server-sdk');
 
+const {
+  startAdBreak,
+} = require(
+  '../services/auctionLiveAdsService'
+);
+
 exports.placeBid = async (req, res) => {
   const client = await pool.connect();
 
@@ -818,6 +824,16 @@ exports.hammerLot = async (
             null,
       }
     );
+
+    /// 📢 INICIAR PUBLICIDAD
+    /// SOLO SI QUEDAN LOTES
+    if (!auctionClosed) {
+
+      await startAdBreak(
+        auction_id,
+        io,
+      );
+    }
 
     /// 🔥 SI AUTO CERRÓ EL REMATE
     if (auctionClosed) {

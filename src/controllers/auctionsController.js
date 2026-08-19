@@ -9,6 +9,12 @@ const {
 } = require('../services/operationEventsService');
 
 const {
+  stopAdBreak,
+} = require(
+  '../services/auctionLiveAdsService'
+);
+
+const {
   sendAdminNotification,
 } = require('../services/notificationService');
 
@@ -231,15 +237,34 @@ exports.setCurrentLot = async (req, res) => {
       [lot_id, auction_id]
     );
 
-    // ⚡ emitir a todos
-    const io = req.app.get('io');
+    // ⚡ SOCKET
+    const io =
+        req.app.get('io');
 
-    io.to(`auction_${auction_id}`).emit('lotChanged', {
+
+    /// 🛑 DETENER PUBLICIDAD
+    /// AL ENTRAR EL NUEVO LOTE
+    await stopAdBreak(
       auction_id,
-      lot_id
-    });
+      io,
+      'new_lot',
+    );
 
-    res.json({ message: 'Lote activado correctamente' });
+    /// 🔥 AVISAR CAMBIO DE LOTE
+    io.to(
+      `auction_${auction_id}`
+    ).emit(
+      'lotChanged',
+      {
+        auction_id,
+        lot_id,
+      },
+    );
+
+    res.json({
+      message:
+          'Lote activado correctamente',
+    });
 
   } catch (error) {
     console.error('ERROR SET CURRENT LOT:', error);
