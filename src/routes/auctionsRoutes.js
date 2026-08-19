@@ -19,6 +19,8 @@ const {
 
   updateStreamSettings,
 
+  setActiveCamera,
+
 } = require('../controllers/auctionsController');
 
 const { requireAuth } = require('../middleware/authMiddleware');
@@ -89,6 +91,17 @@ router.put(
   '/stream-settings',
   requireAuth,
   updateStreamSettings,
+);
+
+/// 🔥 CAMBIAR CÁMARA ACTIVA
+router.post(
+
+  '/active-camera',
+
+  requireAuth,
+
+  setActiveCamera,
+
 );
 
 // 🟢 OBTENER REMATE POR ID
