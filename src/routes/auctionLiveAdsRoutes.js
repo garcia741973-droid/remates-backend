@@ -67,5 +67,11 @@ router.patch(
   toggleAuctionLiveAd,
 );
 
+router.post(
+  '/:id/toggle',
+  requireAuth,
+  toggleAuctionLiveAd,
+);
+
 module.exports =
     router;
