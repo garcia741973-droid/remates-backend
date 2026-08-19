@@ -290,6 +290,7 @@ exports.setCurrentLot = async (req, res) => {
         camera_mode,
         camera_switch_seconds,
         active_camera,
+        active_audio,
         ads_enabled,
         ads_mode
       FROM auction_stream_settings
