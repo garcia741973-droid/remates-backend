@@ -134,7 +134,7 @@ exports.createAuction = async (req, res) => {
   res.json(
     auction,
   );
-  
+
   } catch (error) {
 
     console.error(
@@ -282,6 +282,25 @@ exports.setCurrentLot = async (req, res) => {
       currentLot = lotResult.rows[0] || null;
     }
 
+    // 🔥 TRAER CONFIGURACIÓN DE TRANSMISIÓN
+    const streamSettingsResult = await pool.query(
+      `
+      SELECT
+        camera_count,
+        camera_mode,
+        camera_switch_seconds,
+        active_camera,
+        ads_enabled,
+        ads_mode
+      FROM auction_stream_settings
+      WHERE auction_id = $1
+      `,
+      [id]
+    );
+
+    const streamSettings =
+        streamSettingsResult.rows[0] || null;
+
     // 🎯 RESPUESTA LIMPIA
     res.json({
 
@@ -311,6 +330,10 @@ exports.setCurrentLot = async (req, res) => {
 
       current_lot:
           currentLot,
+
+      stream_settings:
+          streamSettings,          
+
     });
 
   } catch (error) {
