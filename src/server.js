@@ -181,6 +181,11 @@ const transportRoutes = require('./routes/transportRoutes');
 const supportRoutes =
     require('./routes/supportRoutes');
 
+const auctionLiveAdsRoutes =
+  require(
+    './routes/auctionLiveAdsRoutes'
+  );
+
 app.use(
   '/market-analytics',
   marketAnalyticsRoutes
@@ -397,6 +402,11 @@ app.use(
 app.use(
   '/cattle',
   cattleRoutes
+);
+
+app.use(
+  '/auction-live-ads',
+  auctionLiveAdsRoutes,
 );
 
 /// 🚀 SERVIDOR
