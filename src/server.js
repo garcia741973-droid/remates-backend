@@ -18,6 +18,12 @@ console.log(
     new Date(),
 );    
 
+const {
+  startAuctionCameraSwitchService,
+} = require(
+  './services/auctionCameraSwitchService'
+);
+
 console.log(
   "ENV FIREBASE:",
   process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 ? "OK" : "NO EXISTE"
@@ -405,6 +411,13 @@ const io = new Server(server, {
 });
 
 app.set('io', io);
+
+
+/// 🎥 CAMBIO AUTOMÁTICO
+/// DE CÁMARAS EN REMATES
+startAuctionCameraSwitchService(
+  io,
+);
 
 /// 🔥 REVIEW REMINDER SERVICE
 startReviewReminderService();

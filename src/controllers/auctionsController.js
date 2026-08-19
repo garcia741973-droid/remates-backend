@@ -1174,9 +1174,19 @@ exports.updateStreamSettings = async (
 
         ads_mode = $5,
 
+        camera_last_switched_at =
+          CASE
+
+            WHEN $2 = 'auto'
+            THEN NOW()
+
+            ELSE camera_last_switched_at
+
+          END,
+
         updated_at = NOW()
 
-      WHERE auction_id = $6
+        WHERE auction_id = $6
 
       RETURNING *
       `,
