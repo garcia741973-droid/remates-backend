@@ -4,12 +4,21 @@ const router = express.Router();
 const auctionsController = require('../controllers/auctionsController');
 
 const {
+
   createAuction,
+
   setCurrentLot,
+
   getAuctionById,
+
   getAuctions,
+
   closeAuction,
+
   getAuctionReports,
+
+  updateStreamSettings,
+
 } = require('../controllers/auctionsController');
 
 const { requireAuth } = require('../middleware/authMiddleware');
@@ -75,8 +84,16 @@ router.get(
   auctionsController.getMyLiveAuction
 );
 
+/// 🔥 CONFIGURACIÓN DE TRANSMISIÓN
+router.put(
+  '/stream-settings',
+  requireAuth,
+  updateStreamSettings,
+);
+
 // 🟢 OBTENER REMATE POR ID
 router.get('/:id', requireAuth, getAuctionById);
+
 
 
 // 🟢 CAMBIAR LOTE ACTUAL

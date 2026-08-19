@@ -1035,3 +1035,196 @@ exports.getMyLiveAuction =
       });
     }
   };  
+
+exports.updateStreamSettings = async (
+  req,
+  res,
+) => {
+
+  try {
+
+    /// 🔒 SOLO ADMIN
+    if (
+      req.user.role !==
+      'admin'
+    ) {
+
+      return res.status(403).json({
+
+        error:
+          'No autorizado',
+      });
+    }
+
+    const {
+      auction_id,
+      camera_count,
+      camera_mode,
+      camera_switch_seconds,
+      ads_enabled,
+      ads_mode,
+    } = req.body;
+
+    /// 🔥 VALIDAR REMATE
+    const auctionResult =
+        await pool.query(
+
+      `
+      SELECT
+        id,
+        company_id,
+        status
+      FROM auctions
+      WHERE id = $1
+      `,
+      [auction_id]
+    );
+
+    const auction =
+        auctionResult.rows[0];
+
+    if (!auction) {
+
+      return res.status(404).json({
+
+        error:
+          'Remate no encontrado',
+      });
+    }
+
+    /// 🔒 VALIDAR EMPRESA
+    if (
+      auction.company_id !==
+      req.user.company_id
+    ) {
+
+      return res.status(403).json({
+
+        error:
+          'No autorizado',
+      });
+    }
+
+    /// 🔒 VALIDACIONES
+    if (
+      camera_count !== 1 &&
+      camera_count !== 2
+    ) {
+
+      return res.status(400).json({
+
+        error:
+          'camera_count debe ser 1 o 2',
+      });
+    }
+
+    if (
+      camera_mode !== 'manual' &&
+      camera_mode !== 'auto'
+    ) {
+
+      return res.status(400).json({
+
+        error:
+          'camera_mode inválido',
+      });
+    }
+
+    if (
+      Number(
+        camera_switch_seconds
+      ) <= 0
+    ) {
+
+      return res.status(400).json({
+
+        error:
+          'camera_switch_seconds debe ser mayor a 0',
+      });
+    }
+
+    if (
+      ads_mode !== 'manual' &&
+      ads_mode !== 'auto'
+    ) {
+
+      return res.status(400).json({
+
+        error:
+          'ads_mode inválido',
+      });
+    }
+
+    /// 🔥 ACTUALIZAR CONFIGURACIÓN
+    const result =
+        await pool.query(
+
+      `
+      UPDATE auction_stream_settings
+      SET
+
+        camera_count = $1,
+
+        camera_mode = $2,
+
+        camera_switch_seconds = $3,
+
+        ads_enabled = $4,
+
+        ads_mode = $5,
+
+        updated_at = NOW()
+
+      WHERE auction_id = $6
+
+      RETURNING *
+      `,
+      [
+
+        camera_count,
+
+        camera_mode,
+
+        camera_switch_seconds,
+
+        ads_enabled,
+
+        ads_mode,
+
+        auction_id,
+      ]
+    );
+
+    if (
+      result.rows.length === 0
+    ) {
+
+      return res.status(404).json({
+
+        error:
+          'Configuración de transmisión no encontrada',
+      });
+    }
+
+    res.json({
+
+      success: true,
+
+      stream_settings:
+          result.rows[0],
+    });
+
+  } catch (error) {
+
+    console.error(
+      'UPDATE STREAM SETTINGS ERROR:',
+      error,
+    );
+
+    res.status(500).json({
+
+      error:
+        'Error actualizando configuración de transmisión',
+    });
+  }
+};  
