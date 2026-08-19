@@ -71,46 +71,70 @@ exports.createAuction = async (req, res) => {
       }
     }    
 
-    const { rows } =
-        await pool.query(
+  const { rows } =
+      await pool.query(
 
-      `
-      INSERT INTO auctions (
+    `
+    INSERT INTO auctions (
 
-        company_id,
+      company_id,
 
-        name,
+      name,
 
-        scheduled_at,
+      scheduled_at,
 
-        auction_type
+      auction_type
 
-      )
+    )
 
-      VALUES (
+    VALUES (
 
-        $1,$2,$3,$4
+      $1,$2,$3,$4
 
-      )
+    )
 
-      RETURNING *
-      `,
-      [
+    RETURNING *
+    `,
+    [
 
-        company_id,
+      company_id,
 
-        name,
+      name,
 
-        scheduled_at,
+      scheduled_at,
 
-        auction_type,
-      ]
-    );
+      auction_type,
+    ]
+  );
 
-    res.json(
-      rows[0],
-    );
+  const auction =
+      rows[0];
 
+  /// 🔥 CREAR CONFIGURACIÓN
+  /// DE TRANSMISIÓN POR DEFECTO
+  await pool.query(
+
+    `
+    INSERT INTO auction_stream_settings (
+
+      auction_id
+
+    )
+
+    VALUES ($1)
+
+    ON CONFLICT (auction_id)
+    DO NOTHING
+    `,
+    [
+      auction.id,
+    ]
+  );
+
+  res.json(
+    auction,
+  );
+  
   } catch (error) {
 
     console.error(
