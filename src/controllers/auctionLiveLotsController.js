@@ -534,6 +534,9 @@ exports.reorderAuctionLiveLots =
 exports.updateAuctionLiveLot =
   async (req, res) => {
 
+  const client =
+      await pool.connect();
+
   try {
 
     const { id } =
@@ -561,10 +564,6 @@ exports.updateAuctionLiveLot =
       breed,
 
       quantity,
-
-      weight,
-
-      average_weight,
 
       estimated_total_weight,
 
@@ -598,8 +597,76 @@ exports.updateAuctionLiveLot =
 
     } = req.body;
 
+    await client.query(
+      'BEGIN'
+    );
+
+    /// 🔥 OBTENER PESO REAL EXISTENTE
+    const currentResult =
+        await client.query(
+      `
+      SELECT
+        id,
+        weight
+      FROM auction_live_lots
+      WHERE id = $1
+      AND company_id = $2
+      FOR UPDATE
+      `,
+      [
+        id,
+        company_id,
+      ]
+    );
+
+    if (
+      currentResult.rows.length === 0
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(404).json({
+
+        error:
+          'Lote no encontrado',
+      });
+    }
+
+    const currentLot =
+        currentResult.rows[0];
+
+    /// 🔥 PROMEDIO SIEMPRE DERIVADO
+    const finalQuantity =
+        Number(quantity);
+
+    const realWeight =
+        Number(
+          currentLot.weight
+        );
+
+    let averageWeight =
+        null;
+
+    if (
+      Number.isFinite(realWeight) &&
+      realWeight > 0 &&
+      Number.isFinite(finalQuantity) &&
+      finalQuantity > 0
+    ) {
+
+      averageWeight =
+          Number(
+            (
+              realWeight /
+              finalQuantity
+            ).toFixed(2)
+          );
+    }
+
     const result =
-        await pool.query(
+        await client.query(
       `
       UPDATE auction_live_lots
       SET
@@ -622,42 +689,41 @@ exports.updateAuctionLiveLot =
 
         quantity = $9,
 
-        weight = $10,
+        average_weight = $10,
 
-        average_weight = $11,
+        estimated_total_weight = $11,
 
-        estimated_total_weight = $12,
+        sale_type = $12,
 
-        sale_type = $13,
+        department = $13,
 
-        department = $14,
+        province = $14,
 
-        province = $15,
+        municipality = $15,
 
-        municipality = $16,
+        arrival_time = $16,
 
-        arrival_time = $17,
+        nearby_town = $17,
 
-        nearby_town = $18,
+        nearby_km = $18,
 
-        nearby_km = $19,
+        images = $19,
 
-        images = $20,
+        videos = $20,
 
-        videos = $21,
+        base_price = $21,
 
-        base_price = $22,
+        opening_price = $22,
 
-        opening_price = $23,
+        reserve_price = $23,
 
-        reserve_price = $24,
+        increment_value = $24,
 
-        increment_value = $25,
+        notes = $25
 
-        notes = $26
+      WHERE id = $26
 
-      WHERE id = $27
-      AND company_id = $28
+      AND company_id = $27
 
       RETURNING *
       `,
@@ -681,9 +747,7 @@ exports.updateAuctionLiveLot =
 
         quantity,
 
-        weight,
-
-        average_weight,
+        averageWeight,
 
         estimated_total_weight,
 
@@ -721,6 +785,10 @@ exports.updateAuctionLiveLot =
       ]
     );
 
+    await client.query(
+      'COMMIT'
+    );
+
     /// 🔥 SOCKET MINI PLAZA
     const io =
         req.app.get('io');
@@ -735,6 +803,14 @@ exports.updateAuctionLiveLot =
 
   } catch (e) {
 
+    try {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+    } catch (_) {}
+
     console.log(
       'UPDATE LOT ERROR:',
       e,
@@ -743,8 +819,12 @@ exports.updateAuctionLiveLot =
     res.status(500).json({
 
       error:
-          'Error actualizando lote',
+        'Error actualizando lote',
     });
+
+  } finally {
+
+    client.release();
   }
 };
 
