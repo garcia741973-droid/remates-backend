@@ -31,18 +31,23 @@ const {
 );
 
 const {
-
   requireAuth,
-
+  requireAdmin,
 } = require(
   '../middleware/authMiddleware'
 );
 
 /// 🔥 CREAR LOTE REMATE
 router.post(
+
   '/',
+
   requireAuth,
+
+  requireAdmin,
+
   createAuctionLiveLot,
+
 );
 
 /// 🔥 LOTES DE UN REMATE
@@ -61,9 +66,15 @@ router.get(
 
 /// 🔥 REORDENAR
 router.put(
+
   '/reorder',
+
   requireAuth,
+
+  requireAdmin,
+
   reorderAuctionLiveLots,
+
 );
 
 /// 🔥 MINI PLAZA LOTES
@@ -74,16 +85,28 @@ router.get(
 
 /// 🔥 UPDATE LOTE
 router.put(
+
   '/:id',
+
   requireAuth,
+
+  requireAdmin,
+
   updateAuctionLiveLot,
+
 );
 
 /// 🔥 DELETE LOTE
 router.delete(
+
   '/:id',
+
   requireAuth,
+
+  requireAdmin,
+
   deleteAuctionLiveLot,
+
 );
 
 /// 🔥 ABRIR LOTE

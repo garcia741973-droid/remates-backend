@@ -490,15 +490,20 @@ exports.reorderAuctionLiveLots =
 
     const { lots } = req.body;
 
+    const company_id =
+        req.user.company_id;
+
     for (const lot of lots) {
 
       await pool.query(`
         UPDATE auction_live_lots
         SET display_order = $1
         WHERE id = $2
+        AND company_id = $3
       `, [
         lot.display_order,
         lot.id,
+        company_id,
       ]);
     }
 
@@ -533,6 +538,9 @@ exports.updateAuctionLiveLot =
 
     const { id } =
         req.params;
+
+    const company_id =
+        req.user.company_id;
 
     const {
 
@@ -649,6 +657,7 @@ exports.updateAuctionLiveLot =
         notes = $26
 
       WHERE id = $27
+      AND company_id = $28
 
       RETURNING *
       `,
@@ -707,6 +716,8 @@ exports.updateAuctionLiveLot =
         notes,
 
         id,
+
+        company_id,
       ]
     );
 
@@ -746,13 +757,33 @@ exports.deleteAuctionLiveLot =
     const { id } =
         req.params;
 
-    await pool.query(
+    const company_id =
+        req.user.company_id;
+
+    const result =
+        await pool.query(
       `
       DELETE FROM auction_live_lots
       WHERE id = $1
+      AND company_id = $2
+      RETURNING id
       `,
-      [id]
+      [
+        id,
+        company_id,
+      ]
     );
+
+    if (
+      result.rows.length === 0
+    ) {
+
+      return res.status(404).json({
+
+        error:
+          'Lote no encontrado',
+      });
+    }
 
     /// 🔥 SOCKET MINI PLAZA
     const io =
