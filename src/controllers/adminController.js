@@ -24,6 +24,8 @@ exports.createUser = async (req, res) => {
 
     const allowedRoles = [
       'operator_sala',
+      'operator_balanza',
+      'operator_fotos',
       'streamer',
       'corral',
       'client'
