@@ -1356,3 +1356,287 @@ exports.getMiniPlazaLots =
     });
   }
 };
+
+/// ⚖️ ACTUALIZAR PESO REAL DE BALANZA
+exports.updateLotWeight =
+  async (req, res) => {
+
+  const client =
+      await pool.connect();
+
+  try {
+
+    const user =
+        req.user;
+
+    const { id } =
+        req.params;
+
+    const {
+      weight,
+    } = req.body;
+
+    /// 🔒 SOLO ADMIN / BALANZA
+    if (
+      user.role !== 'admin' &&
+      user.role !== 'operator_balanza'
+    ) {
+
+      return res.status(403).json({
+
+        error:
+          'No autorizado para cargar peso',
+      });
+    }
+
+    /// 🔒 VALIDAR PESO
+    const finalWeight =
+        Number(weight);
+
+    if (
+      !Number.isFinite(finalWeight) ||
+      finalWeight <= 0
+    ) {
+
+      return res.status(400).json({
+
+        error:
+          'Peso inválido',
+      });
+    }
+
+    await client.query(
+      'BEGIN'
+    );
+
+    /// 🔥 BUSCAR LOTE
+    /// MISMA EMPRESA + LOCK
+    const lotResult =
+        await client.query(
+
+      `
+      SELECT
+
+        id,
+
+        company_id,
+
+        auction_id,
+
+        lot_number,
+
+        quantity,
+
+        weight,
+
+        average_weight,
+
+        status
+
+      FROM auction_live_lots
+
+      WHERE id = $1
+
+      AND company_id = $2
+
+      FOR UPDATE
+      `,
+      [
+        id,
+        user.company_id,
+      ]
+    );
+
+    const lot =
+        lotResult.rows[0];
+
+    if (!lot) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(404).json({
+
+        error:
+          'Lote no encontrado',
+      });
+    }
+
+    /// 🔒 NO MODIFICAR LOTES
+    /// YA FINALIZADOS
+    if (
+      lot.status === 'sold' ||
+      lot.status === 'passed' ||
+      lot.status === 'cancelled'
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(400).json({
+
+        error:
+          'El lote ya fue cerrado',
+      });
+    }
+
+    /// 🔥 CALCULAR PESO PROMEDIO
+    const quantity =
+        Number(lot.quantity);
+
+    let averageWeight =
+        null;
+
+    if (
+      Number.isFinite(quantity) &&
+      quantity > 0
+    ) {
+
+      averageWeight =
+          Number(
+            (
+              finalWeight /
+              quantity
+            ).toFixed(2)
+          );
+    }
+
+    /// ⚖️ ACTUALIZAR SOLO
+    /// DATOS DE BALANZA
+    const updateResult =
+        await client.query(
+
+      `
+      UPDATE auction_live_lots
+      SET
+
+        weight = $1,
+
+        average_weight = $2,
+
+        weighed_at = NOW(),
+
+        weighed_by_user_id = $3
+
+      WHERE id = $4
+
+      AND company_id = $5
+
+      RETURNING *
+      `,
+      [
+
+        finalWeight,
+
+        averageWeight,
+
+        user.user_id,
+
+        id,
+
+        user.company_id,
+      ]
+    );
+
+    await client.query(
+      'COMMIT'
+    );
+
+    const updatedLot =
+        updateResult.rows[0];
+
+    /// ⚡ SOCKET
+    const io =
+        req.app.get('io');
+
+    /// 🔥 AVISAR AL REMATE
+    io.to(
+      `auction_${lot.auction_id}`
+    ).emit(
+
+      'lotWeightUpdated',
+
+      {
+
+        lot_id:
+          lot.id,
+
+        lot_number:
+          lot.lot_number,
+
+        weight:
+          finalWeight,
+
+        average_weight:
+          averageWeight,
+
+        quantity:
+          lot.quantity,
+
+        weighed_at:
+          updatedLot.weighed_at,
+      }
+    );
+
+    /// 🔥 ACTUALIZAR MINI PLAZA
+    io.emit(
+      'miniPlazaUpdated'
+    );
+
+    res.json({
+
+      success: true,
+
+      lot_id:
+        lot.id,
+
+      lot_number:
+        lot.lot_number,
+
+      quantity:
+        lot.quantity,
+
+      weight:
+        finalWeight,
+
+      average_weight:
+        averageWeight,
+
+      weighed_at:
+        updatedLot.weighed_at,
+
+      warning:
+        averageWeight == null
+            ? 'Peso guardado, pero falta cantidad de animales para calcular promedio'
+            : null,
+    });
+
+  } catch (error) {
+
+    try {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+    } catch (_) {}
+
+    console.log(
+      'UPDATE LOT WEIGHT ERROR:',
+      error,
+    );
+
+    res.status(500).json({
+
+      error:
+        'Error actualizando peso del lote',
+    });
+
+  } finally {
+
+    client.release();
+  }
+};
+
