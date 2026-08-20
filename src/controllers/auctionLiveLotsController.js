@@ -1174,11 +1174,12 @@ exports.getAuctionResults =
       LEFT JOIN bids b
       ON b.id = (
 
-        SELECT id
-        FROM bids
-        WHERE lot_id = l.id
-        ORDER BY id DESC
-        LIMIT 1
+      SELECT id
+      FROM bids
+      WHERE lot_id = l.id
+      AND status = 'active'
+      ORDER BY id DESC
+      LIMIT 1
       )
 
       WHERE l.auction_id = $1
