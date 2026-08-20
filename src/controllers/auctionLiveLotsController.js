@@ -8,6 +8,12 @@ const {
   processLotAlerts,
 } = require('../services/processLotAlerts');
 
+const {
+  stopAdBreak,
+} = require(
+  '../services/auctionLiveAdsService'
+);
+
 /// 🔥 CREAR LOTE VIVO REMATE
 exports.createAuctionLiveLot = async (req, res) => {
 
@@ -862,6 +868,15 @@ exports.openLiveLot =
     const io =
         req.app.get('io');
 
+    /// 🛑 DETENER PUBLICIDAD
+    /// AL ABRIR NUEVO LOTE
+    await stopAdBreak(
+      auction_id,
+      io,
+      'new_lot',
+    );
+
+    /// 🔥 AVISAR CAMBIO DE LOTE
     io.to(
       `auction_${auction_id}`
     ).emit(
