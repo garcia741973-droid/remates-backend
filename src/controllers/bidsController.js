@@ -557,6 +557,7 @@ exports.hammerLot = async (
       SELECT *
       FROM bids
       WHERE lot_id = $1
+      AND status = 'active'
       ORDER BY id DESC
       LIMIT 1
       `,
@@ -951,6 +952,7 @@ exports.getLatestBids = async (
         created_at
       FROM bids
       WHERE lot_id = $1
+      AND status = 'active'
       ORDER BY id DESC
       LIMIT 3
       `,
@@ -973,5 +975,545 @@ exports.getLatestBids = async (
       error:
         'Error cargando últimas pujas',
     });
+  }
+};
+
+/// 🔥 AJUSTAR PRECIO DE SALIDA
+/// SOLO SI TODAVÍA NO EXISTEN PUJAS
+exports.adjustFloorPrice = async (
+  req,
+  res,
+) => {
+
+  const client =
+      await pool.connect();
+
+  try {
+
+    const user =
+        req.user;
+
+    const {
+      auction_id,
+      lot_id,
+      amount,
+    } = req.body;
+
+    /// 🔒 SOLO OPERADOR / ADMIN
+    if (
+      user.role !== 'operator_sala' &&
+      user.role !== 'admin'
+    ) {
+
+      return res.status(403).json({
+        error: 'No autorizado',
+      });
+    }
+
+    const newAmount =
+        Number(amount);
+
+    if (
+      !Number.isFinite(newAmount) ||
+      newAmount <= 0
+    ) {
+
+      return res.status(400).json({
+        error: 'Monto inválido',
+      });
+    }
+
+    await client.query(
+      'BEGIN'
+    );
+
+    /// 🔥 VALIDAR REMATE
+    const auctionResult =
+        await client.query(
+
+      `
+      SELECT
+        id,
+        status,
+        current_lot_id
+      FROM auctions
+      WHERE id = $1
+      `,
+      [auction_id]
+    );
+
+    const auction =
+        auctionResult.rows[0];
+
+    if (
+      !auction ||
+      auction.status !== 'live'
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(400).json({
+        error:
+          'El remate no está activo',
+      });
+    }
+
+    if (
+      auction.current_lot_id !==
+      lot_id
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(400).json({
+        error:
+          'Este lote no está activo',
+      });
+    }
+
+    /// 🔒 LOCK LOTE
+    const lotResult =
+        await client.query(
+
+      `
+      SELECT *
+      FROM auction_live_lots
+      WHERE id = $1
+      FOR UPDATE
+      `,
+      [lot_id]
+    );
+
+    const lot =
+        lotResult.rows[0];
+
+    if (
+      !lot ||
+      lot.status !== 'live'
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(400).json({
+        error:
+          'El lote no está activo',
+      });
+    }
+
+    /// 🔥 VERIFICAR QUE NO EXISTAN
+    /// PUJAS ACTIVAS
+    const bidsResult =
+        await client.query(
+
+      `
+      SELECT id
+      FROM bids
+      WHERE lot_id = $1
+      AND status = 'active'
+      LIMIT 1
+      `,
+      [lot_id]
+    );
+
+    if (
+      bidsResult.rows.length > 0
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(400).json({
+
+        error:
+          'El precio inicial solo puede modificarse antes de recibir pujas',
+      });
+    }
+
+    /// 🔥 NUEVO PRECIO REAL DE SALIDA
+    await client.query(
+
+      `
+      UPDATE auction_live_lots
+      SET
+
+        opening_price = $1,
+        current_price = $1
+
+      WHERE id = $2
+      `,
+      [
+        newAmount,
+        lot_id,
+      ]
+    );
+
+    await client.query(
+      'COMMIT'
+    );
+
+    /// ⚡ SOCKET
+    const io =
+        req.app.get('io');
+
+    io.to(
+      `auction_${auction_id}`
+    ).emit(
+
+      'floorPriceAdjusted',
+
+      {
+        lot_id,
+        amount:
+          newAmount,
+
+        operator_user_id:
+          user.user_id,
+      }
+    );
+
+    res.json({
+
+      success: true,
+
+      amount:
+        newAmount,
+    });
+
+  } catch (error) {
+
+    try {
+      await client.query(
+        'ROLLBACK'
+      );
+    } catch (_) {}
+
+    console.error(
+      'ADJUST FLOOR PRICE ERROR:',
+      error,
+    );
+
+    res.status(500).json({
+
+      error:
+        'Error ajustando precio de salida',
+    });
+
+  } finally {
+
+    client.release();
+  }
+};
+
+/// 🔥 RETIRAR ÚLTIMA PUJA DE SALA
+exports.rollbackFloorBid = async (
+  req,
+  res,
+) => {
+
+  const client =
+      await pool.connect();
+
+  try {
+
+    const user =
+        req.user;
+
+    const {
+      auction_id,
+      lot_id,
+    } = req.body;
+
+    /// 🔒 SOLO OPERADOR / ADMIN
+    if (
+      user.role !== 'operator_sala' &&
+      user.role !== 'admin'
+    ) {
+
+      return res.status(403).json({
+        error: 'No autorizado',
+      });
+    }
+
+    await client.query(
+      'BEGIN'
+    );
+
+    /// 🔥 VALIDAR REMATE
+    const auctionResult =
+        await client.query(
+
+      `
+      SELECT
+        id,
+        status,
+        current_lot_id
+      FROM auctions
+      WHERE id = $1
+      `,
+      [auction_id]
+    );
+
+    const auction =
+        auctionResult.rows[0];
+
+    if (
+      !auction ||
+      auction.status !== 'live'
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(400).json({
+        error:
+          'El remate no está activo',
+      });
+    }
+
+    if (
+      auction.current_lot_id !==
+      lot_id
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(400).json({
+        error:
+          'Este lote no está activo',
+      });
+    }
+
+    /// 🔒 LOCK LOTE
+    const lotResult =
+        await client.query(
+
+      `
+      SELECT *
+      FROM auction_live_lots
+      WHERE id = $1
+      FOR UPDATE
+      `,
+      [lot_id]
+    );
+
+    const lot =
+        lotResult.rows[0];
+
+    if (
+      !lot ||
+      lot.status !== 'live'
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(400).json({
+        error:
+          'El lote no está activo',
+      });
+    }
+
+    /// 🔥 ÚLTIMA PUJA ACTIVA REAL
+    const lastBidResult =
+        await client.query(
+
+      `
+      SELECT *
+      FROM bids
+      WHERE lot_id = $1
+      AND status = 'active'
+      ORDER BY id DESC
+      LIMIT 1
+      `,
+      [lot_id]
+    );
+
+    const lastBid =
+        lastBidResult.rows[0];
+
+    if (!lastBid) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(400).json({
+        error:
+          'No existen pujas para retirar',
+      });
+    }
+
+    /// 🔒 SOLO SE PUEDE RETIRAR
+    /// SI LA ÚLTIMA ES DE SALA
+    if (
+      lastBid.bid_source !==
+      'floor'
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(400).json({
+
+        error:
+          'La última puja es online y no puede retirarse desde sala',
+      });
+    }
+
+    /// 🔥 MARCAR COMO ANULADA
+    await client.query(
+
+      `
+      UPDATE bids
+      SET
+
+        status = 'cancelled',
+
+        cancelled_at = NOW(),
+
+        cancelled_by_user_id = $1
+
+      WHERE id = $2
+      `,
+      [
+        user.user_id,
+        lastBid.id,
+      ]
+    );
+
+    /// 🔥 BUSCAR PUJA ACTIVA ANTERIOR
+    const previousBidResult =
+        await client.query(
+
+      `
+      SELECT *
+      FROM bids
+      WHERE lot_id = $1
+      AND status = 'active'
+      ORDER BY id DESC
+      LIMIT 1
+      `,
+      [lot_id]
+    );
+
+    const previousBid =
+        previousBidResult.rows[0];
+
+    /// 🔥 SI NO EXISTE PUJA ANTERIOR,
+    /// VOLVER AL PRECIO DE SALIDA
+    const restoredPrice =
+        previousBid
+            ? Number(
+                previousBid.amount
+              )
+            : Number(
+                lot.opening_price
+              );
+
+    /// 🔥 RESTAURAR PRECIO REAL
+    await client.query(
+
+      `
+      UPDATE auction_live_lots
+      SET current_price = $1
+      WHERE id = $2
+      `,
+      [
+        restoredPrice,
+        lot_id,
+      ]
+    );
+
+    await client.query(
+      'COMMIT'
+    );
+
+    /// ⚡ SOCKET
+    const io =
+        req.app.get('io');
+
+    io.to(
+      `auction_${auction_id}`
+    ).emit(
+
+      'floorBidRolledBack',
+
+      {
+        lot_id,
+
+        cancelled_bid_id:
+          lastBid.id,
+
+        cancelled_amount:
+          Number(
+            lastBid.amount
+          ),
+
+        amount:
+          restoredPrice,
+
+        previous_bid:
+          previousBid || null,
+
+        operator_user_id:
+          user.user_id,
+      }
+    );
+
+    res.json({
+
+      success: true,
+
+      cancelled_bid_id:
+        lastBid.id,
+
+      cancelled_amount:
+        Number(
+          lastBid.amount
+        ),
+
+      amount:
+        restoredPrice,
+
+      previous_bid:
+        previousBid || null,
+    });
+
+  } catch (error) {
+
+    try {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+    } catch (_) {}
+
+    console.error(
+      'ROLLBACK FLOOR BID ERROR:',
+      error,
+    );
+
+    res.status(500).json({
+
+      error:
+        'Error retirando puja de sala',
+    });
+
+  } finally {
+
+    client.release();
   }
 };
