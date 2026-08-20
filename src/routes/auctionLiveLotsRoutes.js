@@ -28,6 +28,8 @@ const {
 
   updateLotWeight,
 
+  updateLotImages,
+
 } = require(
   '../controllers/auctionLiveLotsController'
 );
@@ -83,6 +85,18 @@ router.put(
 router.get(
   '/mini-plaza/:company_id',
   getMiniPlazaLots,
+);
+
+/// 📷 ACTUALIZAR FOTOS LOTE
+
+router.put(
+
+  '/:id/images',
+
+  requireAuth,
+
+  updateLotImages,
+
 );
 
 /// ⚖️ ACTUALIZAR PESO BALANZA

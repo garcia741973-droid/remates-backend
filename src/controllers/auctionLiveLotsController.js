@@ -1640,3 +1640,248 @@ exports.updateLotWeight =
   }
 };
 
+/// 📷 ACTUALIZAR FOTOS DEL LOTE
+exports.updateLotImages =
+  async (req, res) => {
+
+  const client =
+      await pool.connect();
+
+  try {
+
+    const user =
+        req.user;
+
+    const { id } =
+        req.params;
+
+    const {
+      images,
+    } = req.body;
+
+    /// 🔒 SOLO ADMIN / FOTOS
+    if (
+      user.role !== 'admin' &&
+      user.role !== 'operator_fotos'
+    ) {
+
+      return res.status(403).json({
+
+        error:
+          'No autorizado para cargar fotos',
+      });
+    }
+
+    /// 🔒 VALIDAR ARRAY
+    if (
+      !Array.isArray(images)
+    ) {
+
+      return res.status(400).json({
+
+        error:
+          'Formato de imágenes inválido',
+      });
+    }
+
+    /// 🔥 NORMALIZAR
+    const cleanImages =
+        images
+            .map(
+              (value) =>
+                  value
+                      ?.toString()
+                      .trim()
+            )
+            .filter(
+              (value) =>
+                  value &&
+                  value.length > 0
+            );
+
+    await client.query(
+      'BEGIN'
+    );
+
+    /// 🔥 BUSCAR LOTE
+    /// DE LA MISMA EMPRESA
+    const lotResult =
+        await client.query(
+
+      `
+      SELECT
+
+        id,
+
+        company_id,
+
+        auction_id,
+
+        lot_number,
+
+        status,
+
+        images
+
+      FROM auction_live_lots
+
+      WHERE id = $1
+
+      AND company_id = $2
+
+      FOR UPDATE
+      `,
+      [
+        id,
+        user.company_id,
+      ]
+    );
+
+    const lot =
+        lotResult.rows[0];
+
+    if (!lot) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(404).json({
+
+        error:
+          'Lote no encontrado',
+      });
+    }
+
+    /// 🔒 NO MODIFICAR
+    /// LOTES YA CERRADOS
+    if (
+      lot.status === 'sold' ||
+      lot.status === 'passed' ||
+      lot.status === 'cancelled'
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(400).json({
+
+        error:
+          'El lote ya fue cerrado',
+      });
+    }
+
+    /// 📷 ACTUALIZAR SOLO FOTOS
+    const updateResult =
+        await client.query(
+
+      `
+      UPDATE auction_live_lots
+      SET
+
+        images = $1,
+
+        photos_updated_at = NOW(),
+
+        photos_updated_by_user_id = $2
+
+      WHERE id = $3
+
+      AND company_id = $4
+
+      RETURNING *
+      `,
+      [
+        cleanImages,
+
+        user.user_id,
+
+        id,
+
+        user.company_id,
+      ]
+    );
+
+    await client.query(
+      'COMMIT'
+    );
+
+    const updatedLot =
+        updateResult.rows[0];
+
+    /// ⚡ SOCKET
+    const io =
+        req.app.get('io');
+
+    io.to(
+      `auction_${lot.auction_id}`
+    ).emit(
+
+      'lotImagesUpdated',
+
+      {
+        lot_id:
+          lot.id,
+
+        lot_number:
+          lot.lot_number,
+
+        images:
+          updatedLot.images,
+
+        photos_updated_at:
+          updatedLot
+              .photos_updated_at,
+      }
+    );
+
+    /// 🔥 MINI PLAZA
+    io.emit(
+      'miniPlazaUpdated'
+    );
+
+    res.json({
+
+      success: true,
+
+      lot_id:
+        lot.id,
+
+      lot_number:
+        lot.lot_number,
+
+      images:
+        updatedLot.images,
+
+      photos_updated_at:
+        updatedLot
+            .photos_updated_at,
+    });
+
+  } catch (error) {
+
+    try {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+    } catch (_) {}
+
+    console.log(
+      'UPDATE LOT IMAGES ERROR:',
+      error,
+    );
+
+    res.status(500).json({
+
+      error:
+        'Error actualizando fotos del lote',
+    });
+
+  } finally {
+
+    client.release();
+  }
+};
