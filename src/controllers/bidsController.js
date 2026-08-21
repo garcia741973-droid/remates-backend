@@ -10,179 +10,534 @@ const {
   '../services/auctionLiveAdsService'
 );
 
-exports.placeBid = async (req, res) => {
-  const client = await pool.connect();
+exports.placeBid = async (req, res) => {exports.placeBid = async (req, res) => {
+
+  const client =
+      await pool.connect();
 
   try {
-    const user = req.user;
-    const { auction_id, lot_id, amount } = req.body;
 
-    await client.query('BEGIN');
+    const user =
+        req.user;
 
-    // 🔒 1. VALIDACIÓN KYC POR EMPRESA
-    if (user.role === 'client') {
+    const {
+      auction_id,
+      lot_id,
+      amount,
+    } = req.body;
 
-      const kycResult = await client.query(
 
-        `
-        SELECT kyc_status
-        FROM users
-        WHERE id = $1
-        `,
-        [user.user_id]
+    await client.query(
+      'BEGIN'
+    );
+
+
+    // =====================================================
+    // 🔒 1. VALIDAR REMATE
+    // TAMBIÉN NECESITAMOS SU company_id
+    // =====================================================
+
+    const auctionResult =
+        await client.query(
+      `
+      SELECT
+
+        id,
+        company_id,
+        status,
+        current_lot_id
+
+      FROM auctions
+
+      WHERE id = $1
+      `,
+      [
+        auction_id,
+      ],
+    );
+
+
+    const auction =
+        auctionResult.rows[0];
+
+
+    if (!auction) {
+
+      await client.query(
+        'ROLLBACK'
       );
 
-      const kyc = kycResult.rows[0];
+      return res
+        .status(404)
+        .json({
+          error:
+              'Remate no existe',
+        });
+    }
+
+
+    if (
+      auction.status !==
+      'live'
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res
+        .status(400)
+        .json({
+          error:
+              'El remate no está activo',
+        });
+    }
+
+
+    // =====================================================
+    // 🔒 2. CLIENTE ONLINE:
+    //
+    // A) KYC GLOBAL
+    // B) PERTENECE A ESTA REMATADORA
+    // C) APROBADO POR ESTA REMATADORA
+    // D) PUJAS NO CONGELADAS
+    //
+    // IMPORTANTE:
+    // TOMAMOS company_id DEL REMATE,
+    // NO DEL BODY.
+    // =====================================================
+
+    if (
+      user.role ===
+      'client'
+    ) {
+
+      const accessResult =
+          await client.query(
+        `
+        SELECT
+
+          u.kyc_status,
+
+          uc.role
+            AS company_role,
+
+          uc.company_status,
+
+          uc.bidding_enabled,
+
+          uc.bidding_frozen_reason
+
+        FROM users u
+
+        JOIN user_companies uc
+          ON uc.user_id = u.id
+          AND uc.company_id = $2
+
+        WHERE
+          u.id = $1
+
+        FOR SHARE OF uc
+        `,
+        [
+          user.user_id,
+          auction.company_id,
+        ],
+      );
+
+
+      const access =
+          accessResult.rows[0];
+
+
+      // =============================================
+      // NO ESTÁ RELACIONADO CON ESTA REMATADORA
+      // =============================================
+
+      if (!access) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res
+          .status(403)
+          .json({
+            error:
+                'No estás autorizado para pujar con esta rematadora',
+          });
+      }
+
+
+      // =============================================
+      // KYC GLOBAL
+      // =============================================
 
       if (
-
-        !kyc ||
-
-        kyc.kyc_status !== 'approved'
+        access.kyc_status !==
+        'approved'
       ) {
 
-        await client.query('ROLLBACK');
+        await client.query(
+          'ROLLBACK'
+        );
 
-        return res.status(403).json({
+        return res
+          .status(403)
+          .json({
+            error:
+                'Debes estar aprobado para pujar',
+          });
+      }
 
-          error:
-            'Debes estar aprobado para pujar',
-        });
+
+      // =============================================
+      // DEBE SER CLIENTE EN ESTA EMPRESA
+      // =============================================
+
+      if (
+        access.company_role !==
+        'client'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res
+          .status(403)
+          .json({
+            error:
+                'No tienes autorización como cliente para pujar',
+          });
+      }
+
+
+      // =============================================
+      // APROBACIÓN ESPECÍFICA REMATADORA
+      // =============================================
+
+      if (
+        access.company_status !==
+        'approved'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res
+          .status(403)
+          .json({
+            error:
+                'No estás habilitado por esta rematadora para pujar',
+          });
+      }
+
+
+      // =============================================
+      // 🔴 PUJA CONGELADA
+      // =============================================
+
+      if (
+        access.bidding_enabled ===
+        false
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res
+          .status(403)
+          .json({
+
+            error:
+                'Tu autorización para pujar fue suspendida por esta rematadora',
+
+            code:
+                'BIDDING_FROZEN',
+
+            bidding_frozen:
+                true,
+
+            reason:
+                access
+                    .bidding_frozen_reason ??
+                null,
+          });
       }
     }
 
-    // 🔒 2. VALIDAR REMATE ACTIVO
-    const auctionResult = await client.query(
-      `SELECT status FROM auctions WHERE id = $1`,
-      [auction_id]
+
+    // =====================================================
+    // 🔒 3. BLOQUEAR LOTE
+    // DEBE PERTENECER AL MISMO REMATE
+    // =====================================================
+
+    const lotResult =
+        await client.query(
+      `
+      SELECT *
+
+      FROM auction_live_lots
+
+      WHERE
+        id = $1
+        AND auction_id = $2
+
+      FOR UPDATE
+      `,
+      [
+        lot_id,
+        auction_id,
+      ],
     );
 
-    const auction = auctionResult.rows[0];
 
-    if (!auction || auction.status !== 'live') {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        error: 'El remate no está activo'
-      });
-    }
+    const lot =
+        lotResult.rows[0];
 
-    // 🔒 3. BLOQUEAR LOTE (ANTI RACE CONDITION)
-    const lotResult = await client.query(
-      `SELECT *
-        FROM auction_live_lots
-        WHERE id = $1
-        FOR UPDATE`,
-      [lot_id]
-    );
-
-    const lot = lotResult.rows[0];
 
     if (!lot) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Lote no existe' });
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res
+        .status(404)
+        .json({
+          error:
+              'Lote no existe en este remate',
+        });
     }
 
-    // 🔥 NUEVO: VALIDAR LOTE ACTIVO
-    const auctionLotResult = await client.query(
-    `SELECT current_lot_id FROM auctions WHERE id = $1`,
-    [auction_id]
-    );
 
-    const currentLotId = auctionLotResult.rows[0]?.current_lot_id;
+    // =====================================================
+    // 🔒 4. VALIDAR QUE SEA EL LOTE ACTUAL
+    // =====================================================
 
-    if (currentLotId !== lot_id) {
-    await client.query('ROLLBACK');
-    return res.status(400).json({
-        error: 'Este lote no está activo en el remate'
-    });
-    }    
+    if (
+      Number(
+        auction.current_lot_id
+      ) !==
+      Number(
+        lot_id
+      )
+    ) {
 
-    // 🔒 4. VALIDAR ESTADO LOTE
-    if (lot.status !== 'live') {
+      await client.query(
+        'ROLLBACK'
+      );
 
-      await client.query('ROLLBACK');
-
-      return res.status(400).json({
-
-        error: 'El lote no está activo',
-      });
+      return res
+        .status(400)
+        .json({
+          error:
+              'Este lote no está activo en el remate',
+        });
     }
 
-    // 🔒 5. VALIDAR MONTO (YA CON LOCK)
-    if (Number(amount) <= Number(lot.current_price)) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        error: 'La puja debe ser mayor al precio actual'
-      });
+
+    // =====================================================
+    // 🔒 5. VALIDAR ESTADO DEL LOTE
+    // =====================================================
+
+    if (
+      lot.status !==
+      'live'
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res
+        .status(400)
+        .json({
+          error:
+              'El lote no está activo',
+        });
     }
 
-    // 🔥 (HOOK FUTURO) DEPÓSITO
+
+    // =====================================================
+    // 🔒 6. VALIDAR MONTO
+    // =====================================================
+
+    const bidAmount =
+        Number(
+          amount
+        );
+
+
+    if (
+      !Number.isFinite(
+        bidAmount
+      )
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res
+        .status(400)
+        .json({
+          error:
+              'Monto de puja inválido',
+        });
+    }
+
+
+    if (
+      bidAmount <=
+      Number(
+        lot.current_price
+      )
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res
+        .status(400)
+        .json({
+          error:
+              'La puja debe ser mayor al precio actual',
+        });
+    }
+
+
+    // =====================================================
+    // 🔥 HOOK FUTURO
+    // DEPÓSITO / LÍMITE DE CRÉDITO
+    // =====================================================
+
     // const deposit = ...
 
-    // 💰 6. INSERT BID
+
+    // =====================================================
+    // 💰 7. INSERTAR PUJA ONLINE
+    // =====================================================
+
     await client.query(
       `
-        INSERT INTO bids (
+      INSERT INTO bids (
 
-          auction_id,
+        auction_id,
+        lot_id,
+        user_id,
+        amount,
+        bid_source
 
-          lot_id,
+      )
 
-          user_id,
-
-          amount,
-
-          bid_source
-
-        )
-
-        VALUES (
-
-          $1,$2,$3,$4,$5
-        )
+      VALUES (
+        $1,$2,$3,$4,$5
+      )
       `,
-        [
-          auction_id,
-
-          lot_id,
-
-          user.user_id,
-
-          amount,
-
-          'online',
-        ]
+      [
+        auction_id,
+        lot_id,
+        user.user_id,
+        bidAmount,
+        'online',
+      ],
     );
 
-    // 🔄 7. UPDATE PRECIO
+
+    // =====================================================
+    // 🔄 8. ACTUALIZAR PRECIO
+    // =====================================================
+
     await client.query(
       `
       UPDATE auction_live_lots
+
       SET current_price = $1
+
       WHERE id = $2
       `,
-      [amount, lot_id]
+      [
+        bidAmount,
+        lot_id,
+      ],
     );
 
-    await client.query('COMMIT');
 
-    // ⚡ SOCKET (FUERA DE TRANSACCIÓN)
-    const io = req.app.get('io');
+    await client.query(
+      'COMMIT'
+    );
 
-    io.to(`auction_${auction_id}`).emit('newBid', {
-      lot_id,
-      amount,
-      user_id: user.user_id,
-      created_at: new Date()
+
+    // =====================================================
+    // ⚡ SOCKET
+    // FUERA DE TRANSACCIÓN
+    // =====================================================
+
+    const io =
+        req.app.get('io');
+
+
+    io.to(
+      `auction_${auction_id}`
+    ).emit(
+      'newBid',
+      {
+        lot_id,
+        amount:
+            bidAmount,
+        user_id:
+            user.user_id,
+        created_at:
+            new Date(),
+      },
+    );
+
+
+    return res.json({
+
+      success: true,
+
+      message:
+          'Puja aceptada',
+
+      amount:
+          bidAmount,
     });
 
-    res.json({ message: 'Puja aceptada', amount });
 
   } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('ERROR BID:', error);
-    res.status(500).json({ error: 'Error al pujar' });
+
+    try {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+    } catch (_) {}
+
+
+    console.error(
+      'ERROR BID:',
+      error,
+    );
+
+
+    return res
+      .status(500)
+      .json({
+        error:
+            'Error al pujar',
+      });
+
+
   } finally {
+
     client.release();
   }
 };
