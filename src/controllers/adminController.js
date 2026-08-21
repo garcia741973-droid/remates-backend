@@ -182,35 +182,87 @@ exports.createUser = async (req, res) => {
 };
 
 exports.getUsers = async (req, res) => {
-  try {
-    const { company_id } = req.user;
 
-    const result = await pool.query(
-      `
-      SELECT 
-        u.id,
-        u.name,
-        u.full_name,
-        u.email,
-        u.phone,
-        u.document_number,
-        u.document_type,
-        u.kyc_status,
-        u.kyc_level,
-        uc.role
-      FROM users u
-      JOIN user_companies uc ON uc.user_id = u.id
-      WHERE uc.company_id = $1
-      ORDER BY u.id DESC
-      `,
-      [company_id]
+  try {
+
+    const {
+      company_id,
+    } = req.user;
+
+
+    const result =
+      await pool.query(
+        `
+        SELECT
+
+          u.id,
+          u.name,
+          u.full_name,
+          u.email,
+          u.phone,
+          u.document_number,
+          u.document_type,
+
+          -- 🌐 GLOBAL
+          u.kyc_status,
+          u.kyc_level,
+
+          -- 🏢 ESTA EMPRESA
+          uc.role,
+          uc.company_status,
+          uc.approved_at,
+
+          -- 🔨 PUJAS ESTA EMPRESA
+          uc.bidding_enabled,
+          uc.bidding_frozen_at,
+          uc.bidding_frozen_by,
+          uc.bidding_frozen_reason
+
+        FROM users u
+
+        JOIN user_companies uc
+          ON uc.user_id = u.id
+
+        WHERE
+          uc.company_id = $1
+
+        ORDER BY
+
+          CASE
+            WHEN uc.role = 'client'
+            THEN 0
+            ELSE 1
+          END,
+
+          COALESCE(
+            u.full_name,
+            u.name,
+            u.email
+          ) ASC
+        `,
+        [
+          company_id,
+        ],
+      );
+
+
+    res.json(
+      result.rows,
     );
 
-    res.json(result.rows);
 
   } catch (error) {
-    console.error('ERROR GET USERS:', error);
-    res.status(500).json({ error: 'Error obteniendo usuarios' });
+
+    console.error(
+      'ERROR GET USERS:',
+      error,
+    );
+
+
+    res.status(500).json({
+      error:
+          'Error obteniendo usuarios',
+    });
   }
 };
 
@@ -304,5 +356,271 @@ exports.deleteUser = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error eliminando usuario' });
+  }
+};
+
+// =====================================================
+// 🔨 HABILITAR / CONGELAR PUJAS DE CLIENTE
+// SOLO PARA ESTA EMPRESA
+// =====================================================
+
+exports.updateClientBiddingAccess =
+  async (req, res) => {
+
+  try {
+
+    const {
+      id,
+    } = req.params;
+
+
+    const {
+      enabled,
+      reason,
+    } = req.body;
+
+
+    const {
+      company_id,
+      user_id,
+      role,
+    } = req.user;
+
+
+    // ==========================================
+    // SOLO ADMIN EMPRESA
+    // ==========================================
+
+    if (role !== 'admin') {
+
+      return res
+        .status(403)
+        .json({
+          error:
+              'Solo el administrador puede modificar permisos de puja',
+        });
+    }
+
+
+    if (
+      typeof enabled !==
+      'boolean'
+    ) {
+
+      return res
+        .status(400)
+        .json({
+          error:
+              'enabled debe ser true o false',
+        });
+    }
+
+
+    // ==========================================
+    // BUSCAR RELACIÓN
+    // SIEMPRE DENTRO DE ESTA EMPRESA
+    // ==========================================
+
+    const relation =
+      await pool.query(
+        `
+        SELECT
+
+          id,
+          role,
+          company_status,
+          bidding_enabled
+
+        FROM user_companies
+
+        WHERE
+          user_id = $1
+          AND company_id = $2
+
+        LIMIT 1
+        `,
+        [
+          id,
+          company_id,
+        ],
+      );
+
+
+    if (
+      relation.rows.length === 0
+    ) {
+
+      return res
+        .status(404)
+        .json({
+          error:
+              'Cliente no pertenece a esta empresa',
+        });
+    }
+
+
+    const client =
+      relation.rows[0];
+
+
+    // ==========================================
+    // NO TOCAR OPERADORES
+    // ==========================================
+
+    if (
+      client.role !== 'client'
+    ) {
+
+      return res
+        .status(400)
+        .json({
+          error:
+              'El permiso de puja solo aplica a clientes',
+        });
+    }
+
+
+    // ==========================================
+    // PARA HABILITAR PUJA
+    // DEBE SEGUIR APROBADO EN LA EMPRESA
+    // ==========================================
+
+    if (
+      enabled === true &&
+      client.company_status !==
+        'approved'
+    ) {
+
+      return res
+        .status(400)
+        .json({
+          error:
+              'El cliente no está aprobado por esta empresa',
+        });
+    }
+
+
+    // ==========================================
+    // CONGELAR
+    // ==========================================
+
+    if (!enabled) {
+
+      const cleanReason =
+        reason
+          ?.toString()
+          .trim();
+
+
+      if (
+        !cleanReason
+      ) {
+
+        return res
+          .status(400)
+          .json({
+            error:
+                'Debes indicar el motivo del congelamiento',
+          });
+      }
+
+
+      await pool.query(
+        `
+        UPDATE user_companies
+
+        SET
+          bidding_enabled = FALSE,
+
+          bidding_frozen_at =
+            NOW(),
+
+          bidding_frozen_by =
+            $1,
+
+          bidding_frozen_reason =
+            $2
+
+        WHERE
+          user_id = $3
+          AND company_id = $4
+        `,
+        [
+          user_id,
+          cleanReason,
+          id,
+          company_id,
+        ],
+      );
+
+
+      return res.json({
+        success: true,
+
+        bidding_enabled:
+            false,
+
+        message:
+            'Pujas congeladas para este cliente',
+      });
+    }
+
+
+    // ==========================================
+    // REACTIVAR
+    // ==========================================
+
+    await pool.query(
+      `
+      UPDATE user_companies
+
+      SET
+        bidding_enabled = TRUE,
+
+        bidding_frozen_at =
+          NULL,
+
+        bidding_frozen_by =
+          NULL,
+
+        bidding_frozen_reason =
+          NULL
+
+      WHERE
+        user_id = $1
+        AND company_id = $2
+      `,
+      [
+        id,
+        company_id,
+      ],
+    );
+
+
+    return res.json({
+      success: true,
+
+      bidding_enabled:
+          true,
+
+      message:
+          'Pujas habilitadas nuevamente',
+    });
+
+
+  } catch (error) {
+
+    console.error(
+      'ERROR UPDATE CLIENT BIDDING ACCESS:',
+      error,
+    );
+
+
+    return res
+      .status(500)
+      .json({
+        error:
+            'Error actualizando permiso de puja',
+      });
   }
 };
