@@ -10,7 +10,7 @@ const {
   '../services/auctionLiveAdsService'
 );
 
-exports.placeBid = async (req, res) => {exports.placeBid = async (req, res) => {
+exports.placeBid = async (req, res) => {
 
   const client =
       await pool.connect();
