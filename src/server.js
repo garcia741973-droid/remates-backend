@@ -204,7 +204,12 @@ app.use(
 );
 
 app.use(cors());
-app.use(express.json());
+
+app.use(
+  express.json({
+    limit: '2mb',
+  }),
+);
 
 /// ✅ Ruta base
 app.get('/', (req, res) => {
