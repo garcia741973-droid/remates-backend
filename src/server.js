@@ -79,6 +79,12 @@ const authRoutes = require('./routes/authRoutes');
 const testRoutes = require('./routes/testRoutes');
 const lotsRoutes = require('./routes/lotsRoutes');
 const auctionsRoutes = require('./routes/auctionsRoutes');
+
+const auctionLotImportRoutes =
+  require(
+    './routes/auctionLotImportRoutes'
+  );
+
 const livekitRoutes = require('./routes/livekitRoutes');
 const auctionLotsRoutes = require('./routes/auctionLotsRoutes');
 const auctionLiveLotsRoutes =
@@ -285,6 +291,13 @@ app.use(
 
 app.use('/livekit', livekitRoutes);
 app.use('/auction-lots', auctionLotsRoutes);
+
+/// 📄 IMPORTACIÓN DE LOTES CSV
+app.use(
+  '/auction-lot-import',
+  auctionLotImportRoutes
+);
+
 app.use(
   '/auction-live-lots',
   auctionLiveLotsRoutes
