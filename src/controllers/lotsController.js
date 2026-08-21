@@ -552,6 +552,10 @@ exports.getMyLots = async (req, res) => {
 
 /// 🔥 EDITAR LOTE
 exports.updateLot = async (req, res) => {
+
+  const client =
+      await pool.connect();
+
   try {
 
     const company_id =
@@ -560,19 +564,25 @@ exports.updateLot = async (req, res) => {
     const user_id =
         req.user.user_id;
 
-    const { id } = req.params;
+    const {
+      id,
+    } = req.params;
+
 
     const {
 
       quantity,
 
       class: lot_class,
+
       gender,
+
       age,
 
       has_destare,
-      destare_percent,      
-      
+
+      destare_percent,
+
       breed,
 
       weight,
@@ -595,51 +605,119 @@ exports.updateLot = async (req, res) => {
 
       video,
 
+      // ⭐ NUEVO
+      promotion_plan_id,
+
     } = req.body;
 
-    /// 🔥 VALIDAR LOTE
-    const lotRes = await pool.query(
+
+    await client.query(
+      'BEGIN'
+    );
+
+
+    // =====================================================
+    // 🔒 VALIDAR LOTE
+    // DEBE PERTENECER A ESTA EMPRESA
+    // =====================================================
+
+    const lotRes =
+        await client.query(
       `
       SELECT *
       FROM lots
-      WHERE id = $1
+
+      WHERE
+        id = $1
+        AND company_id = $2
+
+      FOR UPDATE
       `,
-      [id]
+      [
+        id,
+        company_id,
+      ]
     );
 
-    if (lotRes.rows.length === 0) {
 
-      return res.status(404).json({
-        error: 'Lote no encontrado'
-      });
-    }
-
-    const lot = lotRes.rows[0];
-
-    /// 🔥 VALIDAR DUEÑO
     if (
-      lot.seller_id !== user_id
+      lotRes.rows.length === 0
     ) {
 
-      return res.status(403).json({
-        error: 'No autorizado'
-      });
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res
+        .status(404)
+        .json({
+          error:
+              'Lote no encontrado',
+        });
     }
 
-    /// 🔥 BLOQUEAR VENDIDOS
+
+    const lot =
+        lotRes.rows[0];
+
+
+    // =====================================================
+    // 🔒 VALIDAR DUEÑO
+    // =====================================================
+
     if (
-      lot.status === 'sold'
+      Number(
+        lot.seller_id
+      ) !==
+      Number(
+        user_id
+      )
     ) {
 
-      return res.status(400).json({
-        error: 'No puedes editar un lote vendido'
-      });
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res
+        .status(403)
+        .json({
+          error:
+              'No autorizado',
+        });
     }
 
-    /// 🔥 UPDATE
-    const { rows } = await pool.query(
+
+    // =====================================================
+    // 🔒 NO EDITAR VENDIDOS
+    // =====================================================
+
+    if (
+      lot.status ===
+      'sold'
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res
+        .status(400)
+        .json({
+          error:
+              'No puedes editar un lote vendido',
+        });
+    }
+
+
+    // =====================================================
+    // 🔥 ACTUALIZAR LOTE
+    // =====================================================
+
+    const updateRes =
+        await client.query(
       `
       UPDATE lots
+
       SET
 
         quantity = $1,
@@ -678,7 +756,9 @@ exports.updateLot = async (req, res) => {
 
         destare_percent = $17
 
-      WHERE id = $18
+      WHERE
+        id = $18
+        AND company_id = $19
 
       RETURNING *
       `,
@@ -718,43 +798,252 @@ exports.updateLot = async (req, res) => {
         destare_percent || 5,
 
         id,
+
+        company_id,
       ]
     );
 
-    /// 🔥 EVENTO OPERATIVO
-    await createOperationEvent({
 
-      type: 'lot_updated',
+    const updatedLot =
+        updateRes.rows[0];
 
-      title:
-          '✏️ Lote actualizado',
 
-      message:
-          `Lote ${id} fue editado por vendedor ${user_id}`,
+    // =====================================================
+    // ⭐ SOLICITUD DE DESTACADO
+    // TAMBIÉN FUNCIONA AL EDITAR
+    // =====================================================
 
-      priority: 'medium',
+    let promotionRequest =
+        null;
 
-      data: {
 
-        lot_id: id,
+    if (
+      promotion_plan_id != null
+    ) {
 
-        seller_id:
+      // ===============================================
+      // VALIDAR PLAN
+      // ===============================================
+
+      const planRes =
+          await client.query(
+        `
+        SELECT *
+        FROM promotion_plans
+
+        WHERE
+          id = $1
+          AND is_active = true
+
+        LIMIT 1
+        `,
+        [
+          promotion_plan_id,
+        ]
+      );
+
+
+      if (
+        planRes.rows.length ===
+        0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res
+          .status(400)
+          .json({
+            error:
+                'Plan de promoción inválido',
+          });
+      }
+
+
+      const plan =
+          planRes.rows[0];
+
+
+      // ===============================================
+      // EVITAR CREAR DOS SOLICITUDES PENDIENTES
+      // DEL MISMO PLAN PARA EL MISMO LOTE
+      // ===============================================
+
+      const existingPromo =
+          await client.query(
+        `
+        SELECT *
+        FROM promotion_requests
+
+        WHERE
+          company_id = $1
+          AND user_id = $2
+          AND promotion_plan_id = $3
+          AND entity_type = 'lot'
+          AND entity_id = $4
+          AND status = 'pending_payment'
+
+        ORDER BY id DESC
+
+        LIMIT 1
+        `,
+        [
+          company_id,
+          user_id,
+          plan.id,
+          id,
+        ]
+      );
+
+
+      if (
+        existingPromo.rows.length >
+        0
+      ) {
+
+        promotionRequest =
+            existingPromo.rows[0];
+
+      } else {
+
+        const promoRes =
+            await client.query(
+          `
+          INSERT INTO promotion_requests
+          (
+            company_id,
             user_id,
-      },
+            promotion_plan_id,
+            entity_type,
+            entity_id,
+            status,
+            amount
+          )
+
+          VALUES
+          (
+            $1,
+            $2,
+            $3,
+            'lot',
+            $4,
+            'pending_payment',
+            $5
+          )
+
+          RETURNING *
+          `,
+          [
+            company_id,
+            user_id,
+            plan.id,
+            id,
+            plan.price,
+          ]
+        );
+
+
+        promotionRequest =
+            promoRes.rows[0];
+
+
+        console.log(
+          '🚀 PROMOTION REQUEST CREATED FROM EDIT:',
+          promotionRequest.id
+        );
+      }
+    }
+
+
+    await client.query(
+      'COMMIT'
+    );
+
+
+    // =====================================================
+    // 🔥 EVENTO OPERATIVO
+    // =====================================================
+
+    try {
+
+      await createOperationEvent({
+
+        type:
+            'lot_updated',
+
+        title:
+            '✏️ Lote actualizado',
+
+        message:
+            `Lote ${id} fue editado por vendedor ${user_id}`,
+
+        priority:
+            'medium',
+
+        data: {
+
+          lot_id:
+              id,
+
+          seller_id:
+              user_id,
+        },
+      });
+
+    } catch (eventError) {
+
+      console.error(
+        'LOT UPDATE EVENT ERROR:',
+        eventError
+      );
+    }
+
+
+    // =====================================================
+    // ✅ MISMA ESTRUCTURA QUE CREATE LOT
+    // =====================================================
+
+    return res.json({
+
+      lot:
+          updatedLot,
+
+      promotion_request:
+          promotionRequest,
+
+      requires_promotion_payment:
+          promotionRequest != null,
     });
 
-    res.json(rows[0]);
 
   } catch (error) {
+
+    try {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+    } catch (_) {}
+
 
     console.error(
       'ERROR UPDATE LOT:',
       error
     );
 
-    res.status(500).json({
-      error: 'Error editando lote'
-    });
+
+    return res
+      .status(500)
+      .json({
+        error:
+            'Error editando lote',
+      });
+
+  } finally {
+
+    client.release();
   }
 };
 
