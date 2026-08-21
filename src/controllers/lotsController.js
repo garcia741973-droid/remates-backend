@@ -1055,6 +1055,9 @@ exports.deleteLot = async (req, res) => {
     const user_id =
         req.user.user_id;
 
+    const company_id =
+        req.user.company_id;
+
     const { id } = req.params;
 
     /// 🔥 VALIDAR
@@ -1063,8 +1066,12 @@ exports.deleteLot = async (req, res) => {
       SELECT *
       FROM lots
       WHERE id = $1
+      AND company_id = $2
       `,
-      [id]
+      [
+        id,
+        company_id,
+      ]
     );
 
     if (lotRes.rows.length === 0) {
@@ -1101,8 +1108,14 @@ exports.deleteLot = async (req, res) => {
       `
       DELETE FROM lots
       WHERE id = $1
+      AND company_id = $2
+      AND seller_id = $3
       `,
-      [id]
+      [
+        id,
+        company_id,
+        user_id,
+      ]
     );
 
     /// 🔥 EVENTO OPERATIVO
