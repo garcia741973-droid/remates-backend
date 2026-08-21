@@ -18,6 +18,9 @@ console.log(
     new Date(),
 );    
 
+const auctionLoadBuilderRoutes =
+  require('./routes/auctionLoadBuilderRoutes');
+
 const {
   startAuctionCameraSwitchService,
 } = require(
@@ -296,6 +299,11 @@ app.use(
 
 app.use('/livekit', livekitRoutes);
 app.use('/auction-lots', auctionLotsRoutes);
+
+app.use(
+  '/auction-load-builder',
+  auctionLoadBuilderRoutes,
+);
 
 /// 📄 IMPORTACIÓN DE LOTES CSV
 app.use(
