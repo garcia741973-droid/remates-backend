@@ -1011,8 +1011,149 @@ async function searchTruckCapacity(
   }
 }
 
+/// =====================================================
+/// REMATES DISPONIBLES PARA COMPLETAR CAMIÓN
+/// DE UNA EMPRESA
+///
+/// GET
+/// /auction-load-builder/public/auctions/:companyId
+///
+/// 🔒 IMPORTANTE:
+/// Cada resultado conserva su propio auction_id.
+/// Nunca agrupamos animales entre remates.
+/// =====================================================
+
+async function getCompanyLoadBuilderAuctions(
+  req,
+  res,
+) {
+
+  try {
+
+    const companyId =
+      Number(
+        req.params.companyId,
+      );
+
+
+    if (
+      !Number.isInteger(
+        companyId,
+      ) ||
+      companyId <= 0
+    ) {
+
+      return res
+        .status(400)
+        .json({
+          error:
+            'company_id inválido',
+        });
+    }
+
+
+    const result =
+      await pool.query(
+        `
+        SELECT
+
+          a.id
+            AS auction_id,
+
+          a.company_id,
+
+          a.name
+            AS auction_name,
+
+          a.status,
+
+          a.scheduled_at,
+
+          COUNT(l.id)::integer
+            AS lot_count,
+
+          COALESCE(
+            SUM(l.quantity),
+            0
+          )::integer
+            AS animal_count
+
+        FROM auctions a
+
+        JOIN auction_live_lots l
+          ON l.auction_id = a.id
+          AND l.company_id = a.company_id
+
+        WHERE
+          a.company_id = $1
+
+          AND a.status != 'closed'
+
+          AND l.status IN (
+            'queued',
+            'live'
+          )
+
+          AND l.quantity IS NOT NULL
+
+          AND l.quantity > 0
+
+        GROUP BY
+          a.id,
+          a.company_id,
+          a.name,
+          a.status,
+          a.scheduled_at
+
+        ORDER BY
+
+          CASE
+            WHEN a.status = 'live'
+            THEN 0
+            ELSE 1
+          END,
+
+          a.scheduled_at ASC
+            NULLS LAST,
+
+          a.id ASC
+        `,
+        [
+          companyId,
+        ],
+      );
+
+
+    return res.json({
+      success: true,
+
+      company_id:
+        companyId,
+
+      auctions:
+        result.rows,
+    });
+
+
+  } catch (e) {
+
+    console.error(
+      '❌ GET LOAD BUILDER AUCTIONS ERROR =>',
+      e,
+    );
+
+
+    return res
+      .status(500)
+      .json({
+        error:
+          'Error obteniendo remates disponibles',
+      });
+  }
+}
 
 module.exports = {
+  getCompanyLoadBuilderAuctions,
   getAuctionCattleTypes,
   searchTruckCapacity,
 };

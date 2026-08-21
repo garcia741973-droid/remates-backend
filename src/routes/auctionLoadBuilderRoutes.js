@@ -10,6 +10,7 @@ const {
   require('../middleware/authMiddleware');
 
 const {
+  getCompanyLoadBuilderAuctions,
   getAuctionCattleTypes,
   searchTruckCapacity,
 } =
@@ -37,6 +38,26 @@ router.post(
   searchTruckCapacity,
 );
 
+/// ===============================================
+/// MINI PLAZA — PÚBLICO
+/// ===============================================
+
+router.get(
+  '/public/auctions/:companyId',
+  getCompanyLoadBuilderAuctions,
+);
+
+
+router.get(
+  '/public/types/:auctionId',
+  getAuctionCattleTypes,
+);
+
+
+router.post(
+  '/public/search',
+  searchTruckCapacity,
+);
 
 module.exports =
   router;
