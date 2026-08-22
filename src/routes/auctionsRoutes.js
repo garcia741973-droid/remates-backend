@@ -23,6 +23,10 @@ const {
 
   setActiveAudio,
 
+  getMiniPlazaPublicConfig,
+  getMyMiniPlazaConfig,
+  updateMiniPlazaConfig,  
+
 } = require('../controllers/auctionsController');
 
 const { requireAuth } = require('../middleware/authMiddleware');
@@ -116,6 +120,31 @@ router.post(
   setActiveAudio,
 
 );
+
+// ============================================================
+// MINI PLAZA CONFIG
+// ============================================================
+
+// 🌎 PÚBLICA
+router.get(
+  '/mini-plaza-config/public/:company_id',
+  getMiniPlazaPublicConfig,
+);
+
+// 🔐 MI EMPRESA
+router.get(
+  '/mini-plaza-config',
+  requireAuth,
+  getMyMiniPlazaConfig,
+);
+
+// 🔐 CAMBIAR CONFIG - SOLO ADMIN
+router.put(
+  '/mini-plaza-config',
+  requireAuth,
+  updateMiniPlazaConfig,
+);
+
 
 // 🟢 OBTENER REMATE POR ID
 router.get('/:id', requireAuth, getAuctionById);
