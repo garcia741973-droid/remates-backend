@@ -1,8 +1,6 @@
 const express = require('express');
 const router = express.Router();
 
-const auctionsController = require('../controllers/auctionsController');
-
 const {
 
   createAuction,
@@ -22,10 +20,6 @@ const {
   setActiveCamera,
 
   setActiveAudio,
-
-  getMiniPlazaPublicConfig,
-  getMyMiniPlazaConfig,
-  updateMiniPlazaConfig,  
 
 } = require('../controllers/auctionsController');
 
@@ -128,21 +122,21 @@ router.post(
 // 🌎 PÚBLICA
 router.get(
   '/mini-plaza-config/public/:company_id',
-  getMiniPlazaPublicConfig,
+  auctionsController.getMiniPlazaPublicConfig,
 );
 
 // 🔐 MI EMPRESA
 router.get(
   '/mini-plaza-config',
   requireAuth,
-  getMyMiniPlazaConfig,
+  auctionsController.getMyMiniPlazaConfig,
 );
 
 // 🔐 CAMBIAR CONFIG - SOLO ADMIN
 router.put(
   '/mini-plaza-config',
   requireAuth,
-  updateMiniPlazaConfig,
+  auctionsController.updateMiniPlazaConfig,
 );
 
 
