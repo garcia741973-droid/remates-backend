@@ -1127,3 +1127,123 @@ exports.removeSlaughterhouseUser =
       });
     }
   };  
+
+  // =====================================================
+// 🏭 USUARIOS CANDIDATOS PARA FRIGORÍFICO
+// =====================================================
+
+exports.getSlaughterhouseCandidates = async (req, res) => {
+
+  try {
+
+    // 🔐 SOLO SUPER ADMIN
+    if (req.user.role !== 'super_admin') {
+
+      return res.status(403).json({
+        error: 'No autorizado',
+      });
+    }
+
+
+    const companyId =
+      parseInt(req.params.id, 10);
+
+
+    if (!companyId) {
+
+      return res.status(400).json({
+        error: 'Frigorífico inválido',
+      });
+    }
+
+
+    // =================================================
+    // VERIFICAR QUE SEA FRIGORÍFICO
+    // =================================================
+
+    const companyResult =
+      await pool.query(
+        `
+        SELECT
+          id,
+          name
+        FROM companies
+        WHERE
+          id = $1
+          AND company_type = 'slaughterhouse'
+        LIMIT 1
+        `,
+        [companyId],
+      );
+
+
+    if (companyResult.rows.length === 0) {
+
+      return res.status(404).json({
+        error: 'Frigorífico no encontrado',
+      });
+    }
+
+
+    // =================================================
+    // SOLO USUARIOS NORMALES
+    //
+    // ✅ global role = client
+    // ✅ tiene afiliación aprobada como client
+    // ❌ no pertenece ya a este frigorífico
+    // =================================================
+
+    const result =
+      await pool.query(
+        `
+        SELECT DISTINCT
+          u.id,
+          u.name,
+          u.email,
+          u.phone
+        FROM users u
+        WHERE
+          u.role = 'client'
+
+          AND EXISTS (
+            SELECT 1
+            FROM user_companies uc
+            WHERE
+              uc.user_id = u.id
+              AND uc.company_status = 'approved'
+              AND uc.role = 'client'
+          )
+
+          AND NOT EXISTS (
+            SELECT 1
+            FROM user_companies uc2
+            WHERE
+              uc2.user_id = u.id
+              AND uc2.company_id = $1
+          )
+
+        ORDER BY u.id
+        `,
+        [companyId],
+      );
+
+
+    return res.json(
+      result.rows,
+    );
+
+
+  } catch (error) {
+
+    console.error(
+      '❌ GET SLAUGHTERHOUSE CANDIDATES ERROR:',
+      error,
+    );
+
+
+    return res.status(500).json({
+      error:
+        'Error obteniendo candidatos del frigorífico',
+    });
+  }
+};

@@ -22,6 +22,8 @@ const {
 
   getSlaughterhouseUsers,
 
+  getSlaughterhouseCandidates,
+
   addSlaughterhouseUser,
 
   removeSlaughterhouseUser,
@@ -118,6 +120,19 @@ router.get(
   requireAuth,
 
   getSlaughterhouses
+
+);
+
+
+/// 👥 CANDIDATOS PARA AGREGAR
+
+router.get(
+
+  "/slaughterhouses/:id/candidates",
+
+  requireAuth,
+
+  getSlaughterhouseCandidates
 
 );
 
