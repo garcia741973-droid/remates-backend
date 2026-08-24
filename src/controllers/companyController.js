@@ -381,6 +381,8 @@ exports.getCompanyById = async (req, res) => {
 
           name AS company_name,
 
+          company_type,
+
           logo_url,
 
           hero_video_url,
@@ -395,17 +397,19 @@ exports.getCompanyById = async (req, res) => {
 
           background_color,
 
-        EXISTS (
+          EXISTS (
 
-          SELECT 1
-          FROM auctions a
-          WHERE
+            SELECT 1
 
-            a.company_id = companies.id
+            FROM auctions a
 
-            AND a.status = 'live'
+            WHERE
 
-        ) AS has_live
+              a.company_id = companies.id
+
+              AND a.status = 'live'
+
+          ) AS has_live
 
       FROM companies
 
