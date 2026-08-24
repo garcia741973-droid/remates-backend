@@ -20,6 +20,8 @@ const {
 
   getSlaughterhouses,
 
+  createSlaughterhouseCompany,
+
   getSlaughterhouseUsers,
 
   getSlaughterhouseCandidates,
@@ -123,6 +125,17 @@ router.get(
 
 );
 
+/// ➕ CREAR FRIGORÍFICO
+
+router.post(
+
+  "/slaughterhouses",
+
+  requireAuth,
+
+  createSlaughterhouseCompany
+
+);
 
 /// 👥 CANDIDATOS PARA AGREGAR
 

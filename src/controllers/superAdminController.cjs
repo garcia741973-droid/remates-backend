@@ -345,6 +345,209 @@ exports.createRemateCompany =
       });
     }
   };
+
+// =====================================================
+// 🏭 CREAR FRIGORÍFICO
+// CONTROL EXCLUSIVO SUPER ADMIN
+// =====================================================
+
+exports.createSlaughterhouseCompany =
+  async (req, res) => {
+
+    try {
+
+      // =================================================
+      // 🔐 SOLO SUPER ADMIN
+      // =================================================
+
+      if (
+        req.user.role !== 'super_admin'
+      ) {
+
+        return res.status(403).json({
+
+          error:
+            'No autorizado',
+        });
+      }
+
+
+      const {
+
+        name,
+
+        country,
+
+        timezone,
+
+        currency,
+
+        language,
+
+      } = req.body;
+
+
+      // =================================================
+      // ✅ VALIDAR CAMPOS
+      // =================================================
+
+      if (
+        !name ||
+        !country ||
+        !timezone ||
+        !currency
+      ) {
+
+        return res.status(400).json({
+
+          error:
+            'Faltan campos requeridos',
+        });
+      }
+
+
+      // =================================================
+      // 🔍 EVITAR DUPLICADO
+      // =================================================
+
+      const existing =
+        await pool.query(
+
+          `
+          SELECT
+            id,
+            name
+          FROM companies
+          WHERE
+            LOWER(TRIM(name)) =
+            LOWER(TRIM($1))
+            AND company_type =
+              'slaughterhouse'
+          LIMIT 1
+          `,
+
+          [
+            name,
+          ],
+        );
+
+
+      if (
+        existing.rows.length > 0
+      ) {
+
+        return res.status(400).json({
+
+          error:
+            'Ya existe un frigorífico con ese nombre',
+        });
+      }
+
+
+      // =================================================
+      // 🏭 CREAR EMPRESA
+      // =================================================
+
+      const result =
+        await pool.query(
+
+          `
+          INSERT INTO companies (
+
+            name,
+
+            country,
+
+            timezone,
+
+            currency,
+
+            language,
+
+            company_type,
+
+            is_active
+
+          )
+
+          VALUES (
+
+            $1,
+
+            $2,
+
+            $3,
+
+            $4,
+
+            $5,
+
+            'slaughterhouse',
+
+            true
+
+          )
+
+          RETURNING
+            id,
+            name,
+            country,
+            timezone,
+            currency,
+            language,
+            company_type,
+            is_active
+          `,
+
+          [
+
+            name,
+
+            country,
+
+            timezone,
+
+            currency,
+
+            language || 'es',
+          ],
+        );
+
+
+      const company =
+        result.rows[0];
+
+
+      // =================================================
+      // ✅ RESPUESTA
+      // =================================================
+
+      return res.json({
+
+        success: true,
+
+        company,
+      });
+
+
+    } catch (e) {
+
+      console.log(
+
+        'CREATE SLAUGHTERHOUSE COMPANY ERROR:',
+
+        e,
+      );
+
+
+      return res.status(500).json({
+
+        error:
+          'Error creando frigorífico',
+      });
+    }
+  };
+
 /// 🔥 UPDATE EMPRESA REMATERA
 exports.updateRemateCompany =
   async (req, res) => {
