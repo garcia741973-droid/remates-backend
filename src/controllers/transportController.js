@@ -2067,41 +2067,166 @@ const getTransportRoutePoints = async (req, res) => {
   }
 };
 
-const getMyTransportRequests = async (req, res) => {
-  try {
-    const userId =
-      req.user.user_id;
+// =====================================================
+// 🏭 OBTENER FRIGORÍFICO AUTENTICADO
+// =====================================================
+
+const getAuthenticatedSlaughterhouseCompanyId =
+  async (userId, authCompanyId) => {
+
+    if (!authCompanyId) {
+      return null;
+    }
 
     const result =
       await pool.query(
         `
-        SELECT
-          tr.*,
-          (
-            SELECT COUNT(*)
-            FROM transport_negotiations tn
-            WHERE tn.request_id = tr.id
-              AND tn.status = 'open'
-          ) AS pending_negotiations
-        FROM transport_requests tr
-        WHERE tr.user_id = $1
-        AND tr.status IN (
-            'open',
-            'payment_pending'
-        )
-        ORDER BY tr.id DESC
+        SELECT c.id
+        FROM user_companies uc
+        JOIN companies c
+          ON c.id = uc.company_id
+        WHERE
+          uc.user_id = $1
+          AND uc.company_id = $2
+          AND uc.company_status = 'approved'
+          AND c.company_type = 'slaughterhouse'
+          AND c.is_active = true
+        LIMIT 1
         `,
-        [userId]
+        [
+          userId,
+          authCompanyId,
+        ]
       );
+
+    if (
+      result.rows.length === 0
+    ) {
+      return null;
+    }
+
+    return result.rows[0].id;
+  };
+
+
+const getMyTransportRequests = async (req, res) => {
+
+  try {
+
+    const userId =
+      req.user.user_id;
+
+    const authCompanyId =
+      req.user.company_id || null;
+
+
+    const slaughterhouseCompanyId =
+      await getAuthenticatedSlaughterhouseCompanyId(
+        userId,
+        authCompanyId
+      );
+
+
+    let result;
+
+
+    // =================================================
+    // 🏭 USUARIO OPERANDO POR FRIGORÍFICO
+    //
+    // VE TODAS LAS SOLICITUDES DE ESA EMPRESA
+    // =================================================
+
+    if (
+      slaughterhouseCompanyId
+    ) {
+
+      result =
+        await pool.query(
+          `
+          SELECT
+
+            tr.*,
+
+            (
+              SELECT COUNT(*)
+              FROM transport_negotiations tn
+              WHERE
+                tn.request_id = tr.id
+                AND tn.status = 'open'
+            ) AS pending_negotiations
+
+          FROM transport_requests tr
+
+          WHERE
+            tr.requester_company_id = $1
+
+            AND tr.status IN (
+              'open',
+              'payment_pending'
+            )
+
+          ORDER BY tr.id DESC
+          `,
+          [
+            slaughterhouseCompanyId,
+          ]
+        );
+
+    } else {
+
+      // ===============================================
+      // 👤 USUARIO NORMAL
+      //
+      // COMPORTAMIENTO EXISTENTE
+      // ===============================================
+
+      result =
+        await pool.query(
+          `
+          SELECT
+
+            tr.*,
+
+            (
+              SELECT COUNT(*)
+              FROM transport_negotiations tn
+              WHERE
+                tn.request_id = tr.id
+                AND tn.status = 'open'
+            ) AS pending_negotiations
+
+          FROM transport_requests tr
+
+          WHERE
+            tr.user_id = $1
+
+            AND tr.status IN (
+              'open',
+              'payment_pending'
+            )
+
+          ORDER BY tr.id DESC
+          `,
+          [
+            userId,
+          ]
+        );
+    }
+
 
     res.json(
       result.rows
     );
 
   } catch (error) {
-    console.error(error);
+
+    console.error(
+      'GET MY TRANSPORT REQUESTS ERROR:',
+      error
+    );
 
     res.status(500).json({
+
       error:
         'Error obteniendo solicitudes',
     });
@@ -2136,12 +2261,45 @@ const getRequestNegotiations = async (req, res) => {
       });
     }
 
+    const authCompanyId =
+      req.user.company_id || null;
+
+
+    const slaughterhouseCompanyId =
+      await getAuthenticatedSlaughterhouseCompanyId(
+        userId,
+        authCompanyId
+      );
+
+
+    const request =
+      requestRes.rows[0];
+
+
+    const isOwner =
+      request.user_id === userId;
+
+
+    const belongsToSlaughterhouse =
+      slaughterhouseCompanyId &&
+      Number(
+        request.requester_company_id
+      ) ===
+      Number(
+        slaughterhouseCompanyId
+      );
+
+
     if (
-      requestRes.rows[0].user_id !== userId
+      !isOwner &&
+      !belongsToSlaughterhouse
     ) {
+
       return res.status(403).json({
+
         error:
           'No autorizado',
+
       });
     }
 
