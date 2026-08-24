@@ -845,6 +845,7 @@ exports.getSlaughterhouseUsers =
 
         WHERE
           uc.company_id = $1
+          AND uc.role = 'client'
 
         ORDER BY
           u.email ASC
@@ -1279,6 +1280,7 @@ exports.removeSlaughterhouseUser =
         WHERE
           company_id = $1
           AND user_id = $2
+          AND role = 'client'
 
         RETURNING
           id,
@@ -1450,6 +1452,797 @@ exports.getSlaughterhouseCandidates = async (req, res) => {
     });
   }
 };
+
+// =====================================================
+// 🏭 OPERADORES DE FRIGORÍFICO
+// CONTROL EXCLUSIVO SUPER ADMIN
+// =====================================================
+
+
+// =====================================================
+// 👷 LISTAR OPERADORES DEL FRIGORÍFICO
+// GET /superadmin/slaughterhouses/:id/operators
+// =====================================================
+
+exports.getSlaughterhouseOperators =
+  async (req, res) => {
+
+    try {
+
+      // =================================================
+      // 🔐 SOLO SUPER ADMIN
+      // =================================================
+
+      if (
+        req.user.role !== 'super_admin'
+      ) {
+
+        return res.status(403).json({
+          error: 'No autorizado',
+        });
+      }
+
+
+      const companyId =
+        parseInt(
+          req.params.id,
+          10,
+        );
+
+
+      if (!companyId) {
+
+        return res.status(400).json({
+          error: 'Frigorífico inválido',
+        });
+      }
+
+
+      // =================================================
+      // 🏭 VALIDAR FRIGORÍFICO
+      // =================================================
+
+      const companyResult =
+        await pool.query(
+          `
+          SELECT
+            id,
+            name,
+            company_type,
+            is_active
+          FROM companies
+          WHERE
+            id = $1
+            AND company_type = 'slaughterhouse'
+          LIMIT 1
+          `,
+          [
+            companyId,
+          ],
+        );
+
+
+      if (
+        companyResult.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+          error: 'Frigorífico no encontrado',
+        });
+      }
+
+
+      // =================================================
+      // 👷 OBTENER OPERADORES
+      // =================================================
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+
+            uc.id
+              AS user_company_id,
+
+            u.id
+              AS user_id,
+
+            u.name,
+
+            u.full_name,
+
+            u.email,
+
+            u.phone,
+
+            u.role
+              AS global_role,
+
+            u.is_active
+              AS global_is_active,
+
+            uc.role
+              AS company_role,
+
+            uc.company_status,
+
+            uc.approved_at,
+
+            uc.approved_by,
+
+            uc.created_at,
+
+            CASE
+              WHEN
+                u.is_active = true
+                AND uc.company_status = 'approved'
+              THEN true
+              ELSE false
+            END AS is_active
+
+          FROM user_companies uc
+
+          JOIN users u
+            ON u.id = uc.user_id
+
+          WHERE
+            uc.company_id = $1
+            AND uc.role =
+              'slaughterhouse_operator'
+
+          ORDER BY
+            COALESCE(
+              u.full_name,
+              u.name,
+              u.email
+            ) ASC
+          `,
+          [
+            companyId,
+          ],
+        );
+
+
+      return res.json({
+
+        company:
+          companyResult.rows[0],
+
+        operators:
+          result.rows,
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'GET SLAUGHTERHOUSE OPERATORS ERROR:',
+        error,
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo operadores del frigorífico',
+      });
+    }
+  };
+
+
+// =====================================================
+// ➕ CREAR OPERADOR DE FRIGORÍFICO
+//
+// POST /superadmin/slaughterhouses/:id/operators
+//
+// BODY:
+// {
+//   "full_name": "Operador Prueba",
+//   "email": "operador@frigosi.com",
+//   "phone": "70000000",
+//   "password": "123456"
+// }
+// =====================================================
+
+exports.createSlaughterhouseOperator =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      // =================================================
+      // 🔐 SOLO SUPER ADMIN
+      // =================================================
+
+      if (
+        req.user.role !== 'super_admin'
+      ) {
+
+        return res.status(403).json({
+          error: 'No autorizado',
+        });
+      }
+
+
+      const companyId =
+        parseInt(
+          req.params.id,
+          10,
+        );
+
+
+      const {
+        full_name,
+        email,
+        phone,
+        password,
+      } = req.body;
+
+
+      // =================================================
+      // ✅ VALIDACIONES
+      // =================================================
+
+      if (!companyId) {
+
+        return res.status(400).json({
+          error: 'Frigorífico inválido',
+        });
+      }
+
+
+      if (
+        !full_name ||
+        !email ||
+        !password
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Nombre, email y contraseña son requeridos',
+        });
+      }
+
+
+      if (
+        password.toString().length < 6
+      ) {
+
+        return res.status(400).json({
+          error:
+            'La contraseña debe tener al menos 6 caracteres',
+        });
+      }
+
+
+      await client.query(
+        'BEGIN',
+      );
+
+
+      // =================================================
+      // 🏭 VALIDAR FRIGORÍFICO
+      // =================================================
+
+      const companyResult =
+        await client.query(
+          `
+          SELECT
+            id,
+            name,
+            company_type,
+            is_active
+          FROM companies
+          WHERE
+            id = $1
+            AND company_type = 'slaughterhouse'
+          LIMIT 1
+          `,
+          [
+            companyId,
+          ],
+        );
+
+
+      if (
+        companyResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(404).json({
+          error:
+            'Frigorífico no encontrado',
+        });
+      }
+
+
+      if (
+        companyResult.rows[0]
+          .is_active !== true
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(400).json({
+          error:
+            'El frigorífico está desactivado',
+        });
+      }
+
+
+      // =================================================
+      // 📧 EVITAR EMAIL DUPLICADO
+      // =================================================
+
+      const existingUser =
+        await client.query(
+          `
+          SELECT
+            id,
+            email
+          FROM users
+          WHERE
+            LOWER(TRIM(email)) =
+            LOWER(TRIM($1))
+          LIMIT 1
+          `,
+          [
+            email,
+          ],
+        );
+
+
+      if (
+        existingUser.rows.length > 0
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(409).json({
+          error:
+            'Ya existe un usuario con este email',
+        });
+      }
+
+
+      // =================================================
+      // 🔐 PASSWORD
+      // =================================================
+
+      const hashed =
+        await bcrypt.hash(
+          password,
+          10,
+        );
+
+
+      // =================================================
+      // 👤 CREAR USUARIO GLOBAL
+      //
+      // Globalmente sigue siendo CLIENT.
+      // El acceso especial vive en user_companies.
+      // =================================================
+
+      const userResult =
+        await client.query(
+          `
+          INSERT INTO users (
+
+            name,
+
+            full_name,
+
+            email,
+
+            phone,
+
+            password,
+
+            role,
+
+            kyc_status,
+
+            kyc_level,
+
+            is_active
+
+          )
+
+          VALUES (
+
+            $1,
+
+            $1,
+
+            LOWER(TRIM($2)),
+
+            NULLIF(TRIM($3), ''),
+
+            $4,
+
+            'client',
+
+            'approved',
+
+            2,
+
+            true
+
+          )
+
+          RETURNING
+
+            id,
+
+            name,
+
+            full_name,
+
+            email,
+
+            phone,
+
+            role,
+
+            kyc_status,
+
+            kyc_level,
+
+            is_active
+          `,
+          [
+            full_name.trim(),
+            email.trim(),
+            phone
+              ? phone.toString()
+              : '',
+            hashed,
+          ],
+        );
+
+
+      const user =
+        userResult.rows[0];
+
+
+      // =================================================
+      // 🏭 ASOCIAR COMO OPERADOR DE FRIGORÍFICO
+      // =================================================
+
+      const membershipResult =
+        await client.query(
+          `
+          INSERT INTO user_companies (
+
+            user_id,
+
+            company_id,
+
+            role,
+
+            company_status,
+
+            approved_at,
+
+            approved_by
+
+          )
+
+          VALUES (
+
+            $1,
+
+            $2,
+
+            'slaughterhouse_operator',
+
+            'approved',
+
+            NOW(),
+
+            $3
+
+          )
+
+          RETURNING
+
+            id,
+
+            user_id,
+
+            company_id,
+
+            role,
+
+            company_status,
+
+            approved_at,
+
+            approved_by
+          `,
+          [
+            user.id,
+            companyId,
+            req.user.user_id,
+          ],
+        );
+
+
+      await client.query(
+        'COMMIT',
+      );
+
+
+      return res.status(201).json({
+
+        success: true,
+
+        company:
+          companyResult.rows[0],
+
+        operator: {
+
+          ...user,
+
+          company_role:
+            membershipResult.rows[0].role,
+
+          company_status:
+            membershipResult.rows[0]
+              .company_status,
+
+          user_company_id:
+            membershipResult.rows[0].id,
+        },
+      });
+
+
+    } catch (error) {
+
+      try {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+      } catch (_) {}
+
+
+      console.error(
+        'CREATE SLAUGHTERHOUSE OPERATOR ERROR:',
+        error,
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error creando operador del frigorífico',
+      });
+
+
+    } finally {
+
+      client.release();
+    }
+  };
+
+
+// =====================================================
+// 🔘 ACTIVAR / DESACTIVAR OPERADOR
+//
+// PUT
+// /superadmin/slaughterhouses/:id/operators/:userId/status
+//
+// BODY:
+// {
+//   "is_active": true
+// }
+// =====================================================
+
+exports.updateSlaughterhouseOperatorStatus =
+  async (req, res) => {
+
+    try {
+
+      // =================================================
+      // 🔐 SOLO SUPER ADMIN
+      // =================================================
+
+      if (
+        req.user.role !== 'super_admin'
+      ) {
+
+        return res.status(403).json({
+          error: 'No autorizado',
+        });
+      }
+
+
+      const companyId =
+        parseInt(
+          req.params.id,
+          10,
+        );
+
+
+      const userId =
+        parseInt(
+          req.params.userId,
+          10,
+        );
+
+
+      const {
+        is_active,
+      } = req.body;
+
+
+      if (
+        !companyId ||
+        !userId
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Datos inválidos',
+        });
+      }
+
+
+      if (
+        typeof is_active !== 'boolean'
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Estado inválido',
+        });
+      }
+
+
+      // =================================================
+      // 🏭 VALIDAR FRIGORÍFICO
+      // =================================================
+
+      const companyResult =
+        await pool.query(
+          `
+          SELECT
+            id,
+            name
+          FROM companies
+          WHERE
+            id = $1
+            AND company_type =
+              'slaughterhouse'
+          LIMIT 1
+          `,
+          [
+            companyId,
+          ],
+        );
+
+
+      if (
+        companyResult.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+          error:
+            'Frigorífico no encontrado',
+        });
+      }
+
+
+      // =================================================
+      // 👷 CAMBIAR SOLO MEMBRESÍA OPERATIVA
+      //
+      // NO desactivamos el usuario global.
+      // =================================================
+
+      const result =
+        await pool.query(
+          `
+          UPDATE user_companies
+
+          SET
+
+            company_status =
+              CASE
+                WHEN $1 = true
+                  THEN 'approved'
+                ELSE 'disabled'
+              END,
+
+            approved_at =
+              CASE
+                WHEN $1 = true
+                  THEN NOW()
+                ELSE approved_at
+              END,
+
+            approved_by =
+              CASE
+                WHEN $1 = true
+                  THEN $2
+                ELSE approved_by
+              END
+
+          WHERE
+            company_id = $3
+            AND user_id = $4
+            AND role =
+              'slaughterhouse_operator'
+
+          RETURNING
+
+            id,
+
+            user_id,
+
+            company_id,
+
+            role,
+
+            company_status,
+
+            approved_at,
+
+            approved_by
+          `,
+          [
+            is_active,
+            req.user.user_id,
+            companyId,
+            userId,
+          ],
+        );
+
+
+      if (
+        result.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+          error:
+            'Operador no encontrado',
+        });
+      }
+
+
+      return res.json({
+
+        success: true,
+
+        is_active,
+
+        operator:
+          result.rows[0],
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'UPDATE SLAUGHTERHOUSE OPERATOR STATUS ERROR:',
+        error,
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error actualizando operador del frigorífico',
+      });
+    }
+  };
 
 // =====================================================
 // 🏭 ACTIVAR / DESACTIVAR FRIGORÍFICO

@@ -32,10 +32,14 @@ const {
 
   updateSlaughterhouseStatus,
 
+  getSlaughterhouseOperators,
+
+  createSlaughterhouseOperator,
+
+  updateSlaughterhouseOperatorStatus,
+
 } = require(
-
   "../controllers/superAdminController.cjs"
-
 );
 
 const {
@@ -201,6 +205,51 @@ router.delete(
   removeSlaughterhouseUser
 
 );
+
+
+/// =====================================================
+/// 👷 OPERADORES DE FRIGORÍFICO
+/// CONTROL EXCLUSIVO SUPER ADMIN
+/// =====================================================
+
+/// 📋 LISTAR OPERADORES
+
+router.get(
+
+  "/slaughterhouses/:id/operators",
+
+  requireAuth,
+
+  getSlaughterhouseOperators
+
+);
+
+
+/// ➕ CREAR OPERADOR
+
+router.post(
+
+  "/slaughterhouses/:id/operators",
+
+  requireAuth,
+
+  createSlaughterhouseOperator
+
+);
+
+
+/// 🔘 ACTIVAR / DESACTIVAR OPERADOR
+
+router.put(
+
+  "/slaughterhouses/:id/operators/:userId/status",
+
+  requireAuth,
+
+  updateSlaughterhouseOperatorStatus
+
+);
+
 
 /// 📢 PROMOCIONES
 router.get(
