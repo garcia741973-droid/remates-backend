@@ -1224,7 +1224,77 @@ const disablePublicTracking = async (req, res) => {
 
 const createTransportRequest = async (req, res) => {
   try {
-    const userId = req.user.user_id;
+
+    const userId =
+      req.user.user_id;
+
+    const authCompanyId =
+      req.user.company_id || null;
+
+
+    // =====================================================
+    // 🏭 IDENTIFICAR SI LA SOLICITUD
+    // SE ESTÁ CREANDO DESDE UN FRIGORÍFICO
+    //
+    // IMPORTANTE:
+    // - NO confiamos en company_id enviado por Flutter.
+    // - Usamos la empresa autenticada en el token.
+    // - Verificamos además que el usuario realmente
+    //   pertenezca a esa empresa.
+    // =====================================================
+
+    let requesterCompanyId = null;
+
+
+    if (authCompanyId) {
+
+      const companyResult =
+        await pool.query(
+          `
+          SELECT
+            c.id,
+            c.company_type
+
+          FROM user_companies uc
+
+          JOIN companies c
+            ON c.id = uc.company_id
+
+          WHERE
+            uc.user_id = $1
+
+            AND uc.company_id = $2
+
+            AND uc.company_status = 'approved'
+
+            AND c.company_type = 'slaughterhouse'
+
+            AND c.is_active = true
+
+          LIMIT 1
+          `,
+          [
+            userId,
+            authCompanyId,
+          ]
+        );
+
+
+      if (
+        companyResult.rows.length > 0
+      ) {
+
+        requesterCompanyId =
+          companyResult.rows[0].id;
+      }
+    }
+
+
+    console.log(
+      '🏭 TRANSPORT REQUEST COMPANY 👉',
+      requesterCompanyId,
+    );
+
 
     const {
       origin,
@@ -1250,93 +1320,140 @@ const createTransportRequest = async (req, res) => {
       approx_dropoff_notes,
     } = req.body;
 
-    const result = await pool.query(
-      `
-      INSERT INTO transport_requests (
-        user_id,
-        origin,
-        destination,
-        quantity,
-        animal_type,
-        travel_date,
-        notes,
-        contact_phone,
 
-        approx_pickup_source,
-        approx_pickup_saved_location_id,
-        approx_pickup_lat,
-        approx_pickup_lng,
-        approx_pickup_notes,
+    const result =
+      await pool.query(
+        `
+        INSERT INTO transport_requests (
 
-        approx_dropoff_source,
-        approx_dropoff_saved_location_id,
-        approx_dropoff_lat,
-        approx_dropoff_lng,
-        approx_dropoff_notes
-      )
-      VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,
-        $9,$10,$11,$12,$13,
-        $14,$15,$16,$17,$18
-      )
-      RETURNING *
-      `,
-      [
-        userId,
-        origin,
-        destination,
-        quantity,
-        animal_type,
-        travel_date,
-        notes,
-        contact_phone || null,
+          user_id,
 
-        /// ORIGEN
-        approx_pickup_source || null,
-        approx_pickup_saved_location_id || null,
-        approx_pickup_lat || null,
-        approx_pickup_lng || null,
-        approx_pickup_notes || null,
+          requester_company_id,
 
-        /// DESTINO
-        approx_dropoff_source || null,
-        approx_dropoff_saved_location_id || null,
-        approx_dropoff_lat || null,
-        approx_dropoff_lng || null,
-        approx_dropoff_notes || null,
-      ]
-    );
+          origin,
+          destination,
+          quantity,
+          animal_type,
+          travel_date,
+          notes,
+          contact_phone,
 
-    const request = result.rows[0];
+          approx_pickup_source,
+          approx_pickup_saved_location_id,
+          approx_pickup_lat,
+          approx_pickup_lng,
+          approx_pickup_notes,
 
-    const availableTrucks = await pool.query(
-      `
-      SELECT user_id
-      FROM transporter_trucks
-      WHERE is_available = true
-        AND is_active = true
-      `
-    );
+          approx_dropoff_source,
+          approx_dropoff_saved_location_id,
+          approx_dropoff_lat,
+          approx_dropoff_lng,
+          approx_dropoff_notes
 
-    for (const truck of availableTrucks.rows) {
+        )
+
+        VALUES (
+
+          $1,$2,
+
+          $3,$4,$5,$6,$7,$8,$9,
+
+          $10,$11,$12,$13,$14,
+
+          $15,$16,$17,$18,$19
+
+        )
+
+        RETURNING *
+        `,
+        [
+
+          userId,
+
+          requesterCompanyId,
+
+          origin,
+          destination,
+          quantity,
+          animal_type,
+          travel_date,
+          notes,
+          contact_phone || null,
+
+          /// ORIGEN
+          approx_pickup_source || null,
+          approx_pickup_saved_location_id || null,
+          approx_pickup_lat || null,
+          approx_pickup_lng || null,
+          approx_pickup_notes || null,
+
+          /// DESTINO
+          approx_dropoff_source || null,
+          approx_dropoff_saved_location_id || null,
+          approx_dropoff_lat || null,
+          approx_dropoff_lng || null,
+          approx_dropoff_notes || null,
+        ]
+      );
+
+
+    const request =
+      result.rows[0];
+
+
+    const availableTrucks =
+      await pool.query(
+        `
+        SELECT user_id
+        FROM transporter_trucks
+        WHERE is_available = true
+          AND is_active = true
+        `
+      );
+
+
+    for (
+      const truck
+      of availableTrucks.rows
+    ) {
+
       await sendUserNotification({
-        userId: truck.user_id,
-        title: 'Nueva carga disponible',
-        body: `Hay una nueva solicitud de transporte disponible.`,
+
+        userId:
+          truck.user_id,
+
+        title:
+          'Nueva carga disponible',
+
+        body:
+          'Hay una nueva solicitud de transporte disponible.',
+
         data: {
-          type: 'new_transport_request',
-          request_id: request.id,
+
+          type:
+            'new_transport_request',
+
+          request_id:
+            request.id,
         },
       });
     }
 
+
     res.json(request);
 
+
   } catch (error) {
-    console.error(error);
+
+    console.error(
+      'CREATE TRANSPORT REQUEST ERROR:',
+      error,
+    );
+
 
     res.status(500).json({
-      error: 'Error creando solicitud',
+      error:
+        'Error creando solicitud',
     });
   }
 };
