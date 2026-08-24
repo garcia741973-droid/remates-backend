@@ -144,7 +144,7 @@ exports.getSlaughterhouseTrucks =
 
             tr.animal_type,
 
-            tr.date,
+            tr.travel_date,
 
             tr.notes
               AS request_notes,
