@@ -2406,13 +2406,94 @@ const acceptTransportNegotiation = async (req, res) => {
     const negotiation =
       negotiationRes.rows[0];
 
-    /// 🔒 SOLO EL DUEÑO DE LA CARGA
+
+    // =====================================================
+    // 🔐 VALIDAR ACCESO A LA SOLICITUD
+    // =====================================================
+
+    const requestRes =
+      await pool.query(
+        `
+        SELECT
+          id,
+          user_id,
+          requester_company_id
+        FROM transport_requests
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [
+          negotiation.request_id,
+        ]
+      );
+
+
     if (
-      negotiation.requester_id !== userId
+      requestRes.rows.length === 0
     ) {
+
+      return res.status(404).json({
+
+        error:
+          'Solicitud no encontrada',
+
+      });
+    }
+
+
+    const request =
+      requestRes.rows[0];
+
+
+    const authCompanyId =
+      req.user.company_id || null;
+
+
+    const slaughterhouseCompanyId =
+      await getAuthenticatedSlaughterhouseCompanyId(
+        userId,
+        authCompanyId
+      );
+
+
+    // =====================================================
+    // 👤 DUEÑO PERSONAL
+    // =====================================================
+
+    const isOwner =
+      Number(request.user_id) ===
+      Number(userId);
+
+
+    // =====================================================
+    // 🏭 MISMO FRIGORÍFICO
+    // =====================================================
+
+    const belongsToSlaughterhouse =
+      slaughterhouseCompanyId !== null &&
+      request.requester_company_id !== null &&
+      Number(
+        request.requester_company_id
+      ) ===
+      Number(
+        slaughterhouseCompanyId
+      );
+
+
+    // =====================================================
+    // 🚫 SIN ACCESO
+    // =====================================================
+
+    if (
+      !isOwner &&
+      !belongsToSlaughterhouse
+    ) {
+
       return res.status(403).json({
+
         error:
           'No autorizado',
+
       });
     }
 
@@ -2541,10 +2622,107 @@ const createTransportPayment =
       const negotiation =
         negotiationRes.rows[0];
 
+
+      // =====================================================
+      // 🔐 VALIDAR QUIÉN PUEDE PAGAR
+      // =====================================================
+
+      const requestRes =
+        await pool.query(
+          `
+          SELECT
+            id,
+            user_id,
+            requester_company_id
+          FROM transport_requests
+          WHERE id = $1
+          LIMIT 1
+          `,
+          [
+            negotiation.request_id,
+          ]
+        );
+
+
+      if (
+        requestRes.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+
+          error:
+            'Solicitud no encontrada',
+
+        });
+      }
+
+
+      const request =
+        requestRes.rows[0];
+
+
+      const authCompanyId =
+        req.user.company_id || null;
+
+
+      const slaughterhouseCompanyId =
+        await getAuthenticatedSlaughterhouseCompanyId(
+          userId,
+          authCompanyId
+        );
+
+
+      // =====================================================
+      // 👤 DUEÑO PERSONAL DE LA SOLICITUD
+      // =====================================================
+
+      const isOwner =
+        Number(request.user_id) ===
+        Number(userId);
+
+
+      // =====================================================
+      // 🏭 USUARIO DEL MISMO FRIGORÍFICO
+      // =====================================================
+
+      const belongsToSlaughterhouse =
+        slaughterhouseCompanyId !== null &&
+        request.requester_company_id !== null &&
+        Number(
+          request.requester_company_id
+        ) ===
+        Number(
+          slaughterhouseCompanyId
+        );
+
+
+      // =====================================================
+      // 🚫 SIN PERMISO
+      // =====================================================
+
+      if (
+        !isOwner &&
+        !belongsToSlaughterhouse
+      ) {
+
+        return res.status(403).json({
+
+          error:
+            'No autorizado',
+
+        });
+      }
+
+
+      // =====================================================
+      // 💰 MONTO ESPERADO
+      // =====================================================
+
       const expectedAmount =
         Number(
           negotiation.unlock_fee
         );
+
 
       const aiResult =
         await analyzePaymentProof({
