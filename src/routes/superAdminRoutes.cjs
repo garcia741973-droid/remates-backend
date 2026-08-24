@@ -30,6 +30,8 @@ const {
 
   removeSlaughterhouseUser,
 
+  updateSlaughterhouseStatus,
+
 } = require(
 
   "../controllers/superAdminController.cjs"
@@ -134,6 +136,18 @@ router.post(
   requireAuth,
 
   createSlaughterhouseCompany
+
+);
+
+/// 🔘 ACTIVAR / DESACTIVAR FRIGORÍFICO
+
+router.put(
+
+  "/slaughterhouses/:id/status",
+
+  requireAuth,
+
+  updateSlaughterhouseStatus
 
 );
 

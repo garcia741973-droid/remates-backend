@@ -1450,3 +1450,109 @@ exports.getSlaughterhouseCandidates = async (req, res) => {
     });
   }
 };
+
+// =====================================================
+// 🏭 ACTIVAR / DESACTIVAR FRIGORÍFICO
+// =====================================================
+
+exports.updateSlaughterhouseStatus =
+  async (req, res) => {
+
+    try {
+
+      // 🔐 SOLO SUPER ADMIN
+      if (
+        req.user.role !== 'super_admin'
+      ) {
+
+        return res.status(403).json({
+          error: 'No autorizado',
+        });
+      }
+
+
+      const companyId =
+        parseInt(
+          req.params.id,
+          10,
+        );
+
+
+      const {
+        is_active,
+      } = req.body;
+
+
+      if (
+        !companyId
+      ) {
+
+        return res.status(400).json({
+          error: 'Frigorífico inválido',
+        });
+      }
+
+
+      if (
+        typeof is_active !== 'boolean'
+      ) {
+
+        return res.status(400).json({
+          error: 'Estado inválido',
+        });
+      }
+
+
+      const result =
+        await pool.query(
+          `
+          UPDATE companies
+          SET
+            is_active = $1
+          WHERE
+            id = $2
+            AND company_type = 'slaughterhouse'
+          RETURNING
+            id,
+            name,
+            company_type,
+            is_active
+          `,
+          [
+            is_active,
+            companyId,
+          ],
+        );
+
+
+      if (
+        result.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+          error: 'Frigorífico no encontrado',
+        });
+      }
+
+
+      return res.json({
+        success: true,
+        company:
+          result.rows[0],
+      });
+
+
+    } catch (e) {
+
+      console.log(
+        'UPDATE SLAUGHTERHOUSE STATUS ERROR:',
+        e,
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error actualizando frigorífico',
+      });
+    }
+  };
