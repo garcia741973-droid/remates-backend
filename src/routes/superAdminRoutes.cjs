@@ -9,12 +9,27 @@ const {
 );
 
 const {
+
   getAllUsers,
+
   getUserDetail,
+
   createRemateCompany,
+
   updateRemateCompany,
+
+  getSlaughterhouses,
+
+  getSlaughterhouseUsers,
+
+  addSlaughterhouseUser,
+
+  removeSlaughterhouseUser,
+
 } = require(
+
   "../controllers/superAdminController.cjs"
+
 );
 
 const {
@@ -86,6 +101,63 @@ router.put(
   requireAuth,
 
   updateRemateCompany
+);
+
+/// =====================================================
+/// 🏭 FRIGORÍFICOS
+/// CONTROL EXCLUSIVO SUPER ADMIN
+/// =====================================================
+
+
+/// 📋 LISTAR FRIGORÍFICOS
+
+router.get(
+
+  "/slaughterhouses",
+
+  requireAuth,
+
+  getSlaughterhouses
+
+);
+
+
+/// 👥 USUARIOS DEL FRIGORÍFICO
+
+router.get(
+
+  "/slaughterhouses/:id/users",
+
+  requireAuth,
+
+  getSlaughterhouseUsers
+
+);
+
+
+/// ➕ AUTORIZAR USUARIO
+
+router.post(
+
+  "/slaughterhouses/:id/users",
+
+  requireAuth,
+
+  addSlaughterhouseUser
+
+);
+
+
+/// ➖ QUITAR USUARIO
+
+router.delete(
+
+  "/slaughterhouses/:id/users/:userId",
+
+  requireAuth,
+
+  removeSlaughterhouseUser
+
 );
 
 /// 📢 PROMOCIONES
