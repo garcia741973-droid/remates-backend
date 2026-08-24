@@ -528,7 +528,7 @@ const getTripCashbox =
           'Error obteniendo caja',
       });
     }
-  };  
+  };
 
 const getMyTripCashboxes =
   async (req, res) => {
@@ -663,7 +663,7 @@ const getMyTruckReviews =
           'Error obteniendo calificaciones',
       });
     }
-  };  
+  };
 
 const closeTripCashbox =
   async (req, res) => {
@@ -880,7 +880,7 @@ await admin
 +36: ${female_36_plus}
 
 CON ESTOS DATOS PUEDE GENERAR LA GUIA
-PUEDE ADJUNTAR EN ESTE CHAT ARRIBA 
+PUEDE ADJUNTAR EN ESTE CHAT ARRIBA
 CON EL BOTON 📄 SERA ENVIADO AL CAMIONERO
 CUANDO ESTE TENGA SEÑAL
 
@@ -1055,51 +1055,135 @@ const getSharedGuide = async (req, res) => {
 };
 
 const createPublicTracking = async (req, res) => {
+
   try {
-    const { negotiation_id } = req.params;
-    const { driver_name } = req.body;
 
-    const existing = await pool.query(
-      `
-      SELECT *
-      FROM transport_public_tracking
-      WHERE negotiation_id = $1
-      AND active = true
-      LIMIT 1
-      `,
-      [negotiation_id]
-    );
+    const {
+      negotiation_id,
+    } = req.params;
 
-    if (existing.rows.length > 0) {
-      return res.json(existing.rows[0]);
+    const {
+      driver_name,
+    } = req.body;
+
+
+    const userId =
+      req.user.user_id;
+
+
+    const authCompanyId =
+      req.user.company_id || null;
+
+
+    // =====================================================
+    // 🔐 VALIDAR ACCESO
+    // =====================================================
+
+    const access =
+      await getTransportNegotiationAccess(
+        negotiation_id,
+        userId,
+        authCompanyId
+      );
+
+
+    if (
+      !access.exists
+    ) {
+
+      return res.status(404).json({
+
+        error:
+          'Negociación no encontrada',
+      });
     }
 
-    const token =
-      crypto.randomBytes(16).toString('hex');
 
-    const result = await pool.query(
-      `
-      INSERT INTO transport_public_tracking (
-        negotiation_id,
-        token,
-        driver_name
-      )
-      VALUES ($1, $2, $3)
-      RETURNING *
-      `,
-      [
-        negotiation_id,
-        token,
-        driver_name,
-      ]
+    if (
+      !access.allowed
+    ) {
+
+      return res.status(403).json({
+
+        error:
+          'No autorizado',
+      });
+    }
+
+
+    // =====================================================
+    // 🔗 SI YA EXISTE UNO ACTIVO, DEVOLVERLO
+    // =====================================================
+
+    const existing =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_public_tracking
+        WHERE negotiation_id = $1
+          AND active = true
+        LIMIT 1
+        `,
+        [
+          negotiation_id,
+        ]
+      );
+
+
+    if (
+      existing.rows.length > 0
+    ) {
+
+      return res.json(
+        existing.rows[0]
+      );
+    }
+
+
+    // =====================================================
+    // 🔑 CREAR NUEVO ENLACE
+    // =====================================================
+
+    const token =
+      crypto
+        .randomBytes(16)
+        .toString('hex');
+
+
+    const result =
+      await pool.query(
+        `
+        INSERT INTO transport_public_tracking (
+          negotiation_id,
+          token,
+          driver_name
+        )
+        VALUES ($1,$2,$3)
+        RETURNING *
+        `,
+        [
+          negotiation_id,
+          token,
+          driver_name,
+        ]
+      );
+
+
+    res.json(
+      result.rows[0]
     );
 
-    res.json(result.rows[0]);
 
   } catch (error) {
-    console.error(error);
+
+    console.error(
+      'CREATE PUBLIC TRACKING ERROR:',
+      error
+    );
+
 
     res.status(500).json({
+
       error:
         'Error creando tracking público',
     });
@@ -1169,36 +1253,61 @@ const getPublicTracking = async (req, res) => {
 };
 
 const disablePublicTracking = async (req, res) => {
+
   try {
-    const userId = req.user.user_id;
-    const { negotiation_id } = req.body;
 
-    const negotiationRes = await pool.query(
-      `
-      SELECT *
-      FROM transport_negotiations
-      WHERE id = $1
-      LIMIT 1
-      `,
-      [negotiation_id]
-    );
+    const userId =
+      req.user.user_id;
 
-    if (negotiationRes.rows.length === 0) {
-      return res.status(404).json({
-        error: 'Negociación no encontrada',
-      });
-    }
 
-    const negotiation = negotiationRes.rows[0];
+    const {
+      negotiation_id,
+    } = req.body;
+
+
+    const authCompanyId =
+      req.user.company_id || null;
+
+
+    // =====================================================
+    // 🔐 VALIDAR ACCESO
+    // =====================================================
+
+    const access =
+      await getTransportNegotiationAccess(
+        negotiation_id,
+        userId,
+        authCompanyId
+      );
+
 
     if (
-      negotiation.requester_id !== userId &&
-      negotiation.transporter_id !== userId
+      !access.exists
     ) {
-      return res.status(403).json({
-        error: 'No autorizado',
+
+      return res.status(404).json({
+
+        error:
+          'Negociación no encontrada',
       });
     }
+
+
+    if (
+      !access.allowed
+    ) {
+
+      return res.status(403).json({
+
+        error:
+          'No autorizado',
+      });
+    }
+
+
+    // =====================================================
+    // 🔒 DESACTIVAR ENLACE
+    // =====================================================
 
     await pool.query(
       `
@@ -1206,18 +1315,30 @@ const disablePublicTracking = async (req, res) => {
       SET active = false
       WHERE negotiation_id = $1
       `,
-      [negotiation_id]
+      [
+        negotiation_id,
+      ]
     );
 
+
     res.json({
+
       success: true,
     });
 
+
   } catch (error) {
-    console.error(error);
+
+    console.error(
+      'DISABLE PUBLIC TRACKING ERROR:',
+      error
+    );
+
 
     res.status(500).json({
-      error: 'Error desactivando tracking',
+
+      error:
+        'Error desactivando tracking',
     });
   }
 };
@@ -1654,7 +1775,7 @@ const createTransportNegotiation = async (req, res) => {
         error:
           'No puedes negociar tu propia solicitud',
       });
-    }      
+    }
 
     /// 🔥 BUSCAR CAMIÓN ACTIVO
     const truckRes =
@@ -2208,61 +2329,163 @@ const getTransportMessages = async (req, res) => {
   }
 };
 
-const getTransportNegotiationDetails = async (req, res) => {
-  try {
-    const { negotiation_id } = req.params;
+const getTransportNegotiationDetails =
+  async (req, res) => {
 
-    const result = await pool.query(
-      `
-      SELECT *
-      FROM transport_negotiations
-      WHERE id = $1
-      LIMIT 1
-      `,
-      [negotiation_id]
-    );
+    try {
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        error: 'Negociación no encontrada',
+      const {
+        negotiation_id,
+      } = req.params;
+
+
+      const userId =
+        req.user.user_id;
+
+
+      const authCompanyId =
+        req.user.company_id || null;
+
+
+      const access =
+        await getTransportNegotiationAccess(
+          negotiation_id,
+          userId,
+          authCompanyId
+        );
+
+
+      if (
+        !access.exists
+      ) {
+
+        return res.status(404).json({
+
+          error:
+            'Negociación no encontrada',
+        });
+      }
+
+
+      if (
+        !access.allowed
+      ) {
+
+        return res.status(403).json({
+
+          error:
+            'No autorizado',
+        });
+      }
+
+
+      res.json(
+        access.negotiation
+      );
+
+
+    } catch (error) {
+
+      console.error(
+        'GET TRANSPORT NEGOTIATION DETAILS ERROR:',
+        error
+      );
+
+
+      res.status(500).json({
+
+        error:
+          'Error obteniendo negociación',
       });
     }
+  };
 
-    res.json(result.rows[0]);
+const getTransportRoutePoints =
+  async (req, res) => {
 
-  } catch (error) {
-    console.error(error);
+    try {
 
-    res.status(500).json({
-      error: 'Error obteniendo negociación',
-    });
-  }
-};
+      const {
+        request_id,
+      } = req.params;
 
-const getTransportRoutePoints = async (req, res) => {
-  try {
-    const { request_id } = req.params;
 
-    const result = await pool.query(
-      `
-      SELECT *
-      FROM transport_route_points
-      WHERE request_id = $1
-      ORDER BY route_phase ASC, point_order ASC
-      `,
-      [request_id]
-    );
+      const userId =
+        req.user.user_id;
 
-    res.json(result.rows);
 
-  } catch (error) {
-    console.error(error);
+      const authCompanyId =
+        req.user.company_id || null;
 
-    res.status(500).json({
-      error: 'Error obteniendo rutas del viaje',
-    });
-  }
-};
+
+      const access =
+        await getTransportRequestAccess(
+          request_id,
+          userId,
+          authCompanyId
+        );
+
+
+      if (
+        !access.exists
+      ) {
+
+        return res.status(404).json({
+
+          error:
+            'Solicitud no encontrada',
+        });
+      }
+
+
+      if (
+        !access.allowed
+      ) {
+
+        return res.status(403).json({
+
+          error:
+            'No autorizado',
+        });
+      }
+
+
+      const result =
+        await pool.query(
+          `
+          SELECT *
+          FROM transport_route_points
+          WHERE request_id = $1
+          ORDER BY
+            route_phase ASC,
+            point_order ASC
+          `,
+          [
+            request_id,
+          ]
+        );
+
+
+      res.json(
+        result.rows
+      );
+
+
+    } catch (error) {
+
+      console.error(
+        'GET TRANSPORT ROUTE POINTS ERROR:',
+        error
+      );
+
+
+      res.status(500).json({
+
+        error:
+          'Error obteniendo rutas del viaje',
+      });
+    }
+  };
 
 // =====================================================
 // 🏭 OBTENER FRIGORÍFICO AUTENTICADO
@@ -2406,6 +2629,118 @@ const getTransportNegotiationAccess =
         isSlaughterhouseRequester,
 
       slaughterhouseCompanyId,
+    };
+  };
+
+// =====================================================
+// 🔐 VALIDAR ACCESO A UNA SOLICITUD DE TRANSPORTE
+// =====================================================
+
+const getTransportRequestAccess =
+  async (
+    requestId,
+    userId,
+    authCompanyId
+  ) => {
+
+    const requestRes =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_requests
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [
+          requestId,
+        ]
+      );
+
+
+    if (
+      requestRes.rows.length === 0
+    ) {
+
+      return {
+        exists: false,
+        allowed: false,
+        request: null,
+      };
+    }
+
+
+    const request =
+      requestRes.rows[0];
+
+
+    const slaughterhouseCompanyId =
+      await getAuthenticatedSlaughterhouseCompanyId(
+        userId,
+        authCompanyId
+      );
+
+
+    const isOwner =
+      Number(
+        request.user_id
+      ) ===
+      Number(
+        userId
+      );
+
+
+    const isSlaughterhouseRequester =
+      slaughterhouseCompanyId !== null &&
+      request.requester_company_id !== null &&
+      Number(
+        request.requester_company_id
+      ) ===
+      Number(
+        slaughterhouseCompanyId
+      );
+
+
+    // =================================================
+    // 🚛 VER SI ES TRANSPORTISTA DE ESTA SOLICITUD
+    // =================================================
+
+    const transporterRes =
+      await pool.query(
+        `
+        SELECT id
+        FROM transport_negotiations
+        WHERE
+          request_id = $1
+          AND transporter_id = $2
+        LIMIT 1
+        `,
+        [
+          requestId,
+          userId,
+        ]
+      );
+
+
+    const isTransporter =
+      transporterRes.rows.length > 0;
+
+
+    return {
+
+      exists: true,
+
+      allowed:
+        isOwner ||
+        isSlaughterhouseRequester ||
+        isTransporter,
+
+      request,
+
+      isOwner,
+
+      isSlaughterhouseRequester,
+
+      isTransporter,
     };
   };
 
@@ -3357,7 +3692,7 @@ const createTransportPayment =
             💬 Este chat seguirá disponible para coordinar toda la operación hasta la entrega.`,
             created_at:
               admin.firestore.FieldValue.serverTimestamp(),
-          });          
+          });
 
           /// REQUEST PAGADO
           await pool.query(
@@ -4148,7 +4483,7 @@ const createDeliveryReport =
         WHERE negotiation_id = $1
         `,
         [negotiation_id]
-      );      
+      );
 
     await admin
       .firestore()
@@ -4418,6 +4753,7 @@ const getMyTrips = async (req, res) => {
 
             (
               tr.requester_company_id = $2
+              AND tn.hidden_by_requester = false
             )
           )
 
@@ -4561,56 +4897,240 @@ const getMyTrips = async (req, res) => {
 };
 
 const getMyIncomingTrips = async (req, res) => {
+
   try {
-    const userId = req.user.user_id;
 
-    const result = await pool.query(
-      `
-      SELECT
-        tn.id,
-        tn.status,
-        tn.price,
-        tn.created_at,
+    const userId =
+      req.user.user_id;
 
-        tr.origin,
-        tr.destination,
-        tr.quantity,
-        tr.animal_type,
 
-        tt.plate,
-        tt.capacity,
-        tt.driver_name
+    const authCompanyId =
+      req.user.company_id || null;
 
-      FROM transport_negotiations tn
-      INNER JOIN transport_requests tr
-        ON tr.id = tn.request_id
-      INNER JOIN transporter_trucks tt
-        ON tt.user_id = tn.transporter_id
 
-      WHERE tr.user_id = $1
-        AND tn.status IN (
-          'paid',
-          'loading_completed',
-          'trip_active',
-          'delivery_pending'
-        )
+    // =====================================================
+    // 🏭 VERIFICAR SI OPERA POR FRIGORÍFICO
+    // =====================================================
 
-      ORDER BY tn.id DESC
-      `,
-      [userId]
+    const slaughterhouseCompanyId =
+      await getAuthenticatedSlaughterhouseCompanyId(
+        userId,
+        authCompanyId
+      );
+
+
+    let result;
+
+
+    // =====================================================
+    // 🏭 CAMIONES ENTRANTES DEL FRIGORÍFICO
+    // =====================================================
+
+    if (
+      slaughterhouseCompanyId
+    ) {
+
+      result =
+        await pool.query(
+          `
+          SELECT
+
+            tn.id,
+            tn.status,
+            tn.price,
+            tn.created_at,
+
+            tn.request_id,
+
+            tr.origin,
+            tr.destination,
+            tr.quantity,
+            tr.animal_type,
+            tr.requester_company_id,
+
+            tt.id AS truck_id,
+            tt.plate,
+            tt.brand,
+            tt.model,
+            tt.capacity_large,
+            tt.capacity_small,
+            tt.has_trailer,
+            tt.trailer_capacity,
+
+            (
+              SELECT latitude
+              FROM transport_trip_tracking
+              WHERE negotiation_id = tn.id
+              ORDER BY id DESC
+              LIMIT 1
+            ) AS current_lat,
+
+            (
+              SELECT longitude
+              FROM transport_trip_tracking
+              WHERE negotiation_id = tn.id
+              ORDER BY id DESC
+              LIMIT 1
+            ) AS current_lng,
+
+            (
+              SELECT speed
+              FROM transport_trip_tracking
+              WHERE negotiation_id = tn.id
+              ORDER BY id DESC
+              LIMIT 1
+            ) AS current_speed,
+
+            (
+              SELECT tracked_at
+              FROM transport_trip_tracking
+              WHERE negotiation_id = tn.id
+              ORDER BY id DESC
+              LIMIT 1
+            ) AS last_tracking
+
+          FROM transport_negotiations tn
+
+          INNER JOIN transport_requests tr
+            ON tr.id = tn.request_id
+
+          INNER JOIN transporter_trucks tt
+            ON tt.id = tn.truck_id
+
+          WHERE
+            tr.requester_company_id = $1
+
+            AND tn.status IN (
+              'paid',
+              'loading_completed',
+              'trip_active',
+              'in_trip',
+              'delivery_pending'
+            )
+
+          ORDER BY tn.id DESC
+          `,
+          [
+            slaughterhouseCompanyId,
+          ]
+        );
+
+
+    } else {
+
+      // =================================================
+      // 👤 USUARIO NORMAL
+      // COMPORTAMIENTO PERSONAL
+      // =================================================
+
+      result =
+        await pool.query(
+          `
+          SELECT
+
+            tn.id,
+            tn.status,
+            tn.price,
+            tn.created_at,
+
+            tn.request_id,
+
+            tr.origin,
+            tr.destination,
+            tr.quantity,
+            tr.animal_type,
+            tr.requester_company_id,
+
+            tt.id AS truck_id,
+            tt.plate,
+            tt.brand,
+            tt.model,
+            tt.capacity_large,
+            tt.capacity_small,
+            tt.has_trailer,
+            tt.trailer_capacity,
+
+            (
+              SELECT latitude
+              FROM transport_trip_tracking
+              WHERE negotiation_id = tn.id
+              ORDER BY id DESC
+              LIMIT 1
+            ) AS current_lat,
+
+            (
+              SELECT longitude
+              FROM transport_trip_tracking
+              WHERE negotiation_id = tn.id
+              ORDER BY id DESC
+              LIMIT 1
+            ) AS current_lng,
+
+            (
+              SELECT speed
+              FROM transport_trip_tracking
+              WHERE negotiation_id = tn.id
+              ORDER BY id DESC
+              LIMIT 1
+            ) AS current_speed,
+
+            (
+              SELECT tracked_at
+              FROM transport_trip_tracking
+              WHERE negotiation_id = tn.id
+              ORDER BY id DESC
+              LIMIT 1
+            ) AS last_tracking
+
+          FROM transport_negotiations tn
+
+          INNER JOIN transport_requests tr
+            ON tr.id = tn.request_id
+
+          INNER JOIN transporter_trucks tt
+            ON tt.id = tn.truck_id
+
+          WHERE
+            tr.user_id = $1
+
+            AND tn.status IN (
+              'paid',
+              'loading_completed',
+              'trip_active',
+              'in_trip',
+              'delivery_pending'
+            )
+
+          ORDER BY tn.id DESC
+          `,
+          [
+            userId,
+          ]
+        );
+    }
+
+
+    res.json(
+      result.rows
     );
 
-    res.json(result.rows);
 
   } catch (error) {
-    console.error(error);
+
+    console.error(
+      'GET MY INCOMING TRIPS ERROR:',
+      error
+    );
+
 
     res.status(500).json({
-      error: 'Error obteniendo viajes del ganadero',
+
+      error:
+        'Error obteniendo viajes entrantes',
     });
   }
 };
-  
+
 const getMyOpenNegotiations = async (req, res) => {
   try {
     const userId = req.user.user_id;
@@ -4765,7 +5285,7 @@ const getTripMapData = async (
 
     negotiation.delivery_exists =
         deliveryResult.rows.length > 0;
-      
+
     negotiation.is_requester =
       access.isRequesterSide === true;
 
@@ -4859,9 +5379,53 @@ const getTripMapData = async (
 
 const getGuideByNegotiation =
   async (req, res) => {
+
     try {
-      const { negotiationId } =
-        req.params;
+
+      const {
+        negotiationId,
+      } = req.params;
+
+
+      const userId =
+        req.user.user_id;
+
+
+      const authCompanyId =
+        req.user.company_id || null;
+
+
+      const access =
+        await getTransportNegotiationAccess(
+          negotiationId,
+          userId,
+          authCompanyId
+        );
+
+
+      if (
+        !access.exists
+      ) {
+
+        return res.status(404).json({
+
+          error:
+            'Negociación no encontrada',
+        });
+      }
+
+
+      if (
+        !access.allowed
+      ) {
+
+        return res.status(403).json({
+
+          error:
+            'No autorizado',
+        });
+      }
+
 
       const result =
         await pool.query(
@@ -4871,25 +5435,39 @@ const getGuideByNegotiation =
           WHERE negotiation_id = $1
           LIMIT 1
           `,
-          [negotiationId]
+          [
+            negotiationId,
+          ]
         );
+
 
       if (
         result.rows.length === 0
       ) {
+
         return res.status(404).json({
+
           error:
             'Guía no encontrada',
         });
       }
 
+
       res.json(
         result.rows[0]
       );
+
+
     } catch (error) {
-      console.error(error);
+
+      console.error(
+        'GET GUIDE BY NEGOTIATION ERROR:',
+        error
+      );
+
 
       res.status(500).json({
+
         error:
           'Error obteniendo guía',
       });
@@ -4898,71 +5476,132 @@ const getGuideByNegotiation =
 
 const archiveTransportNegotiation =
   async (req, res) => {
+
     try {
+
       const userId =
         req.user.user_id;
+
 
       const {
         negotiation_id,
       } = req.body;
 
-      const result =
-        await pool.query(
-          `
-          SELECT *
-          FROM transport_negotiations
-          WHERE id = $1
-          LIMIT 1
-          `,
-          [negotiation_id]
+
+      const authCompanyId =
+        req.user.company_id || null;
+
+
+      // =====================================================
+      // 🔐 VALIDAR ACCESO
+      // =====================================================
+
+      const access =
+        await getTransportNegotiationAccess(
+          negotiation_id,
+          userId,
+          authCompanyId
         );
 
+
       if (
-        result.rows.length === 0
+        !access.exists
       ) {
+
         return res.status(404).json({
+
           error:
             'Negociación no encontrada',
         });
       }
 
+
+      if (
+        !access.allowed
+      ) {
+
+        return res.status(403).json({
+
+          error:
+            'No autorizado',
+        });
+      }
+
+
       const negotiation =
-        result.rows[0];
+        access.negotiation;
+
+
+      // =====================================================
+      // 🚛 LADO CAMIONERO
+      // =====================================================
 
       if (
-        negotiation.requester_id === userId
+        access.isTransporter
       ) {
+
         await pool.query(
           `
           UPDATE transport_negotiations
-          SET hidden_by_requester = true
-          WHERE id = $1
-          `,
-          [negotiation_id]
-        );
-      }
 
-      if (
-        negotiation.transporter_id === userId
-      ) {
-        await pool.query(
-          `
-          UPDATE transport_negotiations
           SET hidden_by_transporter = true
+
           WHERE id = $1
           `,
-          [negotiation_id]
+          [
+            negotiation_id,
+          ]
         );
       }
+
+
+      // =====================================================
+      // 👤 / 🏭 LADO SOLICITANTE
+      //
+      // Para frigorífico este archivado es empresarial:
+      // queda archivado para todos sus usuarios autorizados.
+      // =====================================================
+
+      if (
+        access.isRequesterSide
+      ) {
+
+        await pool.query(
+          `
+          UPDATE transport_negotiations
+
+          SET hidden_by_requester = true
+
+          WHERE id = $1
+          `,
+          [
+            negotiation_id,
+          ]
+        );
+      }
+
 
       res.json({
+
         success: true,
+
+        archived_as:
+          access.isTransporter
+            ? 'transporter'
+            : 'requester',
       });
 
+
     } catch (error) {
-      console.error(error);
+
+      console.error(
+        'ARCHIVE TRANSPORT NEGOTIATION ERROR:',
+        error
+      );
+
 
       res.status(500).json({
+
         error:
           'Error archivando negociación',
       });
@@ -4971,92 +5610,230 @@ const archiveTransportNegotiation =
 
 const getMyTripsHistory =
   async (req, res) => {
+
     try {
+
       const userId =
         req.user.user_id;
 
-      const result =
-        await pool.query(
-          `
-          SELECT DISTINCT ON (tn.id)
-            tn.id,
-            tn.status,
-            tn.unlock_fee,
-            tn.created_at,
 
-            tr.origin,
-            tr.destination,
-            tr.quantity,
-            tr.animal_type,
-            tr.travel_date,
-            tr.notes,
+      const authCompanyId =
+        req.user.company_id || null;
 
-            tt.plate,
-            tt.brand,
-            tt.model,
 
-            tg.id AS guide_id,
+      const slaughterhouseCompanyId =
+        await getAuthenticatedSlaughterhouseCompanyId(
+          userId,
+          authCompanyId
+        );
 
-            dispatch_event.event_local_time
+
+      let result;
+
+
+      // =====================================================
+      // 🏭 USUARIO OPERANDO POR FRIGORÍFICO
+      // =====================================================
+
+      if (
+        slaughterhouseCompanyId
+      ) {
+
+        result =
+          await pool.query(
+            `
+            SELECT DISTINCT ON (tn.id)
+
+              tn.id,
+              tn.status,
+              tn.unlock_fee,
+              tn.created_at,
+
+              tr.origin,
+              tr.destination,
+              tr.quantity,
+              tr.animal_type,
+              tr.travel_date,
+              tr.notes,
+
+              tr.requester_company_id,
+
+              tt.plate,
+              tt.brand,
+              tt.model,
+
+              tg.id AS guide_id,
+
+              dispatch_event.event_local_time
                 AS dispatch_time,
 
-            dispatch_event.signed_by
+              dispatch_event.signed_by
                 AS sender_name,
 
-            tdr.delivered_at,
+              tdr.delivered_at,
 
-            tdr.receiver_name,
+              tdr.receiver_name,
 
-            tg.driver_name,
+              tg.driver_name,
 
-            tvr.id AS review_id,
+              tvr.id AS review_id,
 
-            tvr.rating
+              tvr.rating
 
-          FROM transport_negotiations tn
+            FROM transport_negotiations tn
 
-          JOIN transport_requests tr
-            ON tn.request_id = tr.id
+            JOIN transport_requests tr
+              ON tn.request_id = tr.id
 
-          JOIN transporter_trucks tt
-            ON tn.truck_id = tt.id
+            JOIN transporter_trucks tt
+              ON tn.truck_id = tt.id
 
-          LEFT JOIN transport_guides tg
-            ON tg.negotiation_id = tn.id
+            LEFT JOIN transport_guides tg
+              ON tg.negotiation_id = tn.id
 
-          LEFT JOIN transport_delivery_reports tdr
-            ON tdr.negotiation_id = tn.id
+            LEFT JOIN transport_delivery_reports tdr
+              ON tdr.negotiation_id = tn.id
 
-          LEFT JOIN transport_trip_events dispatch_event
-            ON dispatch_event.negotiation_id = tn.id
-          AND dispatch_event.event_type = 'dispatch'
+            LEFT JOIN transport_trip_events dispatch_event
+              ON dispatch_event.negotiation_id = tn.id
+              AND dispatch_event.event_type = 'dispatch'
 
-          LEFT JOIN transport_reviews tvr
-            ON tvr.negotiation_id = tn.id
+            LEFT JOIN transport_reviews tvr
+              ON tvr.negotiation_id = tn.id
 
             WHERE
             (
               tn.transporter_id = $1
-              OR tn.requester_id = $1
+
+              OR
+
+              tr.requester_company_id = $2
             )
+
             AND tn.status IN (
               'delivered',
               'cancelled'
             )
 
-          ORDER BY tn.id, dispatch_event.event_local_time DESC NULLS LAST
-          `,
-          [userId]
-        );
+            ORDER BY
+              tn.id,
+              dispatch_event.event_local_time DESC NULLS LAST
+            `,
+            [
+              userId,
+              slaughterhouseCompanyId,
+            ]
+          );
+
+      } else {
+
+        // =================================================
+        // 👤 USUARIO NORMAL
+        // COMPORTAMIENTO EXISTENTE
+        // =================================================
+
+        result =
+          await pool.query(
+            `
+            SELECT DISTINCT ON (tn.id)
+
+              tn.id,
+              tn.status,
+              tn.unlock_fee,
+              tn.created_at,
+
+              tr.origin,
+              tr.destination,
+              tr.quantity,
+              tr.animal_type,
+              tr.travel_date,
+              tr.notes,
+
+              tr.requester_company_id,
+
+              tt.plate,
+              tt.brand,
+              tt.model,
+
+              tg.id AS guide_id,
+
+              dispatch_event.event_local_time
+                AS dispatch_time,
+
+              dispatch_event.signed_by
+                AS sender_name,
+
+              tdr.delivered_at,
+
+              tdr.receiver_name,
+
+              tg.driver_name,
+
+              tvr.id AS review_id,
+
+              tvr.rating
+
+            FROM transport_negotiations tn
+
+            JOIN transport_requests tr
+              ON tn.request_id = tr.id
+
+            JOIN transporter_trucks tt
+              ON tn.truck_id = tt.id
+
+            LEFT JOIN transport_guides tg
+              ON tg.negotiation_id = tn.id
+
+            LEFT JOIN transport_delivery_reports tdr
+              ON tdr.negotiation_id = tn.id
+
+            LEFT JOIN transport_trip_events dispatch_event
+              ON dispatch_event.negotiation_id = tn.id
+              AND dispatch_event.event_type = 'dispatch'
+
+            LEFT JOIN transport_reviews tvr
+              ON tvr.negotiation_id = tn.id
+
+            WHERE
+            (
+              tn.transporter_id = $1
+
+              OR
+
+              tn.requester_id = $1
+            )
+
+            AND tn.status IN (
+              'delivered',
+              'cancelled'
+            )
+
+            ORDER BY
+              tn.id,
+              dispatch_event.event_local_time DESC NULLS LAST
+            `,
+            [
+              userId,
+            ]
+          );
+      }
+
 
       res.json(
         result.rows
       );
 
+
     } catch (error) {
-      console.error(error);
+
+      console.error(
+        'GET MY TRIPS HISTORY ERROR:',
+        error
+      );
+
 
       res.status(500).json({
+
         error:
           'Error obteniendo historial',
       });
@@ -5065,78 +5842,200 @@ const getMyTripsHistory =
 
 const getRequesterTripsHistory =
   async (req, res) => {
+
     try {
-      const userId = req.user.user_id;
 
-      const result = await pool.query(
-        `
-        SELECT
-          tn.id,
-          tn.status,
-          tn.created_at,
+      const userId =
+        req.user.user_id;
 
-          tr.origin,
-          tr.destination,
-          tr.quantity,
-          tr.animal_type,
 
-          tt.plate,
-          tt.brand,
-          tt.model,
+      const authCompanyId =
+        req.user.company_id || null;
 
-          tg.id AS guide_id,
 
-          dispatch_event.event_local_time
-              AS dispatch_time,
+      const slaughterhouseCompanyId =
+        await getAuthenticatedSlaughterhouseCompanyId(
+          userId,
+          authCompanyId
+        );
 
-          dispatch_event.signed_by
-              AS sender_name,
 
-          tdr.delivered_at,
+      let result;
 
-          tdr.receiver_name,
 
-          tg.driver_name,
+      // =====================================================
+      // 🏭 HISTORIAL DEL FRIGORÍFICO
+      // =====================================================
 
-          tvr.id AS review_id,
+      if (
+        slaughterhouseCompanyId
+      ) {
 
-          tvr.rating
+        result =
+          await pool.query(
+            `
+            SELECT
 
-        FROM transport_negotiations tn
+              tn.id,
+              tn.status,
+              tn.created_at,
 
-        JOIN transport_requests tr
-          ON tn.request_id = tr.id
+              tr.origin,
+              tr.destination,
+              tr.quantity,
+              tr.animal_type,
 
-        JOIN transporter_trucks tt
-          ON tn.truck_id = tt.id
+              tr.requester_company_id,
 
-        LEFT JOIN transport_guides tg
-          ON tg.negotiation_id = tn.id
+              tt.plate,
+              tt.brand,
+              tt.model,
 
-        LEFT JOIN transport_delivery_reports tdr
-          ON tdr.negotiation_id = tn.id
+              tg.id AS guide_id,
 
-        LEFT JOIN transport_trip_events dispatch_event
-          ON dispatch_event.negotiation_id = tn.id
-        AND dispatch_event.event_type = 'dispatch'
+              dispatch_event.event_local_time
+                AS dispatch_time,
 
-        LEFT JOIN transport_reviews tvr
-          ON tvr.negotiation_id = tn.id
+              dispatch_event.signed_by
+                AS sender_name,
 
-        WHERE tn.requester_id = $1
-        AND tn.status = 'delivered'
+              tdr.delivered_at,
 
-        ORDER BY tn.id DESC
-        `,
-        [userId]
+              tdr.receiver_name,
+
+              tg.driver_name,
+
+              tvr.id AS review_id,
+
+              tvr.rating
+
+            FROM transport_negotiations tn
+
+            JOIN transport_requests tr
+              ON tn.request_id = tr.id
+
+            JOIN transporter_trucks tt
+              ON tn.truck_id = tt.id
+
+            LEFT JOIN transport_guides tg
+              ON tg.negotiation_id = tn.id
+
+            LEFT JOIN transport_delivery_reports tdr
+              ON tdr.negotiation_id = tn.id
+
+            LEFT JOIN transport_trip_events dispatch_event
+              ON dispatch_event.negotiation_id = tn.id
+              AND dispatch_event.event_type = 'dispatch'
+
+            LEFT JOIN transport_reviews tvr
+              ON tvr.negotiation_id = tn.id
+
+            WHERE
+              tr.requester_company_id = $1
+
+              AND tn.status = 'delivered'
+
+            ORDER BY tn.id DESC
+            `,
+            [
+              slaughterhouseCompanyId,
+            ]
+          );
+
+      } else {
+
+        // =================================================
+        // 👤 HISTORIAL PERSONAL NORMAL
+        // =================================================
+
+        result =
+          await pool.query(
+            `
+            SELECT
+
+              tn.id,
+              tn.status,
+              tn.created_at,
+
+              tr.origin,
+              tr.destination,
+              tr.quantity,
+              tr.animal_type,
+
+              tr.requester_company_id,
+
+              tt.plate,
+              tt.brand,
+              tt.model,
+
+              tg.id AS guide_id,
+
+              dispatch_event.event_local_time
+                AS dispatch_time,
+
+              dispatch_event.signed_by
+                AS sender_name,
+
+              tdr.delivered_at,
+
+              tdr.receiver_name,
+
+              tg.driver_name,
+
+              tvr.id AS review_id,
+
+              tvr.rating
+
+            FROM transport_negotiations tn
+
+            JOIN transport_requests tr
+              ON tn.request_id = tr.id
+
+            JOIN transporter_trucks tt
+              ON tn.truck_id = tt.id
+
+            LEFT JOIN transport_guides tg
+              ON tg.negotiation_id = tn.id
+
+            LEFT JOIN transport_delivery_reports tdr
+              ON tdr.negotiation_id = tn.id
+
+            LEFT JOIN transport_trip_events dispatch_event
+              ON dispatch_event.negotiation_id = tn.id
+              AND dispatch_event.event_type = 'dispatch'
+
+            LEFT JOIN transport_reviews tvr
+              ON tvr.negotiation_id = tn.id
+
+            WHERE
+              tn.requester_id = $1
+
+              AND tn.status = 'delivered'
+
+            ORDER BY tn.id DESC
+            `,
+            [
+              userId,
+            ]
+          );
+      }
+
+
+      res.json(
+        result.rows
       );
 
-      res.json(result.rows);
 
     } catch (error) {
-      console.error(error);
+
+      console.error(
+        'GET REQUESTER TRIPS HISTORY ERROR:',
+        error
+      );
+
 
       res.status(500).json({
+
         error:
           'Error obteniendo historial del ganadero',
       });
@@ -5148,8 +6047,12 @@ const createTransportReview = async (
   req,
   res
 ) => {
+
   try {
-    const userId = req.user.user_id;
+
+    const userId =
+      req.user.user_id;
+
 
     const {
       negotiation_id,
@@ -5157,38 +6060,74 @@ const createTransportReview = async (
       comment,
     } = req.body;
 
-    const negotiationRes =
-      await pool.query(
-        `
-        SELECT *
-        FROM transport_negotiations
-        WHERE id = $1
-        AND status = 'delivered'
-        LIMIT 1
-        `,
-        [negotiation_id]
+
+    const authCompanyId =
+      req.user.company_id || null;
+
+
+    // =====================================================
+    // 🔐 VALIDAR ACCESO A LA NEGOCIACIÓN
+    // =====================================================
+
+    const access =
+      await getTransportNegotiationAccess(
+        negotiation_id,
+        userId,
+        authCompanyId
       );
 
+
     if (
-      negotiationRes.rows.length === 0
+      !access.exists
     ) {
+
       return res.status(404).json({
+
         error:
           'Viaje no válido',
       });
     }
 
+
     const negotiation =
-      negotiationRes.rows[0];
+      access.negotiation;
+
+
+    // =====================================================
+    // ✅ SOLO VIAJES ENTREGADOS
+    // =====================================================
 
     if (
-      negotiation.requester_id !== userId
+      negotiation.status !== 'delivered'
     ) {
-      return res.status(403).json({
+
+      return res.status(400).json({
+
         error:
-          'Solo el ganadero puede calificar',
+          'El viaje todavía no ha sido entregado',
       });
     }
+
+
+    // =====================================================
+    // 👤 / 🏭 SOLO LADO CONTRATANTE
+    // =====================================================
+
+    if (
+      !access.isRequesterSide
+    ) {
+
+      return res.status(403).json({
+
+        error:
+          'Solo el contratante puede calificar',
+      });
+    }
+
+
+    // =====================================================
+    // ⭐ UNA SOLA CALIFICACIÓN POR VIAJE
+    // =====================================================
 
     const existing =
       await pool.query(
@@ -5198,15 +6137,29 @@ const createTransportReview = async (
         WHERE negotiation_id = $1
         LIMIT 1
         `,
-        [negotiation_id]
+        [
+          negotiation_id,
+        ]
       );
 
-    if (existing.rows.length > 0) {
+
+    if (
+      existing.rows.length > 0
+    ) {
+
       return res.status(400).json({
+
         error:
           'Este viaje ya fue calificado',
       });
     }
+
+
+    // =====================================================
+    // ⭐ GUARDAR CALIFICACIÓN
+    //
+    // requester_id = usuario que realmente calificó
+    // =====================================================
 
     const result =
       await pool.query(
@@ -5223,19 +6176,29 @@ const createTransportReview = async (
         `,
         [
           negotiation_id,
-          negotiation.requester_id,
+          userId,
           negotiation.transporter_id,
           rating,
           comment || null,
         ]
       );
 
-    res.json(result.rows[0]);
+
+    res.json(
+      result.rows[0]
+    );
+
 
   } catch (error) {
-    console.error(error);
+
+    console.error(
+      'CREATE TRANSPORT REVIEW ERROR:',
+      error
+    );
+
 
     res.status(500).json({
+
       error:
         'Error creando calificación',
     });
@@ -5305,9 +6268,30 @@ const getMyRatings = async (
 
 const getTransportDashboard =
   async (req, res) => {
+
     try {
+
       const userId =
         req.user.user_id;
+
+      const authCompanyId =
+        req.user.company_id || null;
+
+
+      // =====================================================
+      // 🏭 VERIFICAR CONTEXTO FRIGORÍFICO
+      // =====================================================
+
+      const slaughterhouseCompanyId =
+        await getAuthenticatedSlaughterhouseCompanyId(
+          userId,
+          authCompanyId
+        );
+
+
+      // =====================================================
+      // 🚛 CAMIONES PROPIOS DEL USUARIO
+      // =====================================================
 
       const truckRes =
         await pool.query(
@@ -5315,29 +6299,18 @@ const getTransportDashboard =
           SELECT COUNT(*)::int AS total
           FROM transporter_trucks
           WHERE user_id = $1
-          AND is_active = true
+            AND is_active = true
           `,
-          [userId]
+          [
+            userId,
+          ]
         );
 
-      const activeTripsRes =
-        await pool.query(
-          `
-          SELECT COUNT(*)::int AS total
-          FROM transport_negotiations
-          WHERE
-          (
-            transporter_id = $1
-            OR requester_id = $1
-          )
-          AND status IN (
-            'trip_active',
-            'in_trip',
-            'delivery_pending'
-          )
-          `,
-          [userId]
-        );
+
+      // =====================================================
+      // 🚛 VIAJES QUE EL USUARIO CONDUCE
+      // SIEMPRE PERSONALES
+      // =====================================================
 
       const drivingTripsRes =
         await pool.query(
@@ -5351,38 +6324,170 @@ const getTransportDashboard =
               'delivery_pending'
             )
           `,
-          [userId]
+          [
+            userId,
+          ]
         );
 
-      const historyRes =
-        await pool.query(
-          `
-          SELECT COUNT(*)::int AS total
-          FROM transport_negotiations
-          WHERE
-          (
-            transporter_id = $1
-            OR requester_id = $1
-          )
-          AND status IN (
-            'delivered',
-            'cancelled'
-          )
-          `,
-          [userId]
-        );
 
-    res.json({
-      trucks: truckRes.rows[0].total,
-      active_trips: activeTripsRes.rows[0].total,
-      driving_trips: drivingTripsRes.rows[0].total,
-      history: historyRes.rows[0].total,
-    });
+      let activeTripsRes;
+      let historyRes;
+
+
+      // =====================================================
+      // 🏭 DASHBOARD DEL FRIGORÍFICO
+      // =====================================================
+
+      if (
+        slaughterhouseCompanyId
+      ) {
+
+        activeTripsRes =
+          await pool.query(
+            `
+            SELECT
+              COUNT(DISTINCT tn.id)::int AS total
+
+            FROM transport_negotiations tn
+
+            JOIN transport_requests tr
+              ON tr.id = tn.request_id
+
+            WHERE
+            (
+              tn.transporter_id = $1
+
+              OR
+
+              tr.requester_company_id = $2
+            )
+
+            AND tn.status IN (
+              'trip_active',
+              'in_trip',
+              'delivery_pending'
+            )
+            `,
+            [
+              userId,
+              slaughterhouseCompanyId,
+            ]
+          );
+
+
+        historyRes =
+          await pool.query(
+            `
+            SELECT
+              COUNT(DISTINCT tn.id)::int AS total
+
+            FROM transport_negotiations tn
+
+            JOIN transport_requests tr
+              ON tr.id = tn.request_id
+
+            WHERE
+            (
+              tn.transporter_id = $1
+
+              OR
+
+              tr.requester_company_id = $2
+            )
+
+            AND tn.status IN (
+              'delivered',
+              'cancelled'
+            )
+            `,
+            [
+              userId,
+              slaughterhouseCompanyId,
+            ]
+          );
+
+      } else {
+
+        // =================================================
+        // 👤 DASHBOARD NORMAL
+        // =================================================
+
+        activeTripsRes =
+          await pool.query(
+            `
+            SELECT COUNT(*)::int AS total
+
+            FROM transport_negotiations
+
+            WHERE
+            (
+              transporter_id = $1
+              OR requester_id = $1
+            )
+
+            AND status IN (
+              'trip_active',
+              'in_trip',
+              'delivery_pending'
+            )
+            `,
+            [
+              userId,
+            ]
+          );
+
+
+        historyRes =
+          await pool.query(
+            `
+            SELECT COUNT(*)::int AS total
+
+            FROM transport_negotiations
+
+            WHERE
+            (
+              transporter_id = $1
+              OR requester_id = $1
+            )
+
+            AND status IN (
+              'delivered',
+              'cancelled'
+            )
+            `,
+            [
+              userId,
+            ]
+          );
+      }
+
+
+      res.json({
+
+        trucks:
+          truckRes.rows[0].total,
+
+        active_trips:
+          activeTripsRes.rows[0].total,
+
+        driving_trips:
+          drivingTripsRes.rows[0].total,
+
+        history:
+          historyRes.rows[0].total,
+      });
+
 
     } catch (error) {
-      console.error(error);
+
+      console.error(
+        'GET TRANSPORT DASHBOARD ERROR:',
+        error
+      );
+
 
       res.status(500).json({
+
         error:
           'Error obteniendo dashboard',
       });
@@ -5454,70 +6559,179 @@ const rejectTransportRequest =
 
 const cancelTransportRequest =
   async (req, res) => {
+
     try {
+
       const userId =
         req.user.user_id;
 
-      const { request_id } =
-        req.body;
 
-      const requestRes =
-        await pool.query(
-          `
-          SELECT *
-          FROM transport_requests
-          WHERE id = $1
-          LIMIT 1
-          `,
-          [request_id]
+      const {
+        request_id,
+      } = req.body;
+
+
+      const authCompanyId =
+        req.user.company_id || null;
+
+
+      // =====================================================
+      // 🔐 VALIDAR ACCESO A LA SOLICITUD
+      // =====================================================
+
+      const access =
+        await getTransportRequestAccess(
+          request_id,
+          userId,
+          authCompanyId
         );
 
+
       if (
-        requestRes.rows.length === 0
+        !access.exists
       ) {
+
         return res.status(404).json({
+
           error:
             'Solicitud no encontrada',
         });
       }
 
-      const request =
-        requestRes.rows[0];
 
-      if (request.user_id !== userId) {
+      const request =
+        access.request;
+
+
+      // =====================================================
+      // 👤 / 🏭 SOLO EL LADO SOLICITANTE
+      //
+      // El camionero puede tener acceso a la solicitud
+      // para verla, pero NO puede cancelarla.
+      // =====================================================
+
+      const isRequesterSide =
+        access.isOwner ||
+        access.isSlaughterhouseRequester;
+
+
+      if (
+        !isRequesterSide
+      ) {
+
         return res.status(403).json({
+
           error:
             'No autorizado',
         });
       }
 
-      await pool.query(
-        `
-        UPDATE transport_requests
-        SET status = 'cancelled'
-        WHERE id = $1
-        `,
-        [request_id]
-      );
 
-      await pool.query(
-        `
-        UPDATE transport_negotiations
-        SET status = 'cancelled'
-        WHERE request_id = $1
-        AND status = 'open'
-        `,
-        [request_id]
-      );
+      // =====================================================
+      // 🚫 SOLO SE CANCELA ANTES DE ACEPTAR UNA PROPUESTA
+      // =====================================================
+
+      if (
+        request.status !== 'open'
+      ) {
+
+        return res.status(400).json({
+
+          error:
+            'Esta solicitud ya no puede ser cancelada',
+        });
+      }
+
+
+      // =====================================================
+      // 🔄 TRANSACCIÓN
+      // =====================================================
+
+      const client =
+        await pool.connect();
+
+
+      try {
+
+        await client.query(
+          'BEGIN'
+        );
+
+
+        // =================================================
+        // ❌ CANCELAR SOLICITUD
+        // =================================================
+
+        await client.query(
+          `
+          UPDATE transport_requests
+
+          SET status = 'cancelled'
+
+          WHERE id = $1
+            AND status = 'open'
+          `,
+          [
+            request_id,
+          ]
+        );
+
+
+        // =================================================
+        // ❌ CANCELAR PROPUESTAS ABIERTAS
+        // =================================================
+
+        await client.query(
+          `
+          UPDATE transport_negotiations
+
+          SET status = 'cancelled'
+
+          WHERE request_id = $1
+            AND status = 'open'
+          `,
+          [
+            request_id,
+          ]
+        );
+
+
+        await client.query(
+          'COMMIT'
+        );
+
+
+      } catch (transactionError) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        throw transactionError;
+
+
+      } finally {
+
+        client.release();
+      }
+
 
       res.json({
+
         success: true,
       });
 
+
     } catch (error) {
-      console.error(error);
+
+      console.error(
+        'CANCEL TRANSPORT REQUEST ERROR:',
+        error
+      );
+
 
       res.status(500).json({
+
         error:
           'Error cancelando solicitud',
       });
@@ -5786,7 +7000,7 @@ const importLocation = async (
 ) => {
   try {
 
-  await pool.query('BEGIN');  
+  await pool.query('BEGIN');
 
     const userId =
       req.user.user_id;
@@ -6152,72 +7366,210 @@ const getSharedTripMap = async (req, res) => {
 };
 
 const getRequesterTrips = async (req, res) => {
+
   try {
-    const userId = req.user.user_id;
 
-    const result = await pool.query(
-      `
-      SELECT
-        tn.id,
-        tn.status,
+    const userId =
+      req.user.user_id;
 
-        tr.origin,
-        tr.destination,
-        tr.quantity,
 
-        tn.destination_lat,
-        tn.destination_lng,
+    const authCompanyId =
+      req.user.company_id || null;
 
-        tt.plate,
 
-        (
-          SELECT tracked_at
-          FROM transport_trip_tracking
-          WHERE negotiation_id = tn.id
-          ORDER BY id DESC
-          LIMIT 1
-        ) as last_tracking,
+    // =====================================================
+    // 🏭 VERIFICAR CONTEXTO FRIGORÍFICO
+    // =====================================================
 
-        (
-          SELECT latitude
-          FROM transport_trip_tracking
-          WHERE negotiation_id = tn.id
-          ORDER BY id DESC
-          LIMIT 1
-        ) as current_lat,
+    const slaughterhouseCompanyId =
+      await getAuthenticatedSlaughterhouseCompanyId(
+        userId,
+        authCompanyId
+      );
 
-        (
-          SELECT longitude
-          FROM transport_trip_tracking
-          WHERE negotiation_id = tn.id
-          ORDER BY id DESC
-          LIMIT 1
-        ) as current_lng
 
-      FROM transport_negotiations tn
-      LEFT JOIN transporter_trucks tt
-        ON tt.user_id = tn.transporter_id
-      LEFT JOIN transport_requests tr
-        ON tr.id = tn.request_id
-      WHERE tn.requester_id = $1
-      AND tn.status IN (
-        'paid',
-        'loading_completed',
-        'trip_active',
-        'delivery_pending'
-      )
-      ORDER BY tn.id DESC
-      `,
-      [userId]
+    let result;
+
+
+    // =====================================================
+    // 🏭 VIAJES CONTRATADOS POR EL FRIGORÍFICO
+    // =====================================================
+
+    if (
+      slaughterhouseCompanyId
+    ) {
+
+      result =
+        await pool.query(
+          `
+          SELECT
+
+            tn.id,
+            tn.status,
+
+            tr.id AS request_id,
+            tr.origin,
+            tr.destination,
+            tr.quantity,
+            tr.animal_type,
+            tr.requester_company_id,
+
+            tn.destination_lat,
+            tn.destination_lng,
+
+            tt.id AS truck_id,
+            tt.plate,
+            tt.brand,
+            tt.model,
+
+            (
+              SELECT tracked_at
+              FROM transport_trip_tracking
+              WHERE negotiation_id = tn.id
+              ORDER BY id DESC
+              LIMIT 1
+            ) AS last_tracking,
+
+            (
+              SELECT latitude
+              FROM transport_trip_tracking
+              WHERE negotiation_id = tn.id
+              ORDER BY id DESC
+              LIMIT 1
+            ) AS current_lat,
+
+            (
+              SELECT longitude
+              FROM transport_trip_tracking
+              WHERE negotiation_id = tn.id
+              ORDER BY id DESC
+              LIMIT 1
+            ) AS current_lng
+
+          FROM transport_negotiations tn
+
+          JOIN transport_requests tr
+            ON tr.id = tn.request_id
+
+          LEFT JOIN transporter_trucks tt
+            ON tt.id = tn.truck_id
+
+          WHERE
+            tr.requester_company_id = $1
+
+            AND tn.status IN (
+              'paid',
+              'loading_completed',
+              'trip_active',
+              'in_trip',
+              'delivery_pending'
+            )
+
+          ORDER BY tn.id DESC
+          `,
+          [
+            slaughterhouseCompanyId,
+          ]
+        );
+
+    } else {
+
+      // =================================================
+      // 👤 USUARIO NORMAL
+      // =================================================
+
+      result =
+        await pool.query(
+          `
+          SELECT
+
+            tn.id,
+            tn.status,
+
+            tr.id AS request_id,
+            tr.origin,
+            tr.destination,
+            tr.quantity,
+            tr.animal_type,
+            tr.requester_company_id,
+
+            tn.destination_lat,
+            tn.destination_lng,
+
+            tt.id AS truck_id,
+            tt.plate,
+            tt.brand,
+            tt.model,
+
+            (
+              SELECT tracked_at
+              FROM transport_trip_tracking
+              WHERE negotiation_id = tn.id
+              ORDER BY id DESC
+              LIMIT 1
+            ) AS last_tracking,
+
+            (
+              SELECT latitude
+              FROM transport_trip_tracking
+              WHERE negotiation_id = tn.id
+              ORDER BY id DESC
+              LIMIT 1
+            ) AS current_lat,
+
+            (
+              SELECT longitude
+              FROM transport_trip_tracking
+              WHERE negotiation_id = tn.id
+              ORDER BY id DESC
+              LIMIT 1
+            ) AS current_lng
+
+          FROM transport_negotiations tn
+
+          JOIN transport_requests tr
+            ON tr.id = tn.request_id
+
+          LEFT JOIN transporter_trucks tt
+            ON tt.id = tn.truck_id
+
+          WHERE
+            tn.requester_id = $1
+
+            AND tn.status IN (
+              'paid',
+              'loading_completed',
+              'trip_active',
+              'in_trip',
+              'delivery_pending'
+            )
+
+          ORDER BY tn.id DESC
+          `,
+          [
+            userId,
+          ]
+        );
+    }
+
+
+    res.json(
+      result.rows
     );
 
-    res.json(result.rows);
 
   } catch (error) {
-    console.error(error);
+
+    console.error(
+      'GET REQUESTER TRIPS ERROR:',
+      error
+    );
+
 
     res.status(500).json({
-      error: 'Error obteniendo viajes del ganadero',
+
+      error:
+        'Error obteniendo viajes del contratante',
     });
   }
 };
@@ -6338,13 +7690,13 @@ module.exports = {
   addTripCashboxItem,
   getTripCashbox,
   getMyTripCashboxes,
-  getMyTruckReviews,  
+  getMyTruckReviews,
   closeTripCashbox,
   createGuide,
   getMyGuides,
   getSharedGuide,
   createPublicTracking,
-  getPublicTracking,  
+  getPublicTracking,
   disablePublicTracking,
   createTransportRequest,
   getTransportNegotiationDetails,
@@ -6367,12 +7719,12 @@ module.exports = {
   startTrip,
   finishTrip,
   createDeliveryReport,
-  getGuideByNegotiation, 
+  getGuideByNegotiation,
   archiveTransportNegotiation,
   getMyTripsHistory,
   getRequesterTripsHistory,
-  getTransportDashboard, 
-  rejectTransportRequest, 
+  getTransportDashboard,
+  rejectTransportRequest,
   cancelTransportRequest,
   createSavedLocation,
   getMySavedLocations,
