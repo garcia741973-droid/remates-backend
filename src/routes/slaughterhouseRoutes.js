@@ -24,6 +24,7 @@ const {
   updateSlaughterhouseExportProfile,
   deleteSlaughterhouseExportProfile,
   exportSlaughterhouseReceptionCsv,
+  getSlaughterhouseReceptionHistory,
 } = require(
   '../controllers/slaughterhouseController'
 );
@@ -167,6 +168,16 @@ router.get(
   '/receptions/:id/export/:profileId',
   requireAuth,
   exportSlaughterhouseReceptionCsv,
+);
+
+// =====================================================
+// 📋 HISTORIAL DE RECEPCIONES / FAENAS
+// =====================================================
+
+router.get(
+  '/receptions/history',
+  requireAuth,
+  getSlaughterhouseReceptionHistory,
 );
 
 module.exports = router;

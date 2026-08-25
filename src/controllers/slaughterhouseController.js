@@ -6261,3 +6261,295 @@ exports.exportSlaughterhouseReceptionCsv =
 
     }
   };
+
+// =====================================================
+// 📋 HISTORIAL DE RECEPCIONES / FAENAS
+//
+// GET /slaughterhouse/receptions/history
+//
+// Devuelve recepciones finalizadas de la empresa,
+// con resumen listo para historial y exportación.
+// =====================================================
+
+exports.getSlaughterhouseReceptionHistory =
+  async (req, res) => {
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+
+      if (!operator) {
+
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+
+            sr.id,
+
+            sr.reception_number,
+
+            sr.plant_lot_number,
+
+            sr.status,
+
+            sr.opened_at,
+
+            sr.closed_at,
+
+            sr.slaughter_started_at,
+
+            sr.completed_at,
+
+            sr.notes,
+
+
+            COALESCE(
+              trucks.trucks_count,
+              0
+            )::int
+              AS trucks_count,
+
+            COALESCE(
+              trucks.guide_quantity_total,
+              0
+            )::int
+              AS guide_quantity_total,
+
+            COALESCE(
+              trucks.received_quantity_total,
+              0
+            )::int
+              AS received_quantity_total,
+
+            COALESCE(
+              trucks.live_weight_total_kg,
+              0
+            )::numeric
+              AS live_weight_total_kg,
+
+
+            COALESCE(
+              carcasses.carcasses_count,
+              0
+            )::int
+              AS carcasses_count,
+
+            COALESCE(
+              carcasses.hook_weight_total_kg,
+              0
+            )::numeric
+              AS hook_weight_total_kg,
+
+            COALESCE(
+              carcasses.average_hook_weight_kg,
+              0
+            )::numeric
+              AS average_hook_weight_kg,
+
+            COALESCE(
+              carcasses.min_hook_weight_kg,
+              0
+            )::numeric
+              AS min_hook_weight_kg,
+
+            COALESCE(
+              carcasses.max_hook_weight_kg,
+              0
+            )::numeric
+              AS max_hook_weight_kg,
+
+
+            CASE
+
+              WHEN
+                COALESCE(
+                  trucks.live_weight_total_kg,
+                  0
+                ) > 0
+
+              THEN
+                ROUND(
+                  (
+                    COALESCE(
+                      carcasses.hook_weight_total_kg,
+                      0
+                    )
+                    /
+                    NULLIF(
+                      trucks.live_weight_total_kg,
+                      0
+                    )
+                  ) * 100,
+                  2
+                )
+
+              ELSE NULL
+
+            END
+              AS carcass_yield_percent
+
+
+          FROM slaughterhouse_receptions sr
+
+
+          LEFT JOIN LATERAL (
+
+            SELECT
+
+              COUNT(*)::int
+                AS trucks_count,
+
+              COALESCE(
+                SUM(
+                  srt.guide_quantity
+                ),
+                0
+              )::int
+                AS guide_quantity_total,
+
+              COALESCE(
+                SUM(
+                  srt.received_quantity
+                ),
+                0
+              )::int
+                AS received_quantity_total,
+
+              COALESCE(
+                SUM(
+                  srt.live_weight_kg
+                ),
+                0
+              )::numeric
+                AS live_weight_total_kg
+
+            FROM slaughterhouse_reception_trucks srt
+
+            WHERE
+              srt.reception_id =
+                sr.id
+
+          ) trucks
+            ON true
+
+
+          LEFT JOIN LATERAL (
+
+            SELECT
+
+              COUNT(*)::int
+                AS carcasses_count,
+
+              COALESCE(
+                SUM(
+                  sc.hook_weight_kg
+                ),
+                0
+              )::numeric
+                AS hook_weight_total_kg,
+
+              COALESCE(
+                AVG(
+                  sc.hook_weight_kg
+                ),
+                0
+              )::numeric
+                AS average_hook_weight_kg,
+
+              COALESCE(
+                MIN(
+                  sc.hook_weight_kg
+                ),
+                0
+              )::numeric
+                AS min_hook_weight_kg,
+
+              COALESCE(
+                MAX(
+                  sc.hook_weight_kg
+                ),
+                0
+              )::numeric
+                AS max_hook_weight_kg
+
+            FROM slaughterhouse_carcasses sc
+
+            WHERE
+              sc.reception_id =
+                sr.id
+
+          ) carcasses
+            ON true
+
+
+          WHERE
+
+            sr.company_id = $1
+
+            AND sr.status IN (
+              'completed',
+              'cancelled'
+            )
+
+
+          ORDER BY
+
+            sr.completed_at DESC NULLS LAST,
+
+            sr.id DESC
+          `,
+          [
+            companyId,
+          ],
+        );
+
+
+      return res.json({
+
+        company: {
+          id:
+            companyId,
+
+          name:
+            operator.company_name,
+        },
+
+        receptions:
+          result.rows,
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'GET SLAUGHTERHOUSE RECEPTION HISTORY ERROR:',
+        error,
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo historial de faenas',
+      });
+
+    }
+  };
