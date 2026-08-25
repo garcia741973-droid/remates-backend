@@ -41,11 +41,15 @@ const getAuthenticatedSlaughterhouseOperator =
 
           uc.company_status,
 
-          c.name AS company_name,
+            c.name AS company_name,
 
-          c.company_type,
+            c.company_type,
 
-          c.is_active
+            c.plant_lat,
+
+            c.plant_lng,
+
+            c.is_active
 
         FROM user_companies uc
 
@@ -282,11 +286,17 @@ exports.getSlaughterhouseTrucks =
 
         company: {
 
-          id:
+        id:
             companyId,
 
-          name:
+        name:
             operator.company_name,
+
+        plant_lat:
+            operator.plant_lat,
+
+        plant_lng:
+            operator.plant_lng,
 
         },
 
