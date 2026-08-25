@@ -11,6 +11,7 @@ const {
 const {
   getSlaughterhouseTrucks,
   getSlaughterhouseReceptionCandidates,
+  getOpenSlaughterhouseReceptions,
   createSlaughterhouseReception,
 } = require(
   '../controllers/slaughterhouseController'
@@ -38,6 +39,15 @@ router.get(
   getSlaughterhouseReceptionCandidates,
 );
 
+// =====================================================
+// 📋 RECEPCIONES ABIERTAS
+// =====================================================
+
+router.get(
+  '/receptions/open',
+  requireAuth,
+  getOpenSlaughterhouseReceptions,
+);
 
 // =====================================================
 // 🐄 RECEPCIÓN DE GANADO

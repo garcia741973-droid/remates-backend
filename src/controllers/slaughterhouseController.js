@@ -657,6 +657,146 @@ exports.getSlaughterhouseReceptionCandidates =
     }
   };
 
+// =====================================================
+// 📋 RECEPCIONES ABIERTAS DEL FRIGORÍFICO
+//
+// GET /slaughterhouse/receptions/open
+// =====================================================
+
+exports.getOpenSlaughterhouseReceptions =
+  async (req, res) => {
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+
+      if (!operator) {
+
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+
+            sr.id,
+
+            sr.reception_number,
+
+            sr.plant_lot_number,
+
+            sr.status,
+
+            sr.opened_at,
+
+            COUNT(
+              srt.id
+            )::int
+              AS trucks_count,
+
+            COALESCE(
+              SUM(
+                srt.guide_quantity
+              ),
+              0
+            )::int
+              AS guide_quantity_total,
+
+            COALESCE(
+              SUM(
+                srt.received_quantity
+              ),
+              0
+            )::int
+              AS received_quantity_total
+
+          FROM slaughterhouse_receptions sr
+
+          LEFT JOIN
+            slaughterhouse_reception_trucks srt
+            ON srt.reception_id =
+              sr.id
+
+          WHERE
+
+            sr.company_id = $1
+
+            AND sr.status =
+              'open'
+
+          GROUP BY
+
+            sr.id,
+
+            sr.reception_number,
+
+            sr.plant_lot_number,
+
+            sr.status,
+
+            sr.opened_at
+
+          ORDER BY
+
+            sr.opened_at DESC,
+
+            sr.id DESC
+          `,
+          [
+            companyId,
+          ],
+        );
+
+
+      return res.json({
+
+        company: {
+
+          id:
+            companyId,
+
+          name:
+            operator.company_name,
+
+        },
+
+        receptions:
+          result.rows,
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'GET OPEN SLAUGHTERHOUSE RECEPTIONS ERROR:',
+        error,
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo recepciones abiertas',
+      });
+
+    }
+  };
+
 exports.createSlaughterhouseReception =
   async (req, res) => {
 
