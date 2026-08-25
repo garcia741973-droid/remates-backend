@@ -23,7 +23,11 @@ const {
   createSlaughterhouseExportProfile,
   updateSlaughterhouseExportProfile,
   deleteSlaughterhouseExportProfile,
+
   exportSlaughterhouseReceptionCsv,
+
+  exportSlaughterhouseReceptionsCsv,
+
   getSlaughterhouseReceptionHistory,
 } = require(
   '../controllers/slaughterhouseController'
@@ -161,13 +165,36 @@ router.delete(
 );
 
 // =====================================================
+
 // 📄 EXPORTAR RECEPCIÓN SEGÚN PERFIL CSV
+
 // =====================================================
 
 router.get(
+
   '/receptions/:id/export/:profileId',
+
   requireAuth,
+
   exportSlaughterhouseReceptionCsv,
+
+);
+
+
+// =====================================================
+
+// 📦 EXPORTAR VARIAS RECEPCIONES SEGÚN PERFIL CSV
+
+// =====================================================
+
+router.post(
+
+  '/receptions/export/:profileId',
+
+  requireAuth,
+
+  exportSlaughterhouseReceptionsCsv,
+
 );
 
 // =====================================================

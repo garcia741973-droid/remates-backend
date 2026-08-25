@@ -6261,6 +6261,726 @@ exports.exportSlaughterhouseReceptionCsv =
   };
 
 // =====================================================
+// 📦 EXPORTAR VARIAS RECEPCIONES EN UN SOLO CSV
+//
+// POST /slaughterhouse/receptions/export/:profileId
+//
+// BODY:
+// {
+//   "reception_ids": [1, 2, 3]
+// }
+// =====================================================
+
+exports.exportSlaughterhouseReceptionsCsv =
+  async (req, res) => {
+    try {
+      // =================================================
+      // OPERADOR / EMPRESA
+      // =================================================
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+      if (!operator) {
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+      const profileId =
+        Number(
+          req.params.profileId,
+        );
+
+      // =================================================
+      // VALIDAR PERFIL
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          profileId,
+        ) ||
+        profileId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Perfil de exportación inválido',
+        });
+      }
+
+      // =================================================
+      // RECEPCIONES
+      // =================================================
+
+      const rawReceptionIds =
+        req.body?.reception_ids;
+
+      if (
+        !Array.isArray(
+          rawReceptionIds,
+        ) ||
+        rawReceptionIds.length === 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Debe seleccionar al menos una recepción',
+        });
+      }
+
+      // Evita duplicados y valores inválidos.
+      const receptionIds =
+        [
+          ...new Set(
+            rawReceptionIds
+              .map(
+                (value) =>
+                  Number(value),
+              )
+              .filter(
+                (value) =>
+                  Number.isInteger(
+                    value,
+                  ) &&
+                  value > 0,
+              ),
+          ),
+        ];
+
+      if (
+        receptionIds.length === 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Las recepciones seleccionadas son inválidas',
+        });
+      }
+
+      // Protección ante exportaciones
+      // excesivamente grandes por error.
+      if (
+        receptionIds.length > 500
+      ) {
+        return res.status(400).json({
+          error:
+            'No se pueden exportar más de 500 recepciones a la vez',
+        });
+      }
+
+      // =================================================
+      // VALIDAR RECEPCIONES
+      //
+      // Todas deben:
+      // - pertenecer al frigorífico
+      // - existir
+      // - estar finalizadas/canceladas
+      // =================================================
+
+      const receptionsResult =
+        await pool.query(
+          `
+          SELECT
+            id,
+            company_id,
+            reception_number,
+            plant_lot_number,
+            status,
+            completed_at
+          FROM slaughterhouse_receptions
+          WHERE
+            company_id = $1
+            AND id =
+              ANY(
+                $2::int[]
+              )
+            AND status IN (
+              'completed',
+              'cancelled'
+            )
+          ORDER BY
+            array_position(
+              $2::int[],
+              id
+            )
+          `,
+          [
+            companyId,
+            receptionIds,
+          ],
+        );
+
+      if (
+        receptionsResult.rows.length !==
+        receptionIds.length
+      ) {
+        return res.status(404).json({
+          error:
+            'Una o más recepciones no existen, no pertenecen al frigorífico o todavía no están finalizadas',
+        });
+      }
+
+      // =================================================
+      // PERFIL
+      // =================================================
+
+      const profileResult =
+        await pool.query(
+          `
+          SELECT *
+          FROM slaughterhouse_export_profiles
+          WHERE
+            id = $1
+            AND company_id = $2
+            AND is_active = true
+          LIMIT 1
+          `,
+          [
+            profileId,
+            companyId,
+          ],
+        );
+
+      if (
+        profileResult.rows.length ===
+        0
+      ) {
+        return res.status(404).json({
+          error:
+            'Perfil de exportación no encontrado o inactivo',
+        });
+      }
+
+      const profile =
+        profileResult.rows[0];
+
+      // =================================================
+      // VALIDAR COLUMNAS
+      // =================================================
+
+      const columnsValidation =
+        validateExportColumns(
+          profile.dataset_type,
+          profile.columns_config,
+        );
+
+      if (
+        !columnsValidation.valid
+      ) {
+        return res.status(500).json({
+          error:
+            'El perfil de exportación tiene una configuración inválida',
+        });
+      }
+
+      const columns =
+        columnsValidation.columns;
+
+      // =================================================
+      // DATASET
+      // =================================================
+
+      let dataResult;
+
+      // =================================================
+      // 🐄 CARCASAS
+      // Una fila por carcasa
+      // =================================================
+
+      if (
+        profile.dataset_type ===
+        'carcasses'
+      ) {
+        dataResult =
+          await pool.query(
+            `
+            SELECT
+              sr.reception_number,
+              sr.plant_lot_number,
+              sc.sequence_number,
+              sc.plant_carcass_number,
+              sc.hook_weight_kg,
+              sc.recorded_at,
+              sc.recorded_by
+            FROM slaughterhouse_receptions sr
+
+            JOIN slaughterhouse_carcasses sc
+              ON sc.reception_id =
+                sr.id
+
+            WHERE
+              sr.company_id = $1
+              AND sr.id =
+                ANY(
+                  $2::int[]
+                )
+
+            ORDER BY
+              array_position(
+                $2::int[],
+                sr.id
+              ),
+              sc.sequence_number ASC,
+              sc.id ASC
+            `,
+            [
+              companyId,
+              receptionIds,
+            ],
+          );
+      }
+
+      // =================================================
+      // 🚛 CAMIONES
+      // Una fila por camión
+      // =================================================
+
+      else if (
+        profile.dataset_type ===
+        'trucks'
+      ) {
+        dataResult =
+          await pool.query(
+            `
+            SELECT
+              sr.reception_number,
+              sr.plant_lot_number,
+              srt.plate_snapshot,
+              srt.animal_type_snapshot,
+              srt.transport_guide_id,
+              srt.guide_quantity,
+              srt.received_quantity,
+              (
+                srt.received_quantity
+                -
+                srt.guide_quantity
+              )::int
+                AS quantity_difference,
+              srt.live_weight_kg,
+              srt.origin_snapshot,
+              srt.destination_snapshot,
+              srt.transport_delivered_at,
+              srt.received_at,
+              srt.reception_notes
+
+            FROM slaughterhouse_receptions sr
+
+            JOIN slaughterhouse_reception_trucks srt
+              ON srt.reception_id =
+                sr.id
+
+            WHERE
+              sr.company_id = $1
+              AND sr.id =
+                ANY(
+                  $2::int[]
+                )
+
+            ORDER BY
+              array_position(
+                $2::int[],
+                sr.id
+              ),
+              srt.received_at ASC,
+              srt.id ASC
+            `,
+            [
+              companyId,
+              receptionIds,
+            ],
+          );
+      }
+
+      // =================================================
+      // 📊 RESUMEN
+      // Una fila por recepción
+      // =================================================
+
+      else if (
+        profile.dataset_type ===
+        'summary'
+      ) {
+        dataResult =
+          await pool.query(
+            `
+            SELECT
+              sr.reception_number,
+              sr.plant_lot_number,
+              sr.status,
+
+              COALESCE(
+                trucks.trucks_count,
+                0
+              )::int
+                AS trucks_count,
+
+              COALESCE(
+                trucks.guide_quantity_total,
+                0
+              )::int
+                AS guide_quantity_total,
+
+              COALESCE(
+                trucks.received_quantity_total,
+                0
+              )::int
+                AS received_quantity_total,
+
+              COALESCE(
+                trucks.live_weight_total_kg,
+                0
+              )::numeric
+                AS live_weight_total_kg,
+
+              COALESCE(
+                carcasses.carcasses_count,
+                0
+              )::int
+                AS carcasses_count,
+
+              COALESCE(
+                carcasses.hook_weight_total_kg,
+                0
+              )::numeric
+                AS hook_weight_total_kg,
+
+              COALESCE(
+                carcasses.average_hook_weight_kg,
+                0
+              )::numeric
+                AS average_hook_weight_kg,
+
+              COALESCE(
+                carcasses.min_hook_weight_kg,
+                0
+              )::numeric
+                AS min_hook_weight_kg,
+
+              COALESCE(
+                carcasses.max_hook_weight_kg,
+                0
+              )::numeric
+                AS max_hook_weight_kg,
+
+              CASE
+                WHEN
+                  COALESCE(
+                    trucks.live_weight_total_kg,
+                    0
+                  ) > 0
+                THEN
+                  ROUND(
+                    (
+                      COALESCE(
+                        carcasses.hook_weight_total_kg,
+                        0
+                      )
+                      /
+                      NULLIF(
+                        trucks.live_weight_total_kg,
+                        0
+                      )
+                    ) * 100,
+                    2
+                  )
+                ELSE NULL
+              END
+                AS carcass_yield_percent,
+
+              sr.opened_at,
+              sr.closed_at,
+              sr.slaughter_started_at,
+              sr.completed_at
+
+            FROM slaughterhouse_receptions sr
+
+            LEFT JOIN LATERAL (
+              SELECT
+                COUNT(*)::int
+                  AS trucks_count,
+
+                COALESCE(
+                  SUM(
+                    srt.guide_quantity
+                  ),
+                  0
+                )::int
+                  AS guide_quantity_total,
+
+                COALESCE(
+                  SUM(
+                    srt.received_quantity
+                  ),
+                  0
+                )::int
+                  AS received_quantity_total,
+
+                COALESCE(
+                  SUM(
+                    srt.live_weight_kg
+                  ),
+                  0
+                )::numeric
+                  AS live_weight_total_kg
+
+              FROM slaughterhouse_reception_trucks srt
+
+              WHERE
+                srt.reception_id =
+                  sr.id
+            ) trucks
+              ON true
+
+            LEFT JOIN LATERAL (
+              SELECT
+                COUNT(*)::int
+                  AS carcasses_count,
+
+                COALESCE(
+                  SUM(
+                    sc.hook_weight_kg
+                  ),
+                  0
+                )::numeric
+                  AS hook_weight_total_kg,
+
+                COALESCE(
+                  AVG(
+                    sc.hook_weight_kg
+                  ),
+                  0
+                )::numeric
+                  AS average_hook_weight_kg,
+
+                COALESCE(
+                  MIN(
+                    sc.hook_weight_kg
+                  ),
+                  0
+                )::numeric
+                  AS min_hook_weight_kg,
+
+                COALESCE(
+                  MAX(
+                    sc.hook_weight_kg
+                  ),
+                  0
+                )::numeric
+                  AS max_hook_weight_kg
+
+              FROM slaughterhouse_carcasses sc
+
+              WHERE
+                sc.reception_id =
+                  sr.id
+            ) carcasses
+              ON true
+
+            WHERE
+              sr.company_id = $1
+              AND sr.id =
+                ANY(
+                  $2::int[]
+                )
+
+            ORDER BY
+              array_position(
+                $2::int[],
+                sr.id
+              )
+            `,
+            [
+              companyId,
+              receptionIds,
+            ],
+          );
+      }
+
+      else {
+        return res.status(400).json({
+          error:
+            'Tipo de exportación inválido',
+        });
+      }
+
+      // =================================================
+      // CONSTRUIR CSV
+      // =================================================
+
+      const delimiter =
+        profile.delimiter;
+
+      const lines =
+        [];
+
+      // =================================================
+      // ENCABEZADOS
+      // =================================================
+
+      if (
+        profile.include_header
+      ) {
+        const headerLine =
+          columns
+            .map(
+              (
+                column,
+              ) =>
+                escapeSlaughterhouseCsvValue(
+                  column.header,
+                  delimiter,
+                ),
+            )
+            .join(
+              delimiter,
+            );
+
+        lines.push(
+          headerLine,
+        );
+      }
+
+      // =================================================
+      // FILAS
+      // =================================================
+
+      for (
+        const row
+        of dataResult.rows
+      ) {
+        const csvRow =
+          columns
+            .map(
+              (
+                column,
+              ) => {
+                const formatted =
+                  formatSlaughterhouseCsvValue(
+                    column.field,
+                    row[
+                      column.field
+                    ],
+                    profile,
+                  );
+
+                return escapeSlaughterhouseCsvValue(
+                  formatted,
+                  delimiter,
+                );
+              },
+            )
+            .join(
+              delimiter,
+            );
+
+        lines.push(
+          csvRow,
+        );
+      }
+
+      // =================================================
+      // CRLF
+      // =================================================
+
+      let csv =
+        lines.join(
+          '\r\n',
+        );
+
+      if (
+        lines.length > 0
+      ) {
+        csv +=
+          '\r\n';
+      }
+
+      // =================================================
+      // UTF-8 BOM
+      // =================================================
+
+      if (
+        profile.encoding ===
+        'utf8-bom'
+      ) {
+        csv =
+          '\uFEFF' +
+          csv;
+      }
+
+      // =================================================
+      // NOMBRE ARCHIVO
+      // =================================================
+
+      const safeProfile =
+        profile.name
+          .toString()
+          .trim()
+          .replace(
+            /[^a-zA-Z0-9_-]+/g,
+            '_',
+          );
+
+      const safeCompany =
+        (
+          operator.company_name ||
+          'FRIGORIFICO'
+        )
+          .toString()
+          .trim()
+          .replace(
+            /[^a-zA-Z0-9_-]+/g,
+            '_',
+          );
+
+      const filename =
+        `${safeCompany}_${receptionIds.length}_RECEPCIONES_${safeProfile}.csv`;
+
+      // =================================================
+      // RESPUESTA
+      // =================================================
+
+      res.setHeader(
+        'Content-Type',
+        'text/csv; charset=utf-8',
+      );
+
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${filename}"`,
+      );
+
+      res.setHeader(
+        'Cache-Control',
+        'no-store',
+      );
+
+      return res
+        .status(
+          200,
+        )
+        .send(
+          csv,
+        );
+    } catch (error) {
+      console.error(
+        'EXPORT MULTIPLE SLAUGHTERHOUSE RECEPTIONS CSV ERROR:',
+        error,
+      );
+
+      return res.status(500).json({
+        error:
+          'Error generando archivo CSV múltiple',
+      });
+    }
+  };
+
+// =====================================================
 // 📋 HISTORIAL DE RECEPCIONES / FAENAS
 //
 // GET /slaughterhouse/receptions/history
