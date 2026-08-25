@@ -1864,4 +1864,177 @@ exports.startSlaughterhouseSlaughter =
       client.release();
 
     }
-  };  
+  };
+
+// =====================================================
+// 🏭 RECEPCIONES PARA FAENA
+//
+// GET /slaughterhouse/slaughter
+// =====================================================
+
+exports.getSlaughterhouseSlaughterReceptions =
+  async (req, res) => {
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+
+      if (!operator) {
+
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+
+            sr.id,
+
+            sr.reception_number,
+
+            sr.plant_lot_number,
+
+            sr.status,
+
+            sr.opened_at,
+
+            sr.closed_at,
+
+            sr.slaughter_started_at,
+
+            COUNT(
+              DISTINCT srt.id
+            )::int
+              AS trucks_count,
+
+            COALESCE(
+              SUM(
+                srt.received_quantity
+              ),
+              0
+            )::int
+              AS received_quantity_total,
+
+            COALESCE(
+              SUM(
+                srt.live_weight_kg
+              ),
+              0
+            )::numeric
+              AS live_weight_total_kg,
+
+            COUNT(
+              sc.id
+            )::int
+              AS carcasses_count,
+
+            COALESCE(
+              SUM(
+                sc.hook_weight_kg
+              ),
+              0
+            )::numeric
+              AS hook_weight_total_kg
+
+          FROM slaughterhouse_receptions sr
+
+          LEFT JOIN
+            slaughterhouse_reception_trucks srt
+            ON srt.reception_id =
+              sr.id
+
+          LEFT JOIN
+            slaughterhouse_carcasses sc
+            ON sc.reception_id =
+              sr.id
+
+          WHERE
+
+            sr.company_id = $1
+
+            AND sr.status IN (
+              'open',
+              'in_slaughter'
+            )
+
+          GROUP BY
+
+            sr.id,
+
+            sr.reception_number,
+
+            sr.plant_lot_number,
+
+            sr.status,
+
+            sr.opened_at,
+
+            sr.closed_at,
+
+            sr.slaughter_started_at
+
+          ORDER BY
+
+            CASE
+              WHEN sr.status =
+                'in_slaughter'
+              THEN 1
+              ELSE 2
+            END,
+
+            sr.opened_at ASC
+          `,
+          [
+            companyId,
+          ],
+        );
+
+
+      return res.json({
+
+        company: {
+
+          id:
+            companyId,
+
+          name:
+            operator.company_name,
+
+        },
+
+        receptions:
+          result.rows,
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'GET SLAUGHTERHOUSE SLAUGHTER RECEPTIONS ERROR:',
+        error,
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo recepciones para faena',
+      });
+
+    }
+  };

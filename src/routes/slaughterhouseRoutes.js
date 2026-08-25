@@ -14,6 +14,7 @@ const {
   getOpenSlaughterhouseReceptions,
   createSlaughterhouseReception,
   startSlaughterhouseSlaughter,
+  getSlaughterhouseSlaughterReceptions,
 } = require(
   '../controllers/slaughterhouseController'
 );
@@ -68,6 +69,16 @@ router.post(
   '/receptions/:id/start-slaughter',
   requireAuth,
   startSlaughterhouseSlaughter,
+);
+
+// =====================================================
+// 🏭 RECEPCIONES PARA FAENA
+// =====================================================
+
+router.get(
+  '/slaughter',
+  requireAuth,
+  getSlaughterhouseSlaughterReceptions,
 );
 
 module.exports = router;
