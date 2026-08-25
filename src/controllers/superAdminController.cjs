@@ -679,6 +679,10 @@ exports.getSlaughterhouses =
 
           c.currency,
 
+          c.plant_lat,
+
+          c.plant_lng,
+
           c.is_active,
 
           c.created_at,
@@ -707,7 +711,13 @@ exports.getSlaughterhouses =
           c.country,
           c.timezone,
           c.currency,
+
+          c.plant_lat,
+
+          c.plant_lng,
+
           c.is_active,
+
           c.created_at
 
         ORDER BY
@@ -734,6 +744,261 @@ exports.getSlaughterhouses =
     }
   };
 
+
+// =========================================================
+// 📍 ACTUALIZAR UBICACIÓN DE PLANTA
+// PUT /superadmin/slaughterhouses/:id/location
+// =========================================================
+
+exports.updateSlaughterhouseLocation =
+  async (req, res) => {
+
+    try {
+
+      if (
+        req.user.role !==
+        'super_admin'
+      ) {
+
+        return res
+          .status(403)
+          .json({
+            error:
+              'No autorizado',
+          });
+      }
+
+
+      const slaughterhouseId =
+        Number(req.params.id);
+
+      const plantLat =
+        Number(req.body.plant_lat);
+
+      const plantLng =
+        Number(req.body.plant_lng);
+
+
+      if (
+        !Number.isInteger(
+          slaughterhouseId
+        ) ||
+        slaughterhouseId <= 0
+      ) {
+
+        return res
+          .status(400)
+          .json({
+            error:
+              'Frigorífico inválido',
+          });
+      }
+
+
+      if (
+        !Number.isFinite(
+          plantLat
+        ) ||
+        !Number.isFinite(
+          plantLng
+        )
+      ) {
+
+        return res
+          .status(400)
+          .json({
+            error:
+              'Coordenadas inválidas',
+          });
+      }
+
+
+      if (
+        plantLat < -90 ||
+        plantLat > 90 ||
+        plantLng < -180 ||
+        plantLng > 180
+      ) {
+
+        return res
+          .status(400)
+          .json({
+            error:
+              'Coordenadas fuera de rango',
+          });
+      }
+
+
+      const result =
+        await pool.query(
+          `
+          UPDATE companies
+
+          SET
+            plant_lat = $1,
+            plant_lng = $2
+
+          WHERE
+            id = $3
+            AND company_type =
+              'slaughterhouse'
+
+          RETURNING
+            id,
+            name,
+            company_type,
+            plant_lat,
+            plant_lng,
+            is_active
+          `,
+          [
+            plantLat,
+            plantLng,
+            slaughterhouseId,
+          ]
+        );
+
+
+      if (
+        result.rows.length === 0
+      ) {
+
+        return res
+          .status(404)
+          .json({
+            error:
+              'Frigorífico no encontrado',
+          });
+      }
+
+
+      res.json({
+        message:
+          'Ubicación de planta actualizada',
+        slaughterhouse:
+          result.rows[0],
+      });
+
+    } catch (e) {
+
+      console.log(
+        'UPDATE SLAUGHTERHOUSE LOCATION ERROR:',
+        e
+      );
+
+      res.status(500).json({
+        error:
+          'Error actualizando ubicación de planta',
+      });
+    }
+  };
+
+
+// =========================================================
+// 🗑️ ELIMINAR UBICACIÓN DE PLANTA
+// DELETE /superadmin/slaughterhouses/:id/location
+// =========================================================
+
+exports.deleteSlaughterhouseLocation =
+  async (req, res) => {
+
+    try {
+
+      if (
+        req.user.role !==
+        'super_admin'
+      ) {
+
+        return res
+          .status(403)
+          .json({
+            error:
+              'No autorizado',
+          });
+      }
+
+
+      const slaughterhouseId =
+        Number(req.params.id);
+
+
+      if (
+        !Number.isInteger(
+          slaughterhouseId
+        ) ||
+        slaughterhouseId <= 0
+      ) {
+
+        return res
+          .status(400)
+          .json({
+            error:
+              'Frigorífico inválido',
+          });
+      }
+
+
+      const result =
+        await pool.query(
+          `
+          UPDATE companies
+
+          SET
+            plant_lat = NULL,
+            plant_lng = NULL
+
+          WHERE
+            id = $1
+            AND company_type =
+              'slaughterhouse'
+
+          RETURNING
+            id,
+            name,
+            company_type,
+            plant_lat,
+            plant_lng,
+            is_active
+          `,
+          [
+            slaughterhouseId,
+          ]
+        );
+
+
+      if (
+        result.rows.length === 0
+      ) {
+
+        return res
+          .status(404)
+          .json({
+            error:
+              'Frigorífico no encontrado',
+          });
+      }
+
+
+      res.json({
+        message:
+          'Ubicación de planta eliminada',
+        slaughterhouse:
+          result.rows[0],
+      });
+
+    } catch (e) {
+
+      console.log(
+        'DELETE SLAUGHTERHOUSE LOCATION ERROR:',
+        e
+      );
+
+      res.status(500).json({
+        error:
+          'Error eliminando ubicación de planta',
+      });
+    }
+  };
 
 // =========================================================
 // 👥 USUARIOS AUTORIZADOS DEL FRIGORÍFICO

@@ -32,6 +32,10 @@ const {
 
   updateSlaughterhouseStatus,
 
+  updateSlaughterhouseLocation,
+
+  deleteSlaughterhouseLocation,
+
   getSlaughterhouseOperators,
 
   createSlaughterhouseOperator,
@@ -154,6 +158,33 @@ router.put(
   updateSlaughterhouseStatus
 
 );
+
+
+/// 📍 ACTUALIZAR UBICACIÓN DE PLANTA
+
+router.put(
+
+  "/slaughterhouses/:id/location",
+
+  requireAuth,
+
+  updateSlaughterhouseLocation
+
+);
+
+
+/// 🗑️ ELIMINAR UBICACIÓN DE PLANTA
+
+router.delete(
+
+  "/slaughterhouses/:id/location",
+
+  requireAuth,
+
+  deleteSlaughterhouseLocation
+
+);
+
 
 /// 👥 CANDIDATOS PARA AGREGAR
 
