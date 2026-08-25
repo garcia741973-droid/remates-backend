@@ -2048,3 +2048,515 @@ exports.getSlaughterhouseSlaughterReceptions =
       });
     }
   };
+
+// =====================================================
+// 🏭 REGISTRAR PESO DE CARCASA
+//
+// POST /slaughterhouse/slaughter/:id/carcasses
+//
+// Body:
+// {
+//   "hook_weight_kg": 285.4,
+//   "plant_carcass_number": null,
+//   "notes": null
+// }
+//
+// - Solo frigorífico propietario.
+// - Recepción debe estar IN_SLAUGHTER.
+// - Número de carcasa automático.
+// - No permite superar animales recibidos.
+// =====================================================
+
+exports.createSlaughterhouseCarcass =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+
+      if (!operator) {
+
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+      const userId =
+        Number(
+          operator.user_id,
+        );
+
+      const receptionId =
+        Number(
+          req.params.id,
+        );
+
+      const hookWeightKg =
+        Number(
+          req.body.hook_weight_kg,
+        );
+
+      const plantCarcassNumber =
+        req.body.plant_carcass_number
+          ?.toString()
+          .trim() || null;
+
+      const notes =
+        req.body.notes
+          ?.toString()
+          .trim() || null;
+
+
+      // =================================================
+      // VALIDACIONES
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          receptionId,
+        ) ||
+        receptionId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Recepción inválida',
+        });
+      }
+
+
+      if (
+        !Number.isFinite(
+          hookWeightKg,
+        ) ||
+        hookWeightKg <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Peso de carcasa inválido',
+        });
+      }
+
+
+      await client.query(
+        'BEGIN',
+      );
+
+
+      // =================================================
+      // BLOQUEAR RECEPCIÓN
+      // =================================================
+
+      const receptionResult =
+        await client.query(
+          `
+          SELECT
+            id,
+            company_id,
+            reception_number,
+            plant_lot_number,
+            status,
+            slaughter_started_at
+
+          FROM slaughterhouse_receptions
+
+          WHERE
+            id = $1
+            AND company_id = $2
+
+          LIMIT 1
+
+          FOR UPDATE
+          `,
+          [
+            receptionId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        receptionResult.rows.length ===
+          0
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(404).json({
+          error:
+            'Recepción no encontrada',
+        });
+      }
+
+
+      const reception =
+        receptionResult.rows[0];
+
+
+      if (
+        reception.status !==
+          'in_slaughter'
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(409).json({
+          error:
+            'La recepción debe estar en faena para registrar carcasas',
+        });
+      }
+
+
+      // =================================================
+      // TOTAL DE ANIMALES RECIBIDOS
+      // =================================================
+
+      const receivedResult =
+        await client.query(
+          `
+          SELECT
+
+            COALESCE(
+              SUM(
+                received_quantity
+              ),
+              0
+            )::int
+              AS received_quantity_total,
+
+            COALESCE(
+              SUM(
+                live_weight_kg
+              ),
+              0
+            )::numeric
+              AS live_weight_total_kg
+
+          FROM slaughterhouse_reception_trucks
+
+          WHERE
+            reception_id = $1
+          `,
+          [
+            receptionId,
+          ],
+        );
+
+
+      const receivedQuantity =
+        Number(
+          receivedResult.rows[0]
+            .received_quantity_total,
+        );
+
+      const liveWeightTotalKg =
+        Number(
+          receivedResult.rows[0]
+            .live_weight_total_kg,
+        );
+
+
+      if (
+        receivedQuantity <= 0
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(409).json({
+          error:
+            'La recepción no tiene animales recibidos',
+        });
+      }
+
+
+      // =================================================
+      // CARCASAS YA REGISTRADAS
+      // =================================================
+
+      const carcassSummaryResult =
+        await client.query(
+          `
+          SELECT
+
+            COUNT(*)::int
+              AS carcasses_count,
+
+            COALESCE(
+              MAX(
+                sequence_number
+              ),
+              0
+            )::int
+              AS last_sequence,
+
+            COALESCE(
+              SUM(
+                hook_weight_kg
+              ),
+              0
+            )::numeric
+              AS hook_weight_total_kg
+
+          FROM slaughterhouse_carcasses
+
+          WHERE
+            reception_id = $1
+          `,
+          [
+            receptionId,
+          ],
+        );
+
+
+      const currentCount =
+        Number(
+          carcassSummaryResult.rows[0]
+            .carcasses_count,
+        );
+
+      const lastSequence =
+        Number(
+          carcassSummaryResult.rows[0]
+            .last_sequence,
+        );
+
+      const previousHookWeight =
+        Number(
+          carcassSummaryResult.rows[0]
+            .hook_weight_total_kg,
+        );
+
+
+      // =================================================
+      // NO SUPERAR ANIMALES RECIBIDOS
+      // =================================================
+
+      if (
+        currentCount >=
+          receivedQuantity
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(409).json({
+          error:
+            'Ya se registró una carcasa por cada animal recibido',
+          received_quantity:
+            receivedQuantity,
+          carcasses_count:
+            currentCount,
+        });
+      }
+
+
+      const nextSequence =
+        lastSequence + 1;
+
+
+      // =================================================
+      // GUARDAR CARCASA
+      // =================================================
+
+      const carcassResult =
+        await client.query(
+          `
+          INSERT INTO slaughterhouse_carcasses (
+
+            reception_id,
+
+            sequence_number,
+
+            plant_carcass_number,
+
+            hook_weight_kg,
+
+            notes,
+
+            recorded_by,
+
+            recorded_at
+
+          )
+
+          VALUES (
+
+            $1,
+
+            $2,
+
+            $3,
+
+            $4,
+
+            $5,
+
+            $6,
+
+            NOW()
+
+          )
+
+          RETURNING *
+          `,
+          [
+            receptionId,
+            nextSequence,
+            plantCarcassNumber,
+            hookWeightKg,
+            notes,
+            userId,
+          ],
+        );
+
+
+      const carcass =
+        carcassResult.rows[0];
+
+
+      // =================================================
+      // RESUMEN ACTUALIZADO
+      // =================================================
+
+      const newCount =
+        currentCount + 1;
+
+      const newHookWeightTotal =
+        previousHookWeight +
+        hookWeightKg;
+
+      const averageHookWeight =
+        newCount > 0
+          ? newHookWeightTotal /
+            newCount
+          : 0;
+
+      const carcassYield =
+        liveWeightTotalKg > 0
+          ? (
+              newHookWeightTotal /
+              liveWeightTotalKg
+            ) *
+            100
+          : null;
+
+
+      await client.query(
+        'COMMIT',
+      );
+
+
+      return res.status(201).json({
+
+        message:
+          'Peso de carcasa registrado',
+
+        carcass,
+
+        summary: {
+
+          received_quantity_total:
+            receivedQuantity,
+
+          carcasses_count:
+            newCount,
+
+          remaining:
+            receivedQuantity -
+            newCount,
+
+          live_weight_total_kg:
+            liveWeightTotalKg,
+
+          hook_weight_total_kg:
+            Number(
+              newHookWeightTotal
+                .toFixed(
+                  2,
+                ),
+            ),
+
+          average_hook_weight_kg:
+            Number(
+              averageHookWeight
+                .toFixed(
+                  2,
+                ),
+            ),
+
+          carcass_yield_percent:
+            carcassYield == null
+              ? null
+              : Number(
+                  carcassYield
+                    .toFixed(
+                      2,
+                    ),
+                ),
+
+          complete:
+            newCount ===
+            receivedQuantity,
+
+        },
+
+      });
+
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK',
+      );
+
+
+      console.error(
+        'CREATE SLAUGHTERHOUSE CARCASS ERROR:',
+        error,
+      );
+
+
+      if (
+        error.code === '23505'
+      ) {
+
+        return res.status(409).json({
+          error:
+            'Conflicto registrando número de carcasa. Intenta nuevamente.',
+        });
+      }
+
+
+      return res.status(500).json({
+        error:
+          'Error registrando peso de carcasa',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+  };  
