@@ -5182,4 +5182,1082 @@ exports.deleteSlaughterhouseExportProfile =
       });
 
     }
-  };  
+  };
+  
+// =====================================================
+// 📄 HELPERS GENERADOR CSV
+// =====================================================
+
+const slaughterhouseExportDateFields =
+  new Set([
+    'recorded_at',
+    'transport_delivered_at',
+    'received_at',
+    'opened_at',
+    'closed_at',
+    'slaughter_started_at',
+    'completed_at',
+  ]);
+
+
+const slaughterhouseExportDecimalFields =
+  new Set([
+    'hook_weight_kg',
+    'live_weight_kg',
+    'live_weight_total_kg',
+    'hook_weight_total_kg',
+    'average_hook_weight_kg',
+    'min_hook_weight_kg',
+    'max_hook_weight_kg',
+    'carcass_yield_percent',
+  ]);
+
+
+// =====================================================
+// 🕒 FORMATEAR FECHA CSV
+//
+// Actualmente:
+// America/La_Paz
+//
+// Luego podremos mover timezone a companies.
+// =====================================================
+
+function formatSlaughterhouseCsvDate(
+  value,
+  format,
+) {
+
+  if (!value) {
+    return '';
+  }
+
+
+  const date =
+    value instanceof Date
+      ? value
+      : new Date(
+          value,
+        );
+
+
+  if (
+    Number.isNaN(
+      date.getTime(),
+    )
+  ) {
+    return value.toString();
+  }
+
+
+  const formatter =
+    new Intl.DateTimeFormat(
+      'en-GB',
+      {
+        timeZone:
+          'America/La_Paz',
+
+        year:
+          'numeric',
+
+        month:
+          '2-digit',
+
+        day:
+          '2-digit',
+
+        hour:
+          '2-digit',
+
+        minute:
+          '2-digit',
+
+        second:
+          '2-digit',
+
+        hourCycle:
+          'h23',
+      },
+    );
+
+
+  const parts = {};
+
+
+  for (
+    const part
+    of formatter.formatToParts(
+      date,
+    )
+  ) {
+
+    if (
+      part.type !==
+        'literal'
+    ) {
+
+      parts[
+        part.type
+      ] =
+        part.value;
+    }
+  }
+
+
+  const day =
+    parts.day;
+
+  const month =
+    parts.month;
+
+  const year =
+    parts.year;
+
+  const hour =
+    parts.hour;
+
+  const minute =
+    parts.minute;
+
+  const second =
+    parts.second;
+
+
+  switch (
+    format
+  ) {
+
+    case 'YYYY-MM-DD':
+
+      return (
+        `${year}-${month}-${day}`
+      );
+
+
+    case 'DD-MM-YYYY':
+
+      return (
+        `${day}-${month}-${year}`
+      );
+
+
+    case 'DD/MM/YYYY HH:mm':
+
+      return (
+        `${day}/${month}/${year} ` +
+        `${hour}:${minute}`
+      );
+
+
+    case 'YYYY-MM-DD HH:mm:ss':
+
+      return (
+        `${year}-${month}-${day} ` +
+        `${hour}:${minute}:${second}`
+      );
+
+
+    case 'DD/MM/YYYY':
+
+    default:
+
+      return (
+        `${day}/${month}/${year}`
+      );
+  }
+}
+
+
+// =====================================================
+// 📄 FORMATEAR VALOR CSV
+// =====================================================
+
+function formatSlaughterhouseCsvValue(
+  field,
+  value,
+  profile,
+) {
+
+  if (
+    value === null ||
+    value === undefined
+  ) {
+
+    return '';
+  }
+
+
+  // ===============================================
+  // FECHAS
+  // ===============================================
+
+  if (
+    slaughterhouseExportDateFields
+      .has(
+        field,
+      )
+  ) {
+
+    return formatSlaughterhouseCsvDate(
+      value,
+      profile.date_format,
+    );
+  }
+
+
+  // ===============================================
+  // DECIMALES
+  // ===============================================
+
+  if (
+    slaughterhouseExportDecimalFields
+      .has(
+        field,
+      )
+  ) {
+
+    const number =
+      Number(
+        value,
+      );
+
+
+    if (
+      !Number.isFinite(
+        number,
+      )
+    ) {
+
+      return '';
+    }
+
+
+    let formatted =
+      number.toFixed(
+        2,
+      );
+
+
+    if (
+      profile.decimal_separator ===
+        ','
+    ) {
+
+      formatted =
+        formatted.replace(
+          '.',
+          ',',
+        );
+    }
+
+
+    return formatted;
+  }
+
+
+  return value.toString();
+}
+
+
+// =====================================================
+// 📄 ESCAPAR CAMPO CSV
+// =====================================================
+
+function escapeSlaughterhouseCsvValue(
+  value,
+  delimiter,
+) {
+
+  const text =
+    value == null
+      ? ''
+      : value.toString();
+
+
+  const escaped =
+    text.replace(
+      /"/g,
+      '""',
+    );
+
+
+  const needsQuotes =
+    escaped.includes(
+      delimiter,
+    ) ||
+    escaped.includes(
+      '"',
+    ) ||
+    escaped.includes(
+      '\n',
+    ) ||
+    escaped.includes(
+      '\r',
+    );
+
+
+  if (
+    needsQuotes
+  ) {
+
+    return `"${escaped}"`;
+  }
+
+
+  return escaped;
+}
+
+
+// =====================================================
+// 📄 GENERAR CSV DE UNA RECEPCIÓN
+//
+// GET
+// /slaughterhouse/receptions/:id/export/:profileId
+//
+// El perfil define:
+//
+// - dataset
+// - columnas
+// - orden
+// - encabezados
+// - delimitador
+// - decimal
+// - formato fecha
+// - BOM
+// =====================================================
+
+exports.exportSlaughterhouseReceptionCsv =
+  async (req, res) => {
+
+    try {
+
+      // =================================================
+      // OPERADOR / EMPRESA
+      // =================================================
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+
+      if (!operator) {
+
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+
+      const receptionId =
+        Number(
+          req.params.id,
+        );
+
+
+      const profileId =
+        Number(
+          req.params.profileId,
+        );
+
+
+      if (
+        !Number.isInteger(
+          receptionId,
+        ) ||
+        receptionId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Recepción inválida',
+        });
+      }
+
+
+      if (
+        !Number.isInteger(
+          profileId,
+        ) ||
+        profileId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Perfil de exportación inválido',
+        });
+      }
+
+
+      // =================================================
+      // RECEPCIÓN
+      // =================================================
+
+      const receptionResult =
+        await pool.query(
+          `
+          SELECT
+
+            id,
+
+            company_id,
+
+            reception_number,
+
+            plant_lot_number,
+
+            status
+
+          FROM slaughterhouse_receptions
+
+          WHERE
+            id = $1
+            AND company_id = $2
+
+          LIMIT 1
+          `,
+          [
+            receptionId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        receptionResult.rows.length ===
+          0
+      ) {
+
+        return res.status(404).json({
+          error:
+            'Recepción no encontrada',
+        });
+      }
+
+
+      const reception =
+        receptionResult.rows[0];
+
+
+      // =================================================
+      // PERFIL
+      // =================================================
+
+      const profileResult =
+        await pool.query(
+          `
+          SELECT *
+
+          FROM slaughterhouse_export_profiles
+
+          WHERE
+            id = $1
+            AND company_id = $2
+            AND is_active = true
+
+          LIMIT 1
+          `,
+          [
+            profileId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        profileResult.rows.length ===
+          0
+      ) {
+
+        return res.status(404).json({
+          error:
+            'Perfil de exportación no encontrado o inactivo',
+        });
+      }
+
+
+      const profile =
+        profileResult.rows[0];
+
+
+      // =================================================
+      // VALIDAR NUEVAMENTE COLUMNAS GUARDADAS
+      // =================================================
+
+      const columnsValidation =
+        validateExportColumns(
+          profile.dataset_type,
+          profile.columns_config,
+        );
+
+
+      if (
+        !columnsValidation.valid
+      ) {
+
+        return res.status(500).json({
+          error:
+            'El perfil de exportación tiene una configuración inválida',
+        });
+      }
+
+
+      const columns =
+        columnsValidation.columns;
+
+
+      // =================================================
+      // OBTENER DATASET
+      // =================================================
+
+      let dataResult;
+
+
+      // =================================================
+      // 🐄 CARCASAS
+      // Una fila por carcasa
+      // =================================================
+
+      if (
+        profile.dataset_type ===
+          'carcasses'
+      ) {
+
+        dataResult =
+          await pool.query(
+            `
+            SELECT
+
+              sr.reception_number,
+
+              sr.plant_lot_number,
+
+              sc.sequence_number,
+
+              sc.plant_carcass_number,
+
+              sc.hook_weight_kg,
+
+              sc.recorded_at,
+
+              sc.recorded_by
+
+            FROM slaughterhouse_receptions sr
+
+            JOIN slaughterhouse_carcasses sc
+              ON sc.reception_id =
+                sr.id
+
+            WHERE
+              sr.id = $1
+              AND sr.company_id = $2
+
+            ORDER BY
+              sc.sequence_number ASC,
+              sc.id ASC
+            `,
+            [
+              receptionId,
+              companyId,
+            ],
+          );
+
+      }
+
+
+      // =================================================
+      // 🚛 CAMIONES
+      // Una fila por camión
+      // =================================================
+
+      else if (
+        profile.dataset_type ===
+          'trucks'
+      ) {
+
+        dataResult =
+          await pool.query(
+            `
+            SELECT
+
+              sr.reception_number,
+
+              sr.plant_lot_number,
+
+              srt.plate_snapshot,
+
+              srt.animal_type_snapshot,
+
+              srt.transport_guide_id,
+
+              srt.guide_quantity,
+
+              srt.received_quantity,
+
+              (
+                srt.received_quantity
+                -
+                srt.guide_quantity
+              )::int
+                AS quantity_difference,
+
+              srt.live_weight_kg,
+
+              srt.origin_snapshot,
+
+              srt.destination_snapshot,
+
+              srt.transport_delivered_at,
+
+              srt.received_at,
+
+              srt.reception_notes
+
+            FROM slaughterhouse_receptions sr
+
+            JOIN slaughterhouse_reception_trucks srt
+              ON srt.reception_id =
+                sr.id
+
+            WHERE
+              sr.id = $1
+              AND sr.company_id = $2
+
+            ORDER BY
+              srt.received_at ASC,
+              srt.id ASC
+            `,
+            [
+              receptionId,
+              companyId,
+            ],
+          );
+
+      }
+
+
+      // =================================================
+      // 📊 RESUMEN
+      // Una fila por recepción
+      // =================================================
+
+      else if (
+        profile.dataset_type ===
+          'summary'
+      ) {
+
+        dataResult =
+          await pool.query(
+            `
+            SELECT
+
+              sr.reception_number,
+
+              sr.plant_lot_number,
+
+              sr.status,
+
+              COALESCE(
+                trucks.trucks_count,
+                0
+              )::int
+                AS trucks_count,
+
+              COALESCE(
+                trucks.guide_quantity_total,
+                0
+              )::int
+                AS guide_quantity_total,
+
+              COALESCE(
+                trucks.received_quantity_total,
+                0
+              )::int
+                AS received_quantity_total,
+
+              COALESCE(
+                trucks.live_weight_total_kg,
+                0
+              )::numeric
+                AS live_weight_total_kg,
+
+              COALESCE(
+                carcasses.carcasses_count,
+                0
+              )::int
+                AS carcasses_count,
+
+              COALESCE(
+                carcasses.hook_weight_total_kg,
+                0
+              )::numeric
+                AS hook_weight_total_kg,
+
+              COALESCE(
+                carcasses.average_hook_weight_kg,
+                0
+              )::numeric
+                AS average_hook_weight_kg,
+
+              COALESCE(
+                carcasses.min_hook_weight_kg,
+                0
+              )::numeric
+                AS min_hook_weight_kg,
+
+              COALESCE(
+                carcasses.max_hook_weight_kg,
+                0
+              )::numeric
+                AS max_hook_weight_kg,
+
+              CASE
+
+                WHEN
+                  COALESCE(
+                    trucks.live_weight_total_kg,
+                    0
+                  ) > 0
+
+                THEN
+                  ROUND(
+                    (
+                      COALESCE(
+                        carcasses.hook_weight_total_kg,
+                        0
+                      )
+                      /
+                      NULLIF(
+                        trucks.live_weight_total_kg,
+                        0
+                      )
+                    ) * 100,
+                    2
+                  )
+
+                ELSE NULL
+
+              END
+                AS carcass_yield_percent,
+
+              sr.opened_at,
+
+              sr.closed_at,
+
+              sr.slaughter_started_at,
+
+              sr.completed_at
+
+            FROM slaughterhouse_receptions sr
+
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+
+                COUNT(*)::int
+                  AS trucks_count,
+
+                COALESCE(
+                  SUM(
+                    srt.guide_quantity
+                  ),
+                  0
+                )::int
+                  AS guide_quantity_total,
+
+                COALESCE(
+                  SUM(
+                    srt.received_quantity
+                  ),
+                  0
+                )::int
+                  AS received_quantity_total,
+
+                COALESCE(
+                  SUM(
+                    srt.live_weight_kg
+                  ),
+                  0
+                )::numeric
+                  AS live_weight_total_kg
+
+              FROM slaughterhouse_reception_trucks srt
+
+              WHERE
+                srt.reception_id =
+                  sr.id
+
+            ) trucks
+              ON true
+
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+
+                COUNT(*)::int
+                  AS carcasses_count,
+
+                COALESCE(
+                  SUM(
+                    sc.hook_weight_kg
+                  ),
+                  0
+                )::numeric
+                  AS hook_weight_total_kg,
+
+                COALESCE(
+                  AVG(
+                    sc.hook_weight_kg
+                  ),
+                  0
+                )::numeric
+                  AS average_hook_weight_kg,
+
+                COALESCE(
+                  MIN(
+                    sc.hook_weight_kg
+                  ),
+                  0
+                )::numeric
+                  AS min_hook_weight_kg,
+
+                COALESCE(
+                  MAX(
+                    sc.hook_weight_kg
+                  ),
+                  0
+                )::numeric
+                  AS max_hook_weight_kg
+
+              FROM slaughterhouse_carcasses sc
+
+              WHERE
+                sc.reception_id =
+                  sr.id
+
+            ) carcasses
+              ON true
+
+
+            WHERE
+              sr.id = $1
+              AND sr.company_id = $2
+
+            LIMIT 1
+            `,
+            [
+              receptionId,
+              companyId,
+            ],
+          );
+
+      }
+
+
+      else {
+
+        return res.status(400).json({
+          error:
+            'Tipo de exportación inválido',
+        });
+      }
+
+
+      // =================================================
+      // CONSTRUIR CSV
+      // =================================================
+
+      const delimiter =
+        profile.delimiter;
+
+
+      const lines =
+        [];
+
+
+      // =================================================
+      // ENCABEZADOS
+      // =================================================
+
+      if (
+        profile.include_header
+      ) {
+
+        const headerLine =
+          columns
+            .map(
+              (
+                column,
+              ) =>
+                escapeSlaughterhouseCsvValue(
+                  column.header,
+                  delimiter,
+                ),
+            )
+            .join(
+              delimiter,
+            );
+
+
+        lines.push(
+          headerLine,
+        );
+      }
+
+
+      // =================================================
+      // FILAS
+      // =================================================
+
+      for (
+        const row
+        of dataResult.rows
+      ) {
+
+        const csvRow =
+          columns
+            .map(
+              (
+                column,
+              ) => {
+
+                const formatted =
+                  formatSlaughterhouseCsvValue(
+                    column.field,
+                    row[
+                      column.field
+                    ],
+                    profile,
+                  );
+
+
+                return escapeSlaughterhouseCsvValue(
+                  formatted,
+                  delimiter,
+                );
+              },
+            )
+            .join(
+              delimiter,
+            );
+
+
+        lines.push(
+          csvRow,
+        );
+      }
+
+
+      // CRLF:
+      // mayor compatibilidad con Excel / Windows
+      let csv =
+        lines.join(
+          '\r\n',
+        );
+
+
+      if (
+        lines.length > 0
+      ) {
+
+        csv +=
+          '\r\n';
+      }
+
+
+      // =================================================
+      // UTF-8 BOM
+      // =================================================
+
+      if (
+        profile.encoding ===
+          'utf8-bom'
+      ) {
+
+        csv =
+          '\uFEFF' +
+          csv;
+      }
+
+
+      // =================================================
+      // NOMBRE ARCHIVO
+      // =================================================
+
+      const safeReception =
+        reception.reception_number
+          .toString()
+          .replace(
+            /[^a-zA-Z0-9_-]+/g,
+            '_',
+          );
+
+
+      const safeProfile =
+        profile.name
+          .toString()
+          .trim()
+          .replace(
+            /[^a-zA-Z0-9_-]+/g,
+            '_',
+          );
+
+
+      const filename =
+        `${safeReception}_${safeProfile}.csv`;
+
+
+      // =================================================
+      // RESPUESTA
+      // =================================================
+
+      res.setHeader(
+        'Content-Type',
+        'text/csv; charset=utf-8',
+      );
+
+
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${filename}"`,
+      );
+
+
+      res.setHeader(
+        'Cache-Control',
+        'no-store',
+      );
+
+
+      return res
+        .status(
+          200,
+        )
+        .send(
+          csv,
+        );
+
+
+    } catch (error) {
+
+      console.error(
+        'EXPORT SLAUGHTERHOUSE RECEPTION CSV ERROR:',
+        error,
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error generando archivo CSV',
+      });
+
+    }
+  };

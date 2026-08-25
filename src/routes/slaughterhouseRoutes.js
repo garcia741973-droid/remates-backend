@@ -23,6 +23,7 @@ const {
   createSlaughterhouseExportProfile,
   updateSlaughterhouseExportProfile,
   deleteSlaughterhouseExportProfile,
+  exportSlaughterhouseReceptionCsv,
 } = require(
   '../controllers/slaughterhouseController'
 );
@@ -156,6 +157,16 @@ router.delete(
   '/export/profiles/:id',
   requireAuth,
   deleteSlaughterhouseExportProfile,
+);
+
+// =====================================================
+// 📄 EXPORTAR RECEPCIÓN SEGÚN PERFIL CSV
+// =====================================================
+
+router.get(
+  '/receptions/:id/export/:profileId',
+  requireAuth,
+  exportSlaughterhouseReceptionCsv,
 );
 
 module.exports = router;
