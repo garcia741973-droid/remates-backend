@@ -4179,12 +4179,10 @@ exports.getSlaughterhouseExportProfiles =
             updated_at
 
           FROM slaughterhouse_export_profiles
-
           WHERE
             company_id = $1
-
+            AND is_active = true
           ORDER BY
-            is_active DESC,
             name ASC,
             id ASC
           `,
