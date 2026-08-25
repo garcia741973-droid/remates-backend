@@ -2865,3 +2865,467 @@ exports.updateLastSlaughterhouseCarcass =
 
     }
   };  
+
+// =====================================================
+// 🏭 FINALIZAR FAENA
+//
+// POST /slaughterhouse/slaughter/:id/finish
+//
+// Body:
+// {
+//   "notes": null
+// }
+//
+// - Recepción debe estar IN_SLAUGHTER.
+// - Calcula resumen definitivo.
+// - Si cantidad de carcasas difiere de animales
+//   recibidos, exige observación.
+// - Cambia recepción a COMPLETED.
+// =====================================================
+
+exports.finishSlaughterhouseSlaughter =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+      if (!operator) {
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+      const receptionId =
+        Number(
+          req.params.id,
+        );
+
+      const notes =
+        req.body.notes
+          ?.toString()
+          .trim() || null;
+
+
+      if (
+        !Number.isInteger(
+          receptionId,
+        ) ||
+        receptionId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Recepción inválida',
+        });
+      }
+
+
+      await client.query(
+        'BEGIN',
+      );
+
+
+      // =================================================
+      // RECEPCIÓN
+      // =================================================
+
+      const receptionResult =
+        await client.query(
+          `
+          SELECT
+            id,
+            reception_number,
+            plant_lot_number,
+            status
+
+          FROM slaughterhouse_receptions
+
+          WHERE
+            id = $1
+            AND company_id = $2
+
+          LIMIT 1
+
+          FOR UPDATE
+          `,
+          [
+            receptionId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        receptionResult.rows.length ===
+          0
+      ) {
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(404).json({
+          error:
+            'Recepción no encontrada',
+        });
+      }
+
+
+      const reception =
+        receptionResult.rows[0];
+
+
+      if (
+        reception.status !==
+          'in_slaughter'
+      ) {
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(409).json({
+          error:
+            'La recepción no está actualmente en faena',
+        });
+      }
+
+
+      // =================================================
+      // RESUMEN RECEPCIÓN
+      // =================================================
+
+      const receivedResult =
+        await client.query(
+          `
+          SELECT
+
+            COUNT(*)::int
+              AS trucks_count,
+
+            COALESCE(
+              SUM(
+                guide_quantity
+              ),
+              0
+            )::int
+              AS guide_quantity_total,
+
+            COALESCE(
+              SUM(
+                received_quantity
+              ),
+              0
+            )::int
+              AS received_quantity_total,
+
+            COALESCE(
+              SUM(
+                live_weight_kg
+              ),
+              0
+            )::numeric
+              AS live_weight_total_kg
+
+          FROM slaughterhouse_reception_trucks
+
+          WHERE
+            reception_id = $1
+          `,
+          [
+            receptionId,
+          ],
+        );
+
+
+      // =================================================
+      // RESUMEN CARCASAS
+      // =================================================
+
+      const carcassResult =
+        await client.query(
+          `
+          SELECT
+
+            COUNT(*)::int
+              AS carcasses_count,
+
+            COALESCE(
+              SUM(
+                hook_weight_kg
+              ),
+              0
+            )::numeric
+              AS hook_weight_total_kg,
+
+            COALESCE(
+              AVG(
+                hook_weight_kg
+              ),
+              0
+            )::numeric
+              AS average_hook_weight_kg,
+
+            COALESCE(
+              MIN(
+                hook_weight_kg
+              ),
+              0
+            )::numeric
+              AS min_hook_weight_kg,
+
+            COALESCE(
+              MAX(
+                hook_weight_kg
+              ),
+              0
+            )::numeric
+              AS max_hook_weight_kg
+
+          FROM slaughterhouse_carcasses
+
+          WHERE
+            reception_id = $1
+          `,
+          [
+            receptionId,
+          ],
+        );
+
+
+      const received =
+        receivedResult.rows[0];
+
+      const carcasses =
+        carcassResult.rows[0];
+
+
+      const receivedQuantity =
+        Number(
+          received.received_quantity_total,
+        );
+
+      const carcassesCount =
+        Number(
+          carcasses.carcasses_count,
+        );
+
+      const liveWeight =
+        Number(
+          received.live_weight_total_kg,
+        );
+
+      const hookWeight =
+        Number(
+          carcasses.hook_weight_total_kg,
+        );
+
+
+      if (
+        carcassesCount <= 0
+      ) {
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(409).json({
+          error:
+            'No existen carcasas registradas',
+        });
+      }
+
+
+      // =================================================
+      // DIFERENCIA RECEPCIÓN VS FAENA
+      // =================================================
+
+      if (
+        carcassesCount !==
+          receivedQuantity &&
+        !notes
+      ) {
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(400).json({
+          error:
+            'La cantidad de carcasas no coincide con los animales recibidos. Debes registrar una observación.',
+          received_quantity:
+            receivedQuantity,
+          carcasses_count:
+            carcassesCount,
+        });
+      }
+
+
+      const yieldPercent =
+        liveWeight > 0
+          ? (
+              hookWeight /
+              liveWeight
+            ) *
+            100
+          : null;
+
+
+      // =================================================
+      // FINALIZAR
+      // =================================================
+
+      const updatedResult =
+        await client.query(
+          `
+          UPDATE slaughterhouse_receptions
+
+          SET
+            status =
+              'completed',
+
+            completed_at =
+              NOW(),
+
+            notes =
+              COALESCE(
+                $2,
+                notes
+              ),
+
+            updated_at =
+              NOW()
+
+          WHERE
+            id = $1
+
+          RETURNING *
+          `,
+          [
+            receptionId,
+            notes,
+          ],
+        );
+
+
+      await client.query(
+        'COMMIT',
+      );
+
+
+      return res.json({
+
+        message:
+          'Faena finalizada correctamente',
+
+        reception:
+          updatedResult.rows[0],
+
+        summary: {
+
+          trucks_count:
+            Number(
+              received.trucks_count,
+            ),
+
+          guide_quantity_total:
+            Number(
+              received.guide_quantity_total,
+            ),
+
+          received_quantity_total:
+            receivedQuantity,
+
+          carcasses_count:
+            carcassesCount,
+
+          difference:
+            carcassesCount -
+            receivedQuantity,
+
+          live_weight_total_kg:
+            Number(
+              liveWeight.toFixed(
+                2,
+              ),
+            ),
+
+          hook_weight_total_kg:
+            Number(
+              hookWeight.toFixed(
+                2,
+              ),
+            ),
+
+          average_hook_weight_kg:
+            Number(
+              Number(
+                carcasses.average_hook_weight_kg,
+              ).toFixed(
+                2,
+              ),
+            ),
+
+          min_hook_weight_kg:
+            Number(
+              Number(
+                carcasses.min_hook_weight_kg,
+              ).toFixed(
+                2,
+              ),
+            ),
+
+          max_hook_weight_kg:
+            Number(
+              Number(
+                carcasses.max_hook_weight_kg,
+              ).toFixed(
+                2,
+              ),
+            ),
+
+          carcass_yield_percent:
+            yieldPercent == null
+              ? null
+              : Number(
+                  yieldPercent
+                    .toFixed(
+                      2,
+                    ),
+                ),
+
+        },
+
+      });
+
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK',
+      );
+
+      console.error(
+        'FINISH SLAUGHTERHOUSE SLAUGHTER ERROR:',
+        error,
+      );
+
+      return res.status(500).json({
+        error:
+          'Error finalizando faena',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+  };  

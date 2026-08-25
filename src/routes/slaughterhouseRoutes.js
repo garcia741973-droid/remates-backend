@@ -17,6 +17,7 @@ const {
   getSlaughterhouseSlaughterReceptions,
   createSlaughterhouseCarcass,
   updateLastSlaughterhouseCarcass,
+  finishSlaughterhouseSlaughter,
 } = require(
   '../controllers/slaughterhouseController'
 );
@@ -101,6 +102,16 @@ router.put(
   '/slaughter/:id/carcasses/last',
   requireAuth,
   updateLastSlaughterhouseCarcass,
+);
+
+// =====================================================
+// 🏭 FINALIZAR FAENA
+// =====================================================
+
+router.post(
+  '/slaughter/:id/finish',
+  requireAuth,
+  finishSlaughterhouseSlaughter,
 );
 
 module.exports = router;
