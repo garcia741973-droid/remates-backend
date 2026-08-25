@@ -2560,3 +2560,308 @@ exports.createSlaughterhouseCarcass =
 
     }
   };  
+
+// =====================================================
+// 🏭 CORREGIR ÚLTIMA CARCASA
+//
+// PUT /slaughterhouse/slaughter/:id/carcasses/last
+//
+// Solo permite corregir la última carcasa registrada.
+// =====================================================
+
+exports.updateLastSlaughterhouseCarcass =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+      if (!operator) {
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+      const userId =
+        Number(
+          operator.user_id,
+        );
+
+      const receptionId =
+        Number(
+          req.params.id,
+        );
+
+      const hookWeightKg =
+        Number(
+          req.body.hook_weight_kg,
+        );
+
+      if (
+        !Number.isInteger(
+          receptionId,
+        ) ||
+        receptionId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Recepción inválida',
+        });
+      }
+
+      if (
+        !Number.isFinite(
+          hookWeightKg,
+        ) ||
+        hookWeightKg <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Peso de carcasa inválido',
+        });
+      }
+
+      await client.query(
+        'BEGIN',
+      );
+
+      // =================================================
+      // VALIDAR RECEPCIÓN
+      // =================================================
+
+      const receptionResult =
+        await client.query(
+          `
+          SELECT
+            id,
+            status
+
+          FROM slaughterhouse_receptions
+
+          WHERE
+            id = $1
+            AND company_id = $2
+
+          LIMIT 1
+
+          FOR UPDATE
+          `,
+          [
+            receptionId,
+            companyId,
+          ],
+        );
+
+      if (
+        receptionResult.rows.length ===
+          0
+      ) {
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(404).json({
+          error:
+            'Recepción no encontrada',
+        });
+      }
+
+      if (
+        receptionResult.rows[0]
+          .status !==
+        'in_slaughter'
+      ) {
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(409).json({
+          error:
+            'La recepción no está actualmente en faena',
+        });
+      }
+
+      // =================================================
+      // ÚLTIMA CARCASA
+      // =================================================
+
+      const lastResult =
+        await client.query(
+          `
+          SELECT *
+
+          FROM slaughterhouse_carcasses
+
+          WHERE
+            reception_id = $1
+
+          ORDER BY
+            sequence_number DESC
+
+          LIMIT 1
+
+          FOR UPDATE
+          `,
+          [
+            receptionId,
+          ],
+        );
+
+      if (
+        lastResult.rows.length ===
+          0
+      ) {
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(404).json({
+          error:
+            'Todavía no existen carcasas registradas',
+        });
+      }
+
+      const carcassId =
+        Number(
+          lastResult.rows[0].id,
+        );
+
+      const updatedResult =
+        await client.query(
+          `
+          UPDATE slaughterhouse_carcasses
+
+          SET
+            hook_weight_kg = $1,
+            recorded_by = $2,
+            recorded_at = NOW(),
+            updated_at = NOW()
+
+          WHERE
+            id = $3
+
+          RETURNING *
+          `,
+          [
+            hookWeightKg,
+            userId,
+            carcassId,
+          ],
+        );
+
+      // =================================================
+      // RESUMEN ACTUALIZADO
+      // =================================================
+
+      const summaryResult =
+        await client.query(
+          `
+          SELECT
+
+            COUNT(*)::int
+              AS carcasses_count,
+
+            COALESCE(
+              SUM(
+                hook_weight_kg
+              ),
+              0
+            )::numeric
+              AS hook_weight_total_kg,
+
+            COALESCE(
+              AVG(
+                hook_weight_kg
+              ),
+              0
+            )::numeric
+              AS average_hook_weight_kg
+
+          FROM slaughterhouse_carcasses
+
+          WHERE
+            reception_id = $1
+          `,
+          [
+            receptionId,
+          ],
+        );
+
+      await client.query(
+        'COMMIT',
+      );
+
+      const summary =
+        summaryResult.rows[0];
+
+      return res.json({
+
+        message:
+          'Última carcasa corregida',
+
+        carcass:
+          updatedResult.rows[0],
+
+        summary: {
+
+          carcasses_count:
+            Number(
+              summary.carcasses_count,
+            ),
+
+          hook_weight_total_kg:
+            Number(
+              Number(
+                summary.hook_weight_total_kg,
+              ).toFixed(
+                2,
+              ),
+            ),
+
+          average_hook_weight_kg:
+            Number(
+              Number(
+                summary.average_hook_weight_kg,
+              ).toFixed(
+                2,
+              ),
+            ),
+
+        },
+
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK',
+      );
+
+      console.error(
+        'UPDATE LAST SLAUGHTERHOUSE CARCASS ERROR:',
+        error,
+      );
+
+      return res.status(500).json({
+        error:
+          'Error corrigiendo última carcasa',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+  };  

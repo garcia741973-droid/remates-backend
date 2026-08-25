@@ -16,6 +16,7 @@ const {
   startSlaughterhouseSlaughter,
   getSlaughterhouseSlaughterReceptions,
   createSlaughterhouseCarcass,
+  updateLastSlaughterhouseCarcass,
 } = require(
   '../controllers/slaughterhouseController'
 );
@@ -90,6 +91,16 @@ router.post(
   '/slaughter/:id/carcasses',
   requireAuth,
   createSlaughterhouseCarcass,
+);
+
+// =====================================================
+// 🏭 CORREGIR ÚLTIMA CARCASA
+// =====================================================
+
+router.put(
+  '/slaughter/:id/carcasses/last',
+  requireAuth,
+  updateLastSlaughterhouseCarcass,
 );
 
 module.exports = router;
