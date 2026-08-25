@@ -1874,29 +1874,23 @@ exports.startSlaughterhouseSlaughter =
 
 exports.getSlaughterhouseSlaughterReceptions =
   async (req, res) => {
-
     try {
-
       const operator =
         await getAuthenticatedSlaughterhouseOperator(
           req,
         );
 
-
       if (!operator) {
-
         return res.status(403).json({
           error:
             'No autorizado para operaciones de frigorífico',
         });
       }
 
-
       const companyId =
         Number(
           operator.company_id,
         );
-
 
       const result =
         await pool.query(
@@ -1917,51 +1911,93 @@ exports.getSlaughterhouseSlaughterReceptions =
 
             sr.slaughter_started_at,
 
-            COUNT(
-              DISTINCT srt.id
+            COALESCE(
+              trucks.trucks_count,
+              0
             )::int
               AS trucks_count,
 
             COALESCE(
-              SUM(
-                srt.received_quantity
-              ),
+              trucks.received_quantity_total,
               0
             )::int
               AS received_quantity_total,
 
             COALESCE(
-              SUM(
-                srt.live_weight_kg
-              ),
+              trucks.live_weight_total_kg,
               0
             )::numeric
               AS live_weight_total_kg,
 
-            COUNT(
-              sc.id
+            COALESCE(
+              carcasses.carcasses_count,
+              0
             )::int
               AS carcasses_count,
 
             COALESCE(
-              SUM(
-                sc.hook_weight_kg
-              ),
+              carcasses.hook_weight_total_kg,
               0
             )::numeric
               AS hook_weight_total_kg
 
           FROM slaughterhouse_receptions sr
 
-          LEFT JOIN
-            slaughterhouse_reception_trucks srt
-            ON srt.reception_id =
-              sr.id
+          LEFT JOIN LATERAL (
 
-          LEFT JOIN
-            slaughterhouse_carcasses sc
-            ON sc.reception_id =
-              sr.id
+            SELECT
+
+              COUNT(*)::int
+                AS trucks_count,
+
+              COALESCE(
+                SUM(
+                  srt.received_quantity
+                ),
+                0
+              )::int
+                AS received_quantity_total,
+
+              COALESCE(
+                SUM(
+                  srt.live_weight_kg
+                ),
+                0
+              )::numeric
+                AS live_weight_total_kg
+
+            FROM slaughterhouse_reception_trucks srt
+
+            WHERE
+              srt.reception_id =
+                sr.id
+
+          ) trucks
+            ON true
+
+          LEFT JOIN LATERAL (
+
+            SELECT
+
+              COUNT(*)::int
+                AS carcasses_count,
+
+              COALESCE(
+                SUM(
+                  sc.hook_weight_kg
+                ),
+                0
+              )::numeric
+                AS hook_weight_total_kg
+
+            FROM slaughterhouse_carcasses sc
+
+            WHERE
+              sc.reception_id =
+                sr.id
+
+          ) carcasses
+            ON true
 
           WHERE
 
@@ -1971,22 +2007,6 @@ exports.getSlaughterhouseSlaughterReceptions =
               'open',
               'in_slaughter'
             )
-
-          GROUP BY
-
-            sr.id,
-
-            sr.reception_number,
-
-            sr.plant_lot_number,
-
-            sr.status,
-
-            sr.opened_at,
-
-            sr.closed_at,
-
-            sr.slaughter_started_at
 
           ORDER BY
 
@@ -2004,37 +2024,27 @@ exports.getSlaughterhouseSlaughterReceptions =
           ],
         );
 
-
       return res.json({
-
         company: {
-
           id:
             companyId,
 
           name:
             operator.company_name,
-
         },
 
         receptions:
           result.rows,
-
       });
-
-
     } catch (error) {
-
       console.error(
         'GET SLAUGHTERHOUSE SLAUGHTER RECEPTIONS ERROR:',
         error,
       );
 
-
       return res.status(500).json({
         error:
           'Error obteniendo recepciones para faena',
       });
-
     }
   };
