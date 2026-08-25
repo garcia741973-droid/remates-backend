@@ -10,6 +10,7 @@ const {
 
 const {
   getSlaughterhouseTrucks,
+  getSlaughterhouseReceptionCandidates,
   createSlaughterhouseReception,
 } = require(
   '../controllers/slaughterhouseController'
@@ -24,6 +25,17 @@ router.get(
   '/trucks',
   requireAuth,
   getSlaughterhouseTrucks,
+);
+
+
+// =====================================================
+// 🐄 TRANSPORTES DISPONIBLES PARA RECEPCIÓN
+// =====================================================
+
+router.get(
+  '/reception-candidates',
+  requireAuth,
+  getSlaughterhouseReceptionCandidates,
 );
 
 

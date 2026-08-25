@@ -332,6 +332,331 @@ exports.getSlaughterhouseTrucks =
 // NO modifica el estado de Plaza Transporte.
 // =====================================================
 
+// =====================================================
+// 🐄 CAMIONES DISPONIBLES PARA RECEPCIÓN
+//
+// GET /slaughterhouse/reception-candidates
+//
+// - Solo camiones contratados por el frigorífico.
+// - Incluye datos de la guía.
+// - Informa si el viaje ya llegó.
+// - Excluye camiones ya recepcionados.
+// =====================================================
+
+exports.getSlaughterhouseReceptionCandidates =
+  async (req, res) => {
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+
+      if (!operator) {
+
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+
+            tn.id
+              AS negotiation_id,
+
+            tn.status,
+
+            tn.trip_started_at,
+
+            tn.delivered_at,
+
+            tr.id
+              AS request_id,
+
+            tr.origin,
+
+            tr.destination,
+
+            tr.animal_type,
+
+            tr.quantity
+              AS request_quantity,
+
+            tt.id
+              AS truck_id,
+
+            tt.plate,
+
+            tt.brand,
+
+            tt.model,
+
+            tn.transporter_id,
+
+            transporter.name
+              AS transporter_name,
+
+            transporter.full_name
+              AS transporter_full_name,
+
+            tg.id
+              AS guide_id,
+
+            tg.guide_image_url,
+
+            COALESCE(
+              tg.male_0_12,
+              0
+            )::int
+              AS male_0_12,
+
+            COALESCE(
+              tg.female_0_12,
+              0
+            )::int
+              AS female_0_12,
+
+            COALESCE(
+              tg.male_13_24,
+              0
+            )::int
+              AS male_13_24,
+
+            COALESCE(
+              tg.female_13_24,
+              0
+            )::int
+              AS female_13_24,
+
+            COALESCE(
+              tg.male_25_36,
+              0
+            )::int
+              AS male_25_36,
+
+            COALESCE(
+              tg.female_25_36,
+              0
+            )::int
+              AS female_25_36,
+
+            COALESCE(
+              tg.male_36_plus,
+              0
+            )::int
+              AS male_36_plus,
+
+            COALESCE(
+              tg.female_36_plus,
+              0
+            )::int
+              AS female_36_plus,
+
+            (
+              COALESCE(
+                tg.male_0_12,
+                0
+              )
+              +
+              COALESCE(
+                tg.female_0_12,
+                0
+              )
+              +
+              COALESCE(
+                tg.male_13_24,
+                0
+              )
+              +
+              COALESCE(
+                tg.female_13_24,
+                0
+              )
+              +
+              COALESCE(
+                tg.male_25_36,
+                0
+              )
+              +
+              COALESCE(
+                tg.female_25_36,
+                0
+              )
+              +
+              COALESCE(
+                tg.male_36_plus,
+                0
+              )
+              +
+              COALESCE(
+                tg.female_36_plus,
+                0
+              )
+            )::int
+              AS guide_quantity,
+
+            CASE
+              WHEN tn.delivered_at
+                IS NULL
+              THEN false
+
+              WHEN tg.id
+                IS NULL
+              THEN false
+
+              ELSE true
+            END
+              AS can_receive,
+
+            CASE
+              WHEN tn.delivered_at
+                IS NULL
+              THEN
+                'El camión todavía no finalizó la ruta'
+
+              WHEN tg.id
+                IS NULL
+              THEN
+                'El transporte no tiene guía registrada'
+
+              ELSE NULL
+            END
+              AS blocked_reason
+
+          FROM transport_negotiations tn
+
+          JOIN transport_requests tr
+            ON tr.id =
+              tn.request_id
+
+          JOIN transporter_trucks tt
+            ON tt.id =
+              tn.truck_id
+
+          JOIN users transporter
+            ON transporter.id =
+              tn.transporter_id
+
+          LEFT JOIN LATERAL (
+
+            SELECT
+              tg2.*
+
+            FROM transport_guides tg2
+
+            WHERE
+              tg2.negotiation_id =
+                tn.id
+
+            ORDER BY
+              tg2.id DESC
+
+            LIMIT 1
+
+          ) tg
+            ON true
+
+          LEFT JOIN
+            slaughterhouse_reception_trucks srt
+            ON srt.transport_negotiation_id =
+              tn.id
+
+          WHERE
+
+            tr.requester_company_id =
+              $1
+
+            AND srt.id
+              IS NULL
+
+            AND tn.status IN (
+
+              'paid',
+
+              'loading_completed',
+
+              'trip_active',
+
+              'in_trip',
+
+              'delivery_pending',
+
+              'delivered'
+
+            )
+
+          ORDER BY
+
+            CASE
+
+              WHEN tn.delivered_at
+                IS NOT NULL
+                AND tg.id
+                  IS NOT NULL
+              THEN 1
+
+              WHEN tn.delivered_at
+                IS NOT NULL
+              THEN 2
+
+              ELSE 3
+
+            END,
+
+            tn.id DESC
+          `,
+          [
+            companyId,
+          ],
+        );
+
+
+      return res.json({
+
+        company: {
+
+          id:
+            companyId,
+
+          name:
+            operator.company_name,
+
+        },
+
+        trucks:
+          result.rows,
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'GET SLAUGHTERHOUSE RECEPTION CANDIDATES ERROR:',
+        error,
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo transportes para recepción',
+      });
+    }
+  };
+
 exports.createSlaughterhouseReception =
   async (req, res) => {
 
