@@ -13,6 +13,7 @@ const {
   getSlaughterhouseReceptionCandidates,
   getOpenSlaughterhouseReceptions,
   createSlaughterhouseReception,
+  startSlaughterhouseSlaughter,
 } = require(
   '../controllers/slaughterhouseController'
 );
@@ -59,5 +60,14 @@ router.post(
   createSlaughterhouseReception,
 );
 
+// =====================================================
+// 🏭 INICIAR FAENA
+// =====================================================
+
+router.post(
+  '/receptions/:id/start-slaughter',
+  requireAuth,
+  startSlaughterhouseSlaughter,
+);
 
 module.exports = router;

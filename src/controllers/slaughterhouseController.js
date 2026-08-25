@@ -1554,3 +1554,314 @@ exports.createSlaughterhouseReception =
 
     }
   };
+
+// =====================================================
+// 🏭 INICIAR FAENA
+//
+// POST /slaughterhouse/receptions/:id/start-slaughter
+//
+// - Solo operador del frigorífico propietario.
+// - La recepción debe estar OPEN.
+// - Debe tener al menos un camión recepcionado.
+// - Cierra automáticamente la recepción.
+// - Inicia la faena.
+// =====================================================
+
+exports.startSlaughterhouseSlaughter =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+
+      if (!operator) {
+
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+      const receptionId =
+        Number(
+          req.params.id,
+        );
+
+
+      if (
+        !Number.isInteger(
+          receptionId,
+        ) ||
+        receptionId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Recepción inválida',
+        });
+      }
+
+
+      await client.query(
+        'BEGIN',
+      );
+
+
+      // =================================================
+      // BLOQUEAR Y VALIDAR RECEPCIÓN
+      // =================================================
+
+      const receptionResult =
+        await client.query(
+          `
+          SELECT *
+
+          FROM slaughterhouse_receptions
+
+          WHERE
+            id = $1
+            AND company_id = $2
+
+          LIMIT 1
+
+          FOR UPDATE
+          `,
+          [
+            receptionId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        receptionResult.rows.length ===
+          0
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(404).json({
+          error:
+            'Recepción no encontrada',
+        });
+      }
+
+
+      const reception =
+        receptionResult.rows[0];
+
+
+      if (
+        reception.status !==
+          'open'
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(409).json({
+          error:
+            `La recepción no puede iniciar faena porque está en estado ${reception.status}`,
+        });
+      }
+
+
+      // =================================================
+      // RESUMEN DE GANADO RECEPCIONADO
+      // =================================================
+
+      const summaryResult =
+        await client.query(
+          `
+          SELECT
+
+            COUNT(*)::int
+              AS trucks_count,
+
+            COALESCE(
+              SUM(
+                guide_quantity
+              ),
+              0
+            )::int
+              AS guide_quantity_total,
+
+            COALESCE(
+              SUM(
+                received_quantity
+              ),
+              0
+            )::int
+              AS received_quantity_total,
+
+            COALESCE(
+              SUM(
+                live_weight_kg
+              ),
+              0
+            )::numeric
+              AS live_weight_total_kg
+
+          FROM slaughterhouse_reception_trucks
+
+          WHERE
+            reception_id = $1
+          `,
+          [
+            receptionId,
+          ],
+        );
+
+
+      const summary =
+        summaryResult.rows[0];
+
+
+      if (
+        Number(
+          summary.trucks_count,
+        ) <= 0
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(409).json({
+          error:
+            'La recepción no tiene camiones recepcionados',
+        });
+      }
+
+
+      if (
+        Number(
+          summary.received_quantity_total,
+        ) <= 0
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(409).json({
+          error:
+            'La recepción no tiene animales recibidos',
+        });
+      }
+
+
+      // =================================================
+      // CERRAR RECEPCIÓN + INICIAR FAENA
+      // =================================================
+
+      const updatedResult =
+        await client.query(
+          `
+          UPDATE slaughterhouse_receptions
+
+          SET
+
+            status =
+              'in_slaughter',
+
+            closed_at =
+              NOW(),
+
+            slaughter_started_at =
+              NOW(),
+
+            updated_at =
+              NOW()
+
+          WHERE
+            id = $1
+
+          RETURNING *
+          `,
+          [
+            receptionId,
+          ],
+        );
+
+
+      await client.query(
+        'COMMIT',
+      );
+
+
+      return res.json({
+
+        message:
+          'Faena iniciada correctamente',
+
+        reception:
+          updatedResult.rows[0],
+
+        summary: {
+
+          trucks_count:
+            Number(
+              summary.trucks_count,
+            ),
+
+          guide_quantity_total:
+            Number(
+              summary.guide_quantity_total,
+            ),
+
+          received_quantity_total:
+            Number(
+              summary.received_quantity_total,
+            ),
+
+          live_weight_total_kg:
+            Number(
+              summary.live_weight_total_kg,
+            ),
+
+        },
+
+      });
+
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK',
+      );
+
+
+      console.error(
+        'START SLAUGHTERHOUSE SLAUGHTER ERROR:',
+        error,
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error iniciando faena',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+  };  
