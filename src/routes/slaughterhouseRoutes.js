@@ -19,6 +19,8 @@ const {
   updateLastSlaughterhouseCarcass,
   finishSlaughterhouseSlaughter,
   getSlaughterhouseExportCatalog,
+  getSlaughterhouseExportProfiles,
+  createSlaughterhouseExportProfile,
 } = require(
   '../controllers/slaughterhouseController'
 );
@@ -123,6 +125,22 @@ router.get(
   '/export/catalog',
   requireAuth,
   getSlaughterhouseExportCatalog,
+);
+
+// =====================================================
+// 📄 PERFILES DE EXPORTACIÓN CSV
+// =====================================================
+
+router.get(
+  '/export/profiles',
+  requireAuth,
+  getSlaughterhouseExportProfiles,
+);
+
+router.post(
+  '/export/profiles',
+  requireAuth,
+  createSlaughterhouseExportProfile,
 );
 
 module.exports = router;

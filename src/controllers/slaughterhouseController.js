@@ -3904,3 +3904,735 @@ exports.getSlaughterhouseExportCatalog =
 
     }
   };
+
+// =====================================================
+// 📄 CAMPOS PERMITIDOS PARA PERFILES CSV
+// =====================================================
+
+const slaughterhouseExportAllowedFields = {
+
+  carcasses: new Set([
+    'reception_number',
+    'plant_lot_number',
+    'sequence_number',
+    'plant_carcass_number',
+    'hook_weight_kg',
+    'recorded_at',
+    'recorded_by',
+  ]),
+
+  trucks: new Set([
+    'reception_number',
+    'plant_lot_number',
+    'plate_snapshot',
+    'animal_type_snapshot',
+    'transport_guide_id',
+    'guide_quantity',
+    'received_quantity',
+    'quantity_difference',
+    'live_weight_kg',
+    'origin_snapshot',
+    'destination_snapshot',
+    'transport_delivered_at',
+    'received_at',
+    'reception_notes',
+  ]),
+
+  summary: new Set([
+    'reception_number',
+    'plant_lot_number',
+    'status',
+    'trucks_count',
+    'guide_quantity_total',
+    'received_quantity_total',
+    'live_weight_total_kg',
+    'carcasses_count',
+    'hook_weight_total_kg',
+    'average_hook_weight_kg',
+    'min_hook_weight_kg',
+    'max_hook_weight_kg',
+    'carcass_yield_percent',
+    'opened_at',
+    'closed_at',
+    'slaughter_started_at',
+    'completed_at',
+  ]),
+
+};
+
+
+// =====================================================
+// 📄 VALIDAR CONFIGURACIÓN DE COLUMNAS
+// =====================================================
+
+function validateExportColumns(
+  datasetType,
+  columnsConfig,
+) {
+
+  const allowed =
+    slaughterhouseExportAllowedFields[
+      datasetType
+    ];
+
+
+  if (!allowed) {
+
+    return {
+      valid: false,
+      error:
+        'Tipo de exportación inválido',
+    };
+  }
+
+
+  if (
+    !Array.isArray(
+      columnsConfig,
+    ) ||
+    columnsConfig.length === 0
+  ) {
+
+    return {
+      valid: false,
+      error:
+        'Debes seleccionar al menos una columna',
+    };
+  }
+
+
+  const usedFields =
+    new Set();
+
+
+  const normalized =
+    [];
+
+
+  for (
+    const column
+    of columnsConfig
+  ) {
+
+    if (
+      !column ||
+      typeof column !==
+        'object'
+    ) {
+
+      return {
+        valid: false,
+        error:
+          'Configuración de columna inválida',
+      };
+    }
+
+
+    const field =
+      column.field
+        ?.toString()
+        .trim();
+
+
+    const header =
+      column.header
+        ?.toString()
+        .trim();
+
+
+    if (
+      !field ||
+      !allowed.has(
+        field,
+      )
+    ) {
+
+      return {
+        valid: false,
+        error:
+          `Campo no permitido: ${field || 'vacío'}`,
+      };
+    }
+
+
+    if (
+      usedFields.has(
+        field,
+      )
+    ) {
+
+      return {
+        valid: false,
+        error:
+          `Campo duplicado: ${field}`,
+      };
+    }
+
+
+    if (
+      !header
+    ) {
+
+      return {
+        valid: false,
+        error:
+          `La columna ${field} debe tener encabezado`,
+      };
+    }
+
+
+    if (
+      header.length > 150
+    ) {
+
+      return {
+        valid: false,
+        error:
+          `Encabezado demasiado largo: ${header}`,
+      };
+    }
+
+
+    usedFields.add(
+      field,
+    );
+
+
+    normalized.push({
+      field,
+      header,
+    });
+  }
+
+
+  return {
+    valid: true,
+    columns:
+      normalized,
+  };
+}
+
+
+// =====================================================
+// 📄 LISTAR PERFILES CSV
+//
+// GET /slaughterhouse/export/profiles
+// =====================================================
+
+exports.getSlaughterhouseExportProfiles =
+  async (req, res) => {
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+
+      if (!operator) {
+
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+
+            id,
+
+            company_id,
+
+            name,
+
+            dataset_type,
+
+            columns_config,
+
+            delimiter,
+
+            decimal_separator,
+
+            date_format,
+
+            include_header,
+
+            encoding,
+
+            is_active,
+
+            created_by,
+
+            created_at,
+
+            updated_at
+
+          FROM slaughterhouse_export_profiles
+
+          WHERE
+            company_id = $1
+
+          ORDER BY
+            is_active DESC,
+            name ASC,
+            id ASC
+          `,
+          [
+            companyId,
+          ],
+        );
+
+
+      return res.json({
+
+        company: {
+          id:
+            companyId,
+
+          name:
+            operator.company_name,
+        },
+
+        profiles:
+          result.rows,
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'GET SLAUGHTERHOUSE EXPORT PROFILES ERROR:',
+        error,
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo perfiles de exportación',
+      });
+
+    }
+  };
+
+
+// =====================================================
+// 📄 CREAR PERFIL CSV
+//
+// POST /slaughterhouse/export/profiles
+//
+// {
+//   "name": "Sistema FRIGOSI",
+//   "dataset_type": "carcasses",
+//   "columns_config": [
+//     {
+//       "field": "plant_lot_number",
+//       "header": "LOTE"
+//     },
+//     {
+//       "field": "hook_weight_kg",
+//       "header": "PESO"
+//     }
+//   ],
+//   "delimiter": ";",
+//   "decimal_separator": ",",
+//   "date_format": "DD/MM/YYYY",
+//   "include_header": true,
+//   "encoding": "utf8-bom"
+// }
+// =====================================================
+
+exports.createSlaughterhouseExportProfile =
+  async (req, res) => {
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+
+      if (!operator) {
+
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+      const userId =
+        Number(
+          operator.user_id,
+        );
+
+
+      const name =
+        req.body.name
+          ?.toString()
+          .trim();
+
+
+      const datasetType =
+        req.body.dataset_type
+          ?.toString()
+          .trim();
+
+
+      const columnsConfig =
+        req.body.columns_config;
+
+
+      let delimiter =
+        req.body.delimiter
+          ?.toString();
+
+
+      const decimalSeparator =
+        req.body.decimal_separator
+          ?.toString() ??
+        '.';
+
+
+      const dateFormat =
+        req.body.date_format
+          ?.toString()
+          .trim() ??
+        'DD/MM/YYYY';
+
+
+      const includeHeader =
+        req.body.include_header ==
+          null
+          ? true
+          : req.body.include_header ===
+            true;
+
+
+      const encoding =
+        req.body.encoding
+          ?.toString()
+          .trim() ??
+        'utf8-bom';
+
+
+      // =================================================
+      // NOMBRE
+      // =================================================
+
+      if (
+        !name ||
+        name.length > 150
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Nombre de perfil inválido',
+        });
+      }
+
+
+      // =================================================
+      // DATASET
+      // =================================================
+
+      if (
+        ![
+          'carcasses',
+          'trucks',
+          'summary',
+        ].includes(
+          datasetType,
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Tipo de exportación inválido',
+        });
+      }
+
+
+      // =================================================
+      // COLUMNAS
+      // =================================================
+
+      const columnsValidation =
+        validateExportColumns(
+          datasetType,
+          columnsConfig,
+        );
+
+
+      if (
+        !columnsValidation.valid
+      ) {
+
+        return res.status(400).json({
+          error:
+            columnsValidation.error,
+        });
+      }
+
+
+      // =================================================
+      // SEPARADOR
+      // =================================================
+
+      if (
+        delimiter === '\\t'
+      ) {
+        delimiter = '\t';
+      }
+
+
+      if (
+        ![
+          ',',
+          ';',
+          '\t',
+        ].includes(
+          delimiter,
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Separador CSV inválido',
+        });
+      }
+
+
+      // =================================================
+      // DECIMALES
+      // =================================================
+
+      if (
+        ![
+          '.',
+          ',',
+        ].includes(
+          decimalSeparator,
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Separador decimal inválido',
+        });
+      }
+
+
+      // =================================================
+      // FECHA
+      // =================================================
+
+      const allowedDateFormats = [
+        'DD/MM/YYYY',
+        'YYYY-MM-DD',
+        'DD-MM-YYYY',
+        'DD/MM/YYYY HH:mm',
+        'YYYY-MM-DD HH:mm:ss',
+      ];
+
+
+      if (
+        !allowedDateFormats.includes(
+          dateFormat,
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Formato de fecha inválido',
+        });
+      }
+
+
+      // =================================================
+      // ENCODING
+      // =================================================
+
+      if (
+        ![
+          'utf8',
+          'utf8-bom',
+        ].includes(
+          encoding,
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Codificación inválida',
+        });
+      }
+
+
+      // =================================================
+      // EVITAR NOMBRE DUPLICADO
+      // =================================================
+
+      const existing =
+        await pool.query(
+          `
+          SELECT id
+
+          FROM slaughterhouse_export_profiles
+
+          WHERE
+            company_id = $1
+
+            AND LOWER(name) =
+              LOWER($2)
+
+          LIMIT 1
+          `,
+          [
+            companyId,
+            name,
+          ],
+        );
+
+
+      if (
+        existing.rows.length > 0
+      ) {
+
+        return res.status(409).json({
+          error:
+            'Ya existe un perfil con ese nombre',
+        });
+      }
+
+
+      // =================================================
+      // GUARDAR
+      // =================================================
+
+      const result =
+        await pool.query(
+          `
+          INSERT INTO slaughterhouse_export_profiles (
+
+            company_id,
+
+            name,
+
+            dataset_type,
+
+            columns_config,
+
+            delimiter,
+
+            decimal_separator,
+
+            date_format,
+
+            include_header,
+
+            encoding,
+
+            is_active,
+
+            created_by
+
+          )
+
+          VALUES (
+
+            $1,
+
+            $2,
+
+            $3,
+
+            $4::jsonb,
+
+            $5,
+
+            $6,
+
+            $7,
+
+            $8,
+
+            $9,
+
+            true,
+
+            $10
+
+          )
+
+          RETURNING *
+          `,
+          [
+            companyId,
+
+            name,
+
+            datasetType,
+
+            JSON.stringify(
+              columnsValidation.columns,
+            ),
+
+            delimiter,
+
+            decimalSeparator,
+
+            dateFormat,
+
+            includeHeader,
+
+            encoding,
+
+            userId,
+          ],
+        );
+
+
+      return res.status(201).json({
+
+        message:
+          'Perfil de exportación creado',
+
+        profile:
+          result.rows[0],
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'CREATE SLAUGHTERHOUSE EXPORT PROFILE ERROR:',
+        error,
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error creando perfil de exportación',
+      });
+
+    }
+  };  
