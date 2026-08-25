@@ -18,6 +18,7 @@ const {
   createSlaughterhouseCarcass,
   updateLastSlaughterhouseCarcass,
   finishSlaughterhouseSlaughter,
+  getSlaughterhouseExportCatalog,
 } = require(
   '../controllers/slaughterhouseController'
 );
@@ -112,6 +113,16 @@ router.post(
   '/slaughter/:id/finish',
   requireAuth,
   finishSlaughterhouseSlaughter,
+);
+
+// =====================================================
+// 📄 CATÁLOGO EXPORTACIÓN CSV
+// =====================================================
+
+router.get(
+  '/export/catalog',
+  requireAuth,
+  getSlaughterhouseExportCatalog,
 );
 
 module.exports = router;

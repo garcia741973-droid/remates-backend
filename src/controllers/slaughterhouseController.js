@@ -2559,7 +2559,7 @@ exports.createSlaughterhouseCarcass =
       client.release();
 
     }
-  };  
+  };
 
 // =====================================================
 // 🏭 CORREGIR ÚLTIMA CARCASA
@@ -2864,7 +2864,7 @@ exports.updateLastSlaughterhouseCarcass =
       client.release();
 
     }
-  };  
+  };
 
 // =====================================================
 // 🏭 FINALIZAR FAENA
@@ -3328,4 +3328,579 @@ exports.finishSlaughterhouseSlaughter =
       client.release();
 
     }
-  };  
+  };
+
+  // =====================================================
+// 📄 CATÁLOGO DE CAMPOS PARA EXPORTACIÓN CSV
+//
+// GET /slaughterhouse/export/catalog
+//
+// Devuelve únicamente campos permitidos.
+// Flutter/Web nunca envían nombres SQL arbitrarios.
+// =====================================================
+
+exports.getSlaughterhouseExportCatalog =
+  async (req, res) => {
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+
+      if (!operator) {
+
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+
+      return res.json({
+
+        datasets: {
+
+          // =============================================
+          // 🐄 CARCASAS
+          // Una fila por carcasa
+          // =============================================
+
+          carcasses: {
+
+            label:
+              'Detalle de carcasas',
+
+            description:
+              'Una fila por carcasa registrada.',
+
+            fields: [
+
+              {
+                field:
+                  'reception_number',
+                label:
+                  'N.º recepción PG',
+                default_header:
+                  'RECEPCION',
+                type:
+                  'text',
+              },
+
+              {
+                field:
+                  'plant_lot_number',
+                label:
+                  'N.º lote planta',
+                default_header:
+                  'LOTE',
+                type:
+                  'text',
+              },
+
+              {
+                field:
+                  'sequence_number',
+                label:
+                  'N.º correlativo carcasa',
+                default_header:
+                  'CORRELATIVO',
+                type:
+                  'integer',
+              },
+
+              {
+                field:
+                  'plant_carcass_number',
+                label:
+                  'N.º carcasa planta',
+                default_header:
+                  'CARCAZA',
+                type:
+                  'text',
+              },
+
+              {
+                field:
+                  'hook_weight_kg',
+                label:
+                  'Peso gancho',
+                default_header:
+                  'PESO_GANCHO',
+                type:
+                  'decimal',
+              },
+
+              {
+                field:
+                  'recorded_at',
+                label:
+                  'Fecha/hora pesaje',
+                default_header:
+                  'FECHA_PESAJE',
+                type:
+                  'datetime',
+              },
+
+              {
+                field:
+                  'recorded_by',
+                label:
+                  'ID operador',
+                default_header:
+                  'OPERADOR',
+                type:
+                  'integer',
+              },
+
+            ],
+
+          },
+
+
+          // =============================================
+          // 🚛 CAMIONES / RECEPCIÓN
+          // Una fila por camión
+          // =============================================
+
+          trucks: {
+
+            label:
+              'Camiones y recepción',
+
+            description:
+              'Una fila por camión perteneciente a la recepción.',
+
+            fields: [
+
+              {
+                field:
+                  'reception_number',
+                label:
+                  'N.º recepción PG',
+                default_header:
+                  'RECEPCION',
+                type:
+                  'text',
+              },
+
+              {
+                field:
+                  'plant_lot_number',
+                label:
+                  'N.º lote planta',
+                default_header:
+                  'LOTE',
+                type:
+                  'text',
+              },
+
+              {
+                field:
+                  'plate_snapshot',
+                label:
+                  'Placa',
+                default_header:
+                  'PLACA',
+                type:
+                  'text',
+              },
+
+              {
+                field:
+                  'animal_type_snapshot',
+                label:
+                  'Tipo de ganado',
+                default_header:
+                  'TIPO_ANIMAL',
+                type:
+                  'text',
+              },
+
+              {
+                field:
+                  'transport_guide_id',
+                label:
+                  'ID guía',
+                default_header:
+                  'GUIA',
+                type:
+                  'integer',
+              },
+
+              {
+                field:
+                  'guide_quantity',
+                label:
+                  'Cantidad según guía',
+                default_header:
+                  'CANTIDAD_GUIA',
+                type:
+                  'integer',
+              },
+
+              {
+                field:
+                  'received_quantity',
+                label:
+                  'Cantidad recibida',
+                default_header:
+                  'CANTIDAD_RECIBIDA',
+                type:
+                  'integer',
+              },
+
+              {
+                field:
+                  'quantity_difference',
+                label:
+                  'Diferencia recepción',
+                default_header:
+                  'DIFERENCIA',
+                type:
+                  'integer',
+              },
+
+              {
+                field:
+                  'live_weight_kg',
+                label:
+                  'Peso vivo',
+                default_header:
+                  'PESO_VIVO',
+                type:
+                  'decimal',
+              },
+
+              {
+                field:
+                  'origin_snapshot',
+                label:
+                  'Origen',
+                default_header:
+                  'ORIGEN',
+                type:
+                  'text',
+              },
+
+              {
+                field:
+                  'destination_snapshot',
+                label:
+                  'Destino',
+                default_header:
+                  'DESTINO',
+                type:
+                  'text',
+              },
+
+              {
+                field:
+                  'transport_delivered_at',
+                label:
+                  'Fecha/hora llegada',
+                default_header:
+                  'LLEGADA',
+                type:
+                  'datetime',
+              },
+
+              {
+                field:
+                  'received_at',
+                label:
+                  'Fecha/hora recepción',
+                default_header:
+                  'RECEPCION_FECHA',
+                type:
+                  'datetime',
+              },
+
+              {
+                field:
+                  'reception_notes',
+                label:
+                  'Observaciones recepción',
+                default_header:
+                  'OBSERVACIONES',
+                type:
+                  'text',
+              },
+
+            ],
+
+          },
+
+
+          // =============================================
+          // 📊 RESUMEN DEL LOTE
+          // Una fila por recepción
+          // =============================================
+
+          summary: {
+
+            label:
+              'Resumen de lote',
+
+            description:
+              'Una fila por recepción o lote de planta.',
+
+            fields: [
+
+              {
+                field:
+                  'reception_number',
+                label:
+                  'N.º recepción PG',
+                default_header:
+                  'RECEPCION',
+                type:
+                  'text',
+              },
+
+              {
+                field:
+                  'plant_lot_number',
+                label:
+                  'N.º lote planta',
+                default_header:
+                  'LOTE',
+                type:
+                  'text',
+              },
+
+              {
+                field:
+                  'status',
+                label:
+                  'Estado',
+                default_header:
+                  'ESTADO',
+                type:
+                  'text',
+              },
+
+              {
+                field:
+                  'trucks_count',
+                label:
+                  'Cantidad de camiones',
+                default_header:
+                  'CAMIONES',
+                type:
+                  'integer',
+              },
+
+              {
+                field:
+                  'guide_quantity_total',
+                label:
+                  'Animales según guía',
+                default_header:
+                  'ANIMALES_GUIA',
+                type:
+                  'integer',
+              },
+
+              {
+                field:
+                  'received_quantity_total',
+                label:
+                  'Animales recibidos',
+                default_header:
+                  'ANIMALES_RECIBIDOS',
+                type:
+                  'integer',
+              },
+
+              {
+                field:
+                  'live_weight_total_kg',
+                label:
+                  'Peso vivo total',
+                default_header:
+                  'PESO_VIVO',
+                type:
+                  'decimal',
+              },
+
+              {
+                field:
+                  'carcasses_count',
+                label:
+                  'Cantidad de carcasas',
+                default_header:
+                  'CARCASAS',
+                type:
+                  'integer',
+              },
+
+              {
+                field:
+                  'hook_weight_total_kg',
+                label:
+                  'Peso gancho total',
+                default_header:
+                  'PESO_GANCHO',
+                type:
+                  'decimal',
+              },
+
+              {
+                field:
+                  'average_hook_weight_kg',
+                label:
+                  'Peso promedio carcasa',
+                default_header:
+                  'PROMEDIO_CARCASA',
+                type:
+                  'decimal',
+              },
+
+              {
+                field:
+                  'min_hook_weight_kg',
+                label:
+                  'Menor peso carcasa',
+                default_header:
+                  'PESO_MINIMO',
+                type:
+                  'decimal',
+              },
+
+              {
+                field:
+                  'max_hook_weight_kg',
+                label:
+                  'Mayor peso carcasa',
+                default_header:
+                  'PESO_MAXIMO',
+                type:
+                  'decimal',
+              },
+
+              {
+                field:
+                  'carcass_yield_percent',
+                label:
+                  'Rendimiento carcasa',
+                default_header:
+                  'RENDIMIENTO',
+                type:
+                  'decimal',
+              },
+
+              {
+                field:
+                  'opened_at',
+                label:
+                  'Inicio recepción',
+                default_header:
+                  'INICIO_RECEPCION',
+                type:
+                  'datetime',
+              },
+
+              {
+                field:
+                  'closed_at',
+                label:
+                  'Cierre recepción',
+                default_header:
+                  'CIERRE_RECEPCION',
+                type:
+                  'datetime',
+              },
+
+              {
+                field:
+                  'slaughter_started_at',
+                label:
+                  'Inicio faena',
+                default_header:
+                  'INICIO_FAENA',
+                type:
+                  'datetime',
+              },
+
+              {
+                field:
+                  'completed_at',
+                label:
+                  'Fin faena',
+                default_header:
+                  'FIN_FAENA',
+                type:
+                  'datetime',
+              },
+
+            ],
+
+          },
+
+        },
+
+
+        options: {
+
+          delimiters: [
+            {
+              value: ',',
+              label: 'Coma (,)',
+            },
+            {
+              value: ';',
+              label: 'Punto y coma (;)',
+            },
+            {
+              value: '\\t',
+              label: 'Tabulación',
+            },
+          ],
+
+          decimal_separators: [
+            '.',
+            ',',
+          ],
+
+          date_formats: [
+            'DD/MM/YYYY',
+            'YYYY-MM-DD',
+            'DD-MM-YYYY',
+            'DD/MM/YYYY HH:mm',
+            'YYYY-MM-DD HH:mm:ss',
+          ],
+
+          encodings: [
+            {
+              value: 'utf8',
+              label: 'UTF-8',
+            },
+            {
+              value: 'utf8-bom',
+              label: 'UTF-8 con BOM / Excel',
+            },
+          ],
+
+        },
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'GET SLAUGHTERHOUSE EXPORT CATALOG ERROR:',
+        error,
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo configuración de exportación',
+      });
+
+    }
+  };
