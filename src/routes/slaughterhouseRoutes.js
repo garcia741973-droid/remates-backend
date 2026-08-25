@@ -10,25 +10,31 @@ const {
 
 const {
   getSlaughterhouseTrucks,
+  createSlaughterhouseReception,
 } = require(
   '../controllers/slaughterhouseController'
 );
 
 
 // =====================================================
-// 🏭 OPERACIONES DE FRIGORÍFICO
-// =====================================================
-
-
-// =====================================================
-// 🚛 CAMIONES CONTRATADOS POR EL FRIGORÍFICO
-// SOLO LECTURA
+// 🚛 SEGUIMIENTO DE CAMIONES
 // =====================================================
 
 router.get(
   '/trucks',
   requireAuth,
   getSlaughterhouseTrucks,
+);
+
+
+// =====================================================
+// 🐄 RECEPCIÓN DE GANADO
+// =====================================================
+
+router.post(
+  '/receptions',
+  requireAuth,
+  createSlaughterhouseReception,
 );
 
 

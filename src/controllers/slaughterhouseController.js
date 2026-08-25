@@ -320,3 +320,320 @@ exports.getSlaughterhouseTrucks =
       });
     }
   };
+
+// =====================================================
+// 🐄 RECIBIR GANADO EN FRIGORÍFICO
+//
+// POST /slaughterhouse/receptions
+//
+// Convierte un transporte contratado por el frigorífico
+// en un lote recibido de planta.
+//
+// NO modifica el estado de Plaza Transporte.
+// =====================================================
+
+exports.createSlaughterhouseReception =
+  async (req, res) => {
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+
+      if (!operator) {
+
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+      const userId =
+        Number(
+          operator.user_id,
+        );
+
+
+      const negotiationId =
+        Number(
+          req.body.negotiation_id,
+        );
+
+      const receivedQuantity =
+        Number(
+          req.body.received_quantity,
+        );
+
+      const liveWeight =
+        Number(
+          req.body.live_weight,
+        );
+
+      const receptionNotes =
+        req.body.reception_notes
+          ?.toString()
+          .trim() || null;
+
+
+      // =================================================
+      // VALIDACIONES
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          negotiationId
+        ) ||
+        negotiationId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Negociación inválida',
+        });
+      }
+
+
+      if (
+        !Number.isInteger(
+          receivedQuantity
+        ) ||
+        receivedQuantity <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'La cantidad recibida debe ser mayor a cero',
+        });
+      }
+
+
+      if (
+        !Number.isFinite(
+          liveWeight
+        ) ||
+        liveWeight <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'El peso vivo debe ser mayor a cero',
+        });
+      }
+
+
+      // =================================================
+      // VERIFICAR SI YA FUE RECIBIDO
+      // =================================================
+
+      const existing =
+        await pool.query(
+          `
+          SELECT
+            id,
+            company_id,
+            transport_negotiation_id,
+            received_at,
+            status
+
+          FROM slaughterhouse_lots
+
+          WHERE
+            company_id = $1
+            AND transport_negotiation_id = $2
+
+          LIMIT 1
+          `,
+          [
+            companyId,
+            negotiationId,
+          ],
+        );
+
+
+      if (
+        existing.rows.length > 0
+      ) {
+
+        return res.status(409).json({
+          error:
+            'Este transporte ya fue recibido',
+          lot:
+            existing.rows[0],
+        });
+      }
+
+
+      // =================================================
+      // CREAR LOTE DESDE TRANSPORTE
+      // =================================================
+
+      const result =
+        await pool.query(
+          `
+          INSERT INTO slaughterhouse_lots (
+
+            company_id,
+
+            source_type,
+
+            transport_negotiation_id,
+
+            transport_request_id,
+
+            truck_id,
+
+            transporter_id,
+
+            animal_type,
+
+            expected_quantity,
+
+            received_quantity,
+
+            live_weight,
+
+            origin_snapshot,
+
+            plate_snapshot,
+
+            reception_notes,
+
+            received_by,
+
+            received_at,
+
+            status
+
+          )
+
+          SELECT
+
+            $1,
+
+            'transport',
+
+            tn.id,
+
+            tr.id,
+
+            tt.id,
+
+            tn.transporter_id,
+
+            tr.animal_type,
+
+            tr.quantity,
+
+            $3,
+
+            $4,
+
+            tr.origin,
+
+            tt.plate,
+
+            $5,
+
+            $6,
+
+            NOW(),
+
+            'received'
+
+          FROM transport_negotiations tn
+
+          JOIN transport_requests tr
+            ON tr.id = tn.request_id
+
+          JOIN transporter_trucks tt
+            ON tt.id = tn.truck_id
+
+          WHERE
+
+            tn.id = $2
+
+            AND tr.requester_company_id = $1
+
+            AND tn.status IN (
+
+              'paid',
+
+              'loading_completed',
+
+              'trip_active',
+
+              'in_trip',
+
+              'delivery_pending'
+
+            )
+
+          RETURNING *
+          `,
+          [
+            companyId,
+            negotiationId,
+            receivedQuantity,
+            liveWeight,
+            receptionNotes,
+            userId,
+          ],
+        );
+
+
+      if (
+        result.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+          error:
+            'No se encontró un transporte válido de este frigorífico',
+        });
+      }
+
+
+      return res.status(201).json({
+
+        message:
+          'Ganado recibido correctamente',
+
+        lot:
+          result.rows[0],
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'CREATE SLAUGHTERHOUSE RECEPTION ERROR:',
+        error,
+      );
+
+
+      if (
+        error.code === '23505'
+      ) {
+
+        return res.status(409).json({
+          error:
+            'Este transporte ya fue recibido',
+        });
+      }
+
+
+      return res.status(500).json({
+        error:
+          'Error registrando recepción de ganado',
+      });
+    }
+  };  
