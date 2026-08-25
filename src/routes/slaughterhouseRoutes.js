@@ -21,6 +21,8 @@ const {
   getSlaughterhouseExportCatalog,
   getSlaughterhouseExportProfiles,
   createSlaughterhouseExportProfile,
+  updateSlaughterhouseExportProfile,
+  deleteSlaughterhouseExportProfile,
 } = require(
   '../controllers/slaughterhouseController'
 );
@@ -141,6 +143,19 @@ router.post(
   '/export/profiles',
   requireAuth,
   createSlaughterhouseExportProfile,
+);
+
+router.put(
+  '/export/profiles/:id',
+  requireAuth,
+  updateSlaughterhouseExportProfile,
+);
+
+
+router.delete(
+  '/export/profiles/:id',
+  requireAuth,
+  deleteSlaughterhouseExportProfile,
 );
 
 module.exports = router;

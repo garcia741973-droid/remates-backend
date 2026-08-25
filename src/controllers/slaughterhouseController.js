@@ -4635,4 +4635,551 @@ exports.createSlaughterhouseExportProfile =
       });
 
     }
+  };
+  
+// =====================================================
+// 📄 ACTUALIZAR PERFIL CSV
+//
+// PUT /slaughterhouse/export/profiles/:id
+// =====================================================
+
+exports.updateSlaughterhouseExportProfile =
+  async (req, res) => {
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+
+      if (!operator) {
+
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+      const profileId =
+        Number(
+          req.params.id,
+        );
+
+
+      if (
+        !Number.isInteger(
+          profileId,
+        ) ||
+        profileId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Perfil inválido',
+        });
+      }
+
+
+      // =================================================
+      // PERFIL ACTUAL
+      // =================================================
+
+      const currentResult =
+        await pool.query(
+          `
+          SELECT *
+
+          FROM slaughterhouse_export_profiles
+
+          WHERE
+            id = $1
+            AND company_id = $2
+
+          LIMIT 1
+          `,
+          [
+            profileId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        currentResult.rows.length ===
+          0
+      ) {
+
+        return res.status(404).json({
+          error:
+            'Perfil de exportación no encontrado',
+        });
+      }
+
+
+      const current =
+        currentResult.rows[0];
+
+
+      // =================================================
+      // VALORES NUEVOS
+      // =================================================
+
+      const name =
+        req.body.name == null
+          ? current.name
+          : req.body.name
+              .toString()
+              .trim();
+
+
+      const datasetType =
+        req.body.dataset_type ==
+          null
+          ? current.dataset_type
+          : req.body.dataset_type
+              .toString()
+              .trim();
+
+
+      const columnsConfig =
+        req.body.columns_config ==
+          null
+          ? current.columns_config
+          : req.body.columns_config;
+
+
+      let delimiter =
+        req.body.delimiter ==
+          null
+          ? current.delimiter
+          : req.body.delimiter
+              .toString();
+
+
+      const decimalSeparator =
+        req.body.decimal_separator ==
+          null
+          ? current.decimal_separator
+          : req.body.decimal_separator
+              .toString();
+
+
+      const dateFormat =
+        req.body.date_format ==
+          null
+          ? current.date_format
+          : req.body.date_format
+              .toString()
+              .trim();
+
+
+      const includeHeader =
+        req.body.include_header ==
+          null
+          ? current.include_header
+          : req.body.include_header ===
+            true;
+
+
+      const encoding =
+        req.body.encoding ==
+          null
+          ? current.encoding
+          : req.body.encoding
+              .toString()
+              .trim();
+
+
+      const isActive =
+        req.body.is_active ==
+          null
+          ? current.is_active
+          : req.body.is_active ===
+            true;
+
+
+      // =================================================
+      // VALIDACIONES
+      // =================================================
+
+      if (
+        !name ||
+        name.length > 150
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Nombre de perfil inválido',
+        });
+      }
+
+
+      if (
+        ![
+          'carcasses',
+          'trucks',
+          'summary',
+        ].includes(
+          datasetType,
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Tipo de exportación inválido',
+        });
+      }
+
+
+      const columnsValidation =
+        validateExportColumns(
+          datasetType,
+          columnsConfig,
+        );
+
+
+      if (
+        !columnsValidation.valid
+      ) {
+
+        return res.status(400).json({
+          error:
+            columnsValidation.error,
+        });
+      }
+
+
+      if (
+        delimiter === '\\t'
+      ) {
+        delimiter = '\t';
+      }
+
+
+      if (
+        ![
+          ',',
+          ';',
+          '\t',
+        ].includes(
+          delimiter,
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Separador CSV inválido',
+        });
+      }
+
+
+      if (
+        ![
+          '.',
+          ',',
+        ].includes(
+          decimalSeparator,
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Separador decimal inválido',
+        });
+      }
+
+
+      const allowedDateFormats = [
+        'DD/MM/YYYY',
+        'YYYY-MM-DD',
+        'DD-MM-YYYY',
+        'DD/MM/YYYY HH:mm',
+        'YYYY-MM-DD HH:mm:ss',
+      ];
+
+
+      if (
+        !allowedDateFormats.includes(
+          dateFormat,
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Formato de fecha inválido',
+        });
+      }
+
+
+      if (
+        ![
+          'utf8',
+          'utf8-bom',
+        ].includes(
+          encoding,
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Codificación inválida',
+        });
+      }
+
+
+      // =================================================
+      // NOMBRE DUPLICADO
+      // =================================================
+
+      const duplicate =
+        await pool.query(
+          `
+          SELECT id
+
+          FROM slaughterhouse_export_profiles
+
+          WHERE
+            company_id = $1
+
+            AND LOWER(name) =
+              LOWER($2)
+
+            AND id <> $3
+
+          LIMIT 1
+          `,
+          [
+            companyId,
+            name,
+            profileId,
+          ],
+        );
+
+
+      if (
+        duplicate.rows.length > 0
+      ) {
+
+        return res.status(409).json({
+          error:
+            'Ya existe otro perfil con ese nombre',
+        });
+      }
+
+
+      // =================================================
+      // ACTUALIZAR
+      // =================================================
+
+      const result =
+        await pool.query(
+          `
+          UPDATE slaughterhouse_export_profiles
+
+          SET
+
+            name = $1,
+
+            dataset_type = $2,
+
+            columns_config =
+              $3::jsonb,
+
+            delimiter = $4,
+
+            decimal_separator = $5,
+
+            date_format = $6,
+
+            include_header = $7,
+
+            encoding = $8,
+
+            is_active = $9,
+
+            updated_at =
+              NOW()
+
+          WHERE
+            id = $10
+            AND company_id = $11
+
+          RETURNING *
+          `,
+          [
+            name,
+
+            datasetType,
+
+            JSON.stringify(
+              columnsValidation.columns,
+            ),
+
+            delimiter,
+
+            decimalSeparator,
+
+            dateFormat,
+
+            includeHeader,
+
+            encoding,
+
+            isActive,
+
+            profileId,
+
+            companyId,
+          ],
+        );
+
+
+      return res.json({
+
+        message:
+          'Perfil de exportación actualizado',
+
+        profile:
+          result.rows[0],
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'UPDATE SLAUGHTERHOUSE EXPORT PROFILE ERROR:',
+        error,
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error actualizando perfil de exportación',
+      });
+
+    }
+  };
+
+
+// =====================================================
+// 📄 DESACTIVAR PERFIL CSV
+//
+// DELETE /slaughterhouse/export/profiles/:id
+//
+// No elimina físicamente.
+// is_active = false
+// =====================================================
+
+exports.deleteSlaughterhouseExportProfile =
+  async (req, res) => {
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+
+      if (!operator) {
+
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+      const profileId =
+        Number(
+          req.params.id,
+        );
+
+
+      if (
+        !Number.isInteger(
+          profileId,
+        ) ||
+        profileId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Perfil inválido',
+        });
+      }
+
+
+      const result =
+        await pool.query(
+          `
+          UPDATE slaughterhouse_export_profiles
+
+          SET
+            is_active = false,
+            updated_at = NOW()
+
+          WHERE
+            id = $1
+            AND company_id = $2
+
+          RETURNING *
+          `,
+          [
+            profileId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        result.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+          error:
+            'Perfil de exportación no encontrado',
+        });
+      }
+
+
+      return res.json({
+
+        message:
+          'Perfil de exportación desactivado',
+
+        profile:
+          result.rows[0],
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'DELETE SLAUGHTERHOUSE EXPORT PROFILE ERROR:',
+        error,
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error desactivando perfil de exportación',
+      });
+
+    }
   };  
