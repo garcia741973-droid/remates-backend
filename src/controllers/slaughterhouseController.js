@@ -660,13 +660,15 @@ exports.getSlaughterhouseReceptionCandidates =
 exports.createSlaughterhouseReception =
   async (req, res) => {
 
+    const client =
+      await pool.connect();
+
     try {
 
       const operator =
         await getAuthenticatedSlaughterhouseOperator(
           req,
         );
-
 
       if (!operator) {
 
@@ -693,15 +695,30 @@ exports.createSlaughterhouseReception =
           req.body.negotiation_id,
         );
 
+      const existingReceptionId =
+        req.body.reception_id == null
+          ? null
+          : Number(
+              req.body.reception_id,
+            );
+
+      const plantLotNumber =
+        req.body.plant_lot_number
+          ?.toString()
+          .trim() || null;
+
       const receivedQuantity =
         Number(
           req.body.received_quantity,
         );
 
-      const liveWeight =
-        Number(
-          req.body.live_weight,
-        );
+      const liveWeightKg =
+        req.body.live_weight_kg == null ||
+        req.body.live_weight_kg === ''
+          ? null
+          : Number(
+              req.body.live_weight_kg,
+            );
 
       const receptionNotes =
         req.body.reception_notes
@@ -710,12 +727,12 @@ exports.createSlaughterhouseReception =
 
 
       // =================================================
-      // VALIDACIONES
+      // VALIDACIONES BÁSICAS
       // =================================================
 
       if (
         !Number.isInteger(
-          negotiationId
+          negotiationId,
         ) ||
         negotiationId <= 0
       ) {
@@ -729,215 +746,645 @@ exports.createSlaughterhouseReception =
 
       if (
         !Number.isInteger(
-          receivedQuantity
+          receivedQuantity,
         ) ||
-        receivedQuantity <= 0
+        receivedQuantity < 0
       ) {
 
         return res.status(400).json({
           error:
-            'La cantidad recibida debe ser mayor a cero',
+            'Cantidad recibida inválida',
         });
       }
 
 
       if (
-        !Number.isFinite(
-          liveWeight
-        ) ||
-        liveWeight <= 0
+        liveWeightKg != null &&
+        (
+          !Number.isFinite(
+            liveWeightKg,
+          ) ||
+          liveWeightKg <= 0
+        )
       ) {
 
         return res.status(400).json({
           error:
-            'El peso vivo debe ser mayor a cero',
+            'Peso vivo inválido',
+        });
+      }
+
+
+      if (
+        existingReceptionId != null &&
+        (
+          !Number.isInteger(
+            existingReceptionId,
+          ) ||
+          existingReceptionId <= 0
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Recepción inválida',
+        });
+      }
+
+
+      await client.query(
+        'BEGIN',
+      );
+
+
+      // =================================================
+      // TRANSPORTE + ÚLTIMA GUÍA
+      // =================================================
+
+      const transportResult =
+        await client.query(
+          `
+          SELECT
+
+            tn.id
+              AS negotiation_id,
+
+            tn.status,
+
+            tn.delivered_at,
+
+            tn.transporter_id,
+
+            tr.id
+              AS request_id,
+
+            tr.requester_company_id,
+
+            tr.origin,
+
+            tr.destination,
+
+            tr.animal_type,
+
+            tr.quantity
+              AS request_quantity,
+
+            tt.id
+              AS truck_id,
+
+            tt.plate,
+
+            tg.id
+              AS guide_id,
+
+            tg.guide_image_url,
+
+            COALESCE(
+              tg.male_0_12,
+              0
+            )::int
+              AS male_0_12,
+
+            COALESCE(
+              tg.female_0_12,
+              0
+            )::int
+              AS female_0_12,
+
+            COALESCE(
+              tg.male_13_24,
+              0
+            )::int
+              AS male_13_24,
+
+            COALESCE(
+              tg.female_13_24,
+              0
+            )::int
+              AS female_13_24,
+
+            COALESCE(
+              tg.male_25_36,
+              0
+            )::int
+              AS male_25_36,
+
+            COALESCE(
+              tg.female_25_36,
+              0
+            )::int
+              AS female_25_36,
+
+            COALESCE(
+              tg.male_36_plus,
+              0
+            )::int
+              AS male_36_plus,
+
+            COALESCE(
+              tg.female_36_plus,
+              0
+            )::int
+              AS female_36_plus
+
+          FROM transport_negotiations tn
+
+          JOIN transport_requests tr
+            ON tr.id =
+              tn.request_id
+
+          JOIN transporter_trucks tt
+            ON tt.id =
+              tn.truck_id
+
+          LEFT JOIN LATERAL (
+
+            SELECT
+              tg2.*
+
+            FROM transport_guides tg2
+
+            WHERE
+              tg2.negotiation_id =
+                tn.id
+
+            ORDER BY
+              tg2.id DESC
+
+            LIMIT 1
+
+          ) tg
+            ON true
+
+          WHERE
+
+            tn.id = $1
+
+            AND tr.requester_company_id =
+              $2
+
+          LIMIT 1
+
+          FOR UPDATE OF tn
+          `,
+          [
+            negotiationId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        transportResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(404).json({
+          error:
+            'Transporte no encontrado para este frigorífico',
+        });
+      }
+
+
+      const transport =
+        transportResult.rows[0];
+
+
+      // =================================================
+      // EL CAMIÓN DEBE HABER FINALIZADO SU RUTA
+      // =================================================
+
+      if (
+        transport.delivered_at == null
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(409).json({
+          error:
+            'El camión todavía no finalizó la ruta',
         });
       }
 
 
       // =================================================
-      // VERIFICAR SI YA FUE RECIBIDO
+      // DEBE EXISTIR GUÍA
       // =================================================
 
-      const existing =
-        await pool.query(
+      if (
+        transport.guide_id == null
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(409).json({
+          error:
+            'El transporte no tiene guía registrada',
+        });
+      }
+
+
+      const guideQuantity =
+        Number(
+          transport.male_0_12,
+        ) +
+        Number(
+          transport.female_0_12,
+        ) +
+        Number(
+          transport.male_13_24,
+        ) +
+        Number(
+          transport.female_13_24,
+        ) +
+        Number(
+          transport.male_25_36,
+        ) +
+        Number(
+          transport.female_25_36,
+        ) +
+        Number(
+          transport.male_36_plus,
+        ) +
+        Number(
+          transport.female_36_plus,
+        );
+
+
+      // =================================================
+      // SI HAY DIFERENCIA, EXIGIR OBSERVACIÓN
+      // =================================================
+
+      if (
+        receivedQuantity !==
+          guideQuantity &&
+        !receptionNotes
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(400).json({
+          error:
+            'Existe diferencia entre la guía y lo recibido. Debes registrar una observación.',
+          guide_quantity:
+            guideQuantity,
+          received_quantity:
+            receivedQuantity,
+        });
+      }
+
+
+      // =================================================
+      // EVITAR DOBLE RECEPCIÓN DEL MISMO CAMIÓN
+      // =================================================
+
+      const alreadyReceived =
+        await client.query(
           `
           SELECT
             id,
-            company_id,
-            transport_negotiation_id,
-            received_at,
-            status
+            reception_id,
+            received_at
 
-          FROM slaughterhouse_lots
+          FROM slaughterhouse_reception_trucks
 
           WHERE
-            company_id = $1
-            AND transport_negotiation_id = $2
+            transport_negotiation_id =
+              $1
 
           LIMIT 1
           `,
           [
-            companyId,
             negotiationId,
           ],
         );
 
 
       if (
-        existing.rows.length > 0
+        alreadyReceived.rows.length >
+          0
       ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
 
         return res.status(409).json({
           error:
-            'Este transporte ya fue recibido',
-          lot:
-            existing.rows[0],
+            'Este transporte ya fue recepcionado',
+          reception:
+            alreadyReceived.rows[0],
         });
       }
 
 
       // =================================================
-      // CREAR LOTE DESDE TRANSPORTE
+      // RECEPCIÓN CABECERA
       // =================================================
 
-      const result =
-        await pool.query(
+      let reception;
+
+
+      if (
+        existingReceptionId != null
+      ) {
+
+        const receptionResult =
+          await client.query(
+            `
+            SELECT *
+
+            FROM slaughterhouse_receptions
+
+            WHERE
+              id = $1
+              AND company_id = $2
+              AND status = 'open'
+
+            LIMIT 1
+
+            FOR UPDATE
+            `,
+            [
+              existingReceptionId,
+              companyId,
+            ],
+          );
+
+
+        if (
+          receptionResult.rows.length ===
+            0
+        ) {
+
+          await client.query(
+            'ROLLBACK',
+          );
+
+          return res.status(404).json({
+            error:
+              'La recepción seleccionada no existe o ya está cerrada',
+          });
+        }
+
+
+        reception =
+          receptionResult.rows[0];
+
+      } else {
+
+        const receptionResult =
+          await client.query(
+            `
+            INSERT INTO slaughterhouse_receptions (
+
+              company_id,
+
+              plant_lot_number,
+
+              status,
+
+              created_by,
+
+              opened_at
+
+            )
+
+            VALUES (
+
+              $1,
+
+              $2,
+
+              'open',
+
+              $3,
+
+              NOW()
+
+            )
+
+            RETURNING *
+            `,
+            [
+              companyId,
+              plantLotNumber,
+              userId,
+            ],
+          );
+
+
+        reception =
+          receptionResult.rows[0];
+      }
+
+
+      // =================================================
+      // AGREGAR CAMIÓN A LA RECEPCIÓN
+      // =================================================
+
+      const truckResult =
+        await client.query(
           `
-          INSERT INTO slaughterhouse_lots (
+          INSERT INTO slaughterhouse_reception_trucks (
 
-            company_id,
-
-            source_type,
+            reception_id,
 
             transport_negotiation_id,
 
             transport_request_id,
 
+            transport_guide_id,
+
             truck_id,
 
             transporter_id,
 
-            animal_type,
+            plate_snapshot,
 
-            expected_quantity,
-
-            received_quantity,
-
-            live_weight,
+            animal_type_snapshot,
 
             origin_snapshot,
 
-            plate_snapshot,
+            destination_snapshot,
 
-            reception_notes,
+            guide_quantity,
 
-            received_by,
+            received_quantity,
+
+            male_0_12,
+
+            female_0_12,
+
+            male_13_24,
+
+            female_13_24,
+
+            male_25_36,
+
+            female_25_36,
+
+            male_36_plus,
+
+            female_36_plus,
+
+            guide_image_url,
+
+            live_weight_kg,
+
+            transport_delivered_at,
 
             received_at,
 
-            status
+            received_by,
+
+            reception_notes
 
           )
 
-          SELECT
+          VALUES (
 
-            $1,
+            $1,$2,$3,$4,$5,$6,
 
-            'transport',
+            $7,$8,$9,$10,
 
-            tn.id,
+            $11,$12,
 
-            tr.id,
+            $13,$14,$15,$16,
 
-            tt.id,
+            $17,$18,$19,$20,
 
-            tn.transporter_id,
-
-            tr.animal_type,
-
-            tr.quantity,
-
-            $3,
-
-            $4,
-
-            tr.origin,
-
-            tt.plate,
-
-            $5,
-
-            $6,
+            $21,$22,$23,
 
             NOW(),
 
-            'received'
+            $24,$25
 
-          FROM transport_negotiations tn
-
-          JOIN transport_requests tr
-            ON tr.id = tn.request_id
-
-          JOIN transporter_trucks tt
-            ON tt.id = tn.truck_id
-
-          WHERE
-
-            tn.id = $2
-
-            AND tr.requester_company_id = $1
-
-            AND tn.status IN (
-
-              'paid',
-
-              'loading_completed',
-
-              'trip_active',
-
-              'in_trip',
-
-              'delivery_pending'
-
-            )
+          )
 
           RETURNING *
           `,
           [
-            companyId,
-            negotiationId,
+            reception.id,
+
+            transport.negotiation_id,
+
+            transport.request_id,
+
+            transport.guide_id,
+
+            transport.truck_id,
+
+            transport.transporter_id,
+
+            transport.plate,
+
+            transport.animal_type,
+
+            transport.origin,
+
+            transport.destination,
+
+            guideQuantity,
+
             receivedQuantity,
-            liveWeight,
-            receptionNotes,
+
+            transport.male_0_12,
+
+            transport.female_0_12,
+
+            transport.male_13_24,
+
+            transport.female_13_24,
+
+            transport.male_25_36,
+
+            transport.female_25_36,
+
+            transport.male_36_plus,
+
+            transport.female_36_plus,
+
+            transport.guide_image_url,
+
+            liveWeightKg,
+
+            transport.delivered_at,
+
             userId,
+
+            receptionNotes,
           ],
         );
 
 
-      if (
-        result.rows.length === 0
-      ) {
+      // =================================================
+      // ACTUALIZAR CABECERA
+      // =================================================
 
-        return res.status(404).json({
-          error:
-            'No se encontró un transporte válido de este frigorífico',
-        });
-      }
+      await client.query(
+        `
+        UPDATE slaughterhouse_receptions
+
+        SET
+          updated_at = NOW()
+
+        WHERE
+          id = $1
+        `,
+        [
+          reception.id,
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT',
+      );
 
 
       return res.status(201).json({
 
         message:
-          'Ganado recibido correctamente',
+          'Ganado recepcionado correctamente',
 
-        lot:
-          result.rows[0],
+        reception: {
+
+          id:
+            reception.id,
+
+          reception_number:
+            reception.reception_number,
+
+          plant_lot_number:
+            reception.plant_lot_number,
+
+          status:
+            reception.status,
+
+        },
+
+        truck:
+          truckResult.rows[0],
 
       });
 
 
     } catch (error) {
+
+      await client.query(
+        'ROLLBACK',
+      );
+
 
       console.error(
         'CREATE SLAUGHTERHOUSE RECEPTION ERROR:',
@@ -951,7 +1398,7 @@ exports.createSlaughterhouseReception =
 
         return res.status(409).json({
           error:
-            'Este transporte ya fue recibido',
+            'Este transporte ya fue recepcionado',
         });
       }
 
@@ -960,5 +1407,10 @@ exports.createSlaughterhouseReception =
         error:
           'Error registrando recepción de ganado',
       });
+
+    } finally {
+
+      client.release();
+
     }
-  };  
+  };
