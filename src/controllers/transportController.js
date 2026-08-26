@@ -4436,6 +4436,22 @@ const createDeliveryReport =
         ]
       );
 
+      // =====================================================
+      // ✅ CERRAR TAMBIÉN LA SOLICITUD DE TRANSPORTE
+      // =====================================================
+
+      await pool.query(
+        `
+        UPDATE transport_requests
+        SET status = 'delivered'
+        WHERE id = $1
+          AND status = 'paid'
+        `,
+        [
+          negotiation.request_id,
+        ]
+      );
+
       await pool.query(
         `
         INSERT INTO transport_trip_events (
