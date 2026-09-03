@@ -1,13 +1,11 @@
 
+require('dotenv').config();
+
 const {
-
   cleanupExpiredPromotions,
-
 } = require(
   './services/cleanupExpiredPromotions'
 );
-
-require('dotenv').config();
 
 /// 🇧🇴 TIMEZONE BOLIVIA
 process.env.TZ =
