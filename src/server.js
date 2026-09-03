@@ -187,7 +187,11 @@ const cattleRoutes =
 
 const transportRoutes = require('./routes/transportRoutes');
 
-const slaughterhouseRoutes = require('./routes/slaughterhouseRoutes');
+const slaughterhouseRoutes =
+  require('./routes/slaughterhouseRoutes');
+
+const slaughterhouseAdminRoutes =
+  require('./routes/slaughterhouseAdminRoutes');
 
 const supportRoutes =
     require('./routes/supportRoutes');
@@ -281,6 +285,11 @@ app.use('/transport', transportRoutes);
 app.use(
   '/slaughterhouse',
   slaughterhouseRoutes,
+);
+
+app.use(
+  '/slaughterhouse/admin',
+  slaughterhouseAdminRoutes,
 );
 
 app.use(
