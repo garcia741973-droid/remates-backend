@@ -10,7 +10,6 @@ exports.login = async (req, res) => {
 
     console.log('====================');
     console.log('LOGIN EMAIL =>', email);
-    console.log('LOGIN PASSWORD =>', password);
     console.log('LOGIN COMPANY =>', company_id);
     console.log('====================');
 
