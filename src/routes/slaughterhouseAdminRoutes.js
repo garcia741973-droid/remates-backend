@@ -164,6 +164,24 @@ const {
 
   receiveTroop,
 
+  generatePreliquidationDraft,
+
+  getPreliquidationById,
+
+  addPreliquidationAdjustment,
+
+  deletePreliquidationAdjustment,
+
+  reviewPreliquidation,
+
+  approvePreliquidation,
+
+  cancelPreliquidation,
+
+  getPurchaseLotPreliquidations,
+
+  exportPreliquidation,
+
   getAdminReceptions,
 
   getAdminReceptionById,
@@ -1041,6 +1059,168 @@ router.patch(
   ),
 
   reactivatePurchaseLot,
+
+);
+
+router.post(
+
+  '/purchase-lots/:id/preliquidation',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'preliquidation.manage'
+
+  ),
+
+  generatePreliquidationDraft,
+
+);
+
+router.get(
+
+  '/purchase-lots/:id/preliquidations',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'preliquidation.view'
+
+  ),
+
+  getPurchaseLotPreliquidations,
+
+);
+
+router.delete(
+
+  '/preliquidations/:id/adjustments/:adjustmentId',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'preliquidation.manage'
+
+  ),
+
+  deletePreliquidationAdjustment,
+
+);
+
+router.patch(
+
+  '/preliquidations/:id/review',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'preliquidation.manage'
+
+  ),
+
+  reviewPreliquidation,
+
+);
+
+router.patch(
+
+  '/preliquidations/:id/approve',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'preliquidation.approve'
+
+  ),
+
+  approvePreliquidation,
+
+);
+
+router.patch(
+
+  '/preliquidations/:id/export',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'preliquidation.export'
+
+  ),
+
+  exportPreliquidation,
+
+);
+
+router.patch(
+
+  '/preliquidations/:id/cancel',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'preliquidation.manage'
+
+  ),
+
+  cancelPreliquidation,
+
+);
+
+router.get(
+
+  '/preliquidations/:id',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'preliquidation.view'
+
+  ),
+
+  getPreliquidationById,
+
+);
+
+router.post(
+
+  '/preliquidations/:id/adjustments',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'preliquidation.manage'
+
+  ),
+
+  addPreliquidationAdjustment,
 
 );
 
