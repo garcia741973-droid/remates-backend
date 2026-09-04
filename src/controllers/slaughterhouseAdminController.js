@@ -14613,4 +14613,14445 @@ exports.reactivateTroop =
 
     }
 
+  };
+  
+// =====================================================
+// 🚛 SOLICITAR TRANSPORTE PARA UNA TROPA
+// POST /slaughterhouse/admin/troops/:id/request-transport
+//
+// Body opcional:
+//
+// {
+//   "visibility_scope": "company_network",
+//   "notes": null
+// }
+//
+// visibility_scope:
+// - company_network  → red privada del frigorífico
+// - public           → toda Plaza Transporte
+//
+// selected se implementará mediante el flujo específico
+// de invitaciones.
+// =====================================================
+
+exports.requestTransportForTroop =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+
+      const troopId =
+        Number(
+          req.params.id
+        );
+
+
+      const visibilityScope =
+        req.body.visibility_scope
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        'company_network';
+
+
+      const extraNotes =
+        req.body.notes
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      // =================================================
+      // VALIDACIONES
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          troopId
+        ) ||
+        troopId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de tropa inválido',
+        });
+
+      }
+
+
+      if (
+        ![
+          'company_network',
+          'public',
+        ].includes(
+          visibilityScope
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'visibility_scope debe ser company_network o public',
+        });
+
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // OBTENER TROPA + LOTE + ORIGEN + DESTINO
+      // =================================================
+
+      const contextResult =
+        await client.query(
+          `
+            SELECT
+
+              st.id
+                AS troop_id,
+
+              st.status
+                AS troop_status,
+
+              st.expected_quantity
+                AS troop_expected_quantity,
+
+              st.transport_request_id,
+
+              st.notes
+                AS troop_notes,
+
+
+              spl.id
+                AS purchase_lot_id,
+
+              spl.lot_number,
+
+              spl.external_order_number,
+
+              spl.status
+                AS purchase_lot_status,
+
+              spl.planned_date,
+
+              spl.seller_person_id,
+
+              spl.classification_id,
+
+
+              seller.full_name
+                AS seller_name,
+
+              seller.phone
+                AS seller_phone,
+
+
+              estate.id
+                AS estate_id,
+
+              estate.name
+                AS estate_name,
+
+              estate.location_text
+                AS estate_location,
+
+              estate.lat
+                AS estate_lat,
+
+              estate.lng
+                AS estate_lng,
+
+
+              classification.generated_code
+                AS classification_code,
+
+              classification.display_name
+                AS classification_name,
+
+
+              company.name
+                AS company_name,
+
+              company.plant_lat,
+
+              company.plant_lng
+
+            FROM slaughterhouse_troops st
+
+            JOIN slaughterhouse_purchase_lots spl
+              ON spl.id =
+                st.purchase_lot_id
+              AND spl.company_id =
+                st.company_id
+
+            JOIN slaughterhouse_people seller
+              ON seller.id =
+                spl.seller_person_id
+              AND seller.company_id =
+                st.company_id
+
+            LEFT JOIN slaughterhouse_estates estate
+              ON estate.id =
+                spl.estate_id
+              AND estate.company_id =
+                st.company_id
+
+            LEFT JOIN slaughterhouse_animal_classifications classification
+              ON classification.id =
+                spl.classification_id
+              AND classification.company_id =
+                st.company_id
+
+            JOIN companies company
+              ON company.id =
+                st.company_id
+
+            WHERE
+              st.id = $1
+              AND st.company_id = $2
+
+            FOR UPDATE OF st, spl
+          `,
+          [
+            troopId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        contextResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'Tropa no encontrada',
+        });
+
+      }
+
+
+      const context =
+        contextResult.rows[0];
+
+
+      // =================================================
+      // TROPA DEBE ESTAR PLANIFICADA
+      // =================================================
+
+      if (
+        context.troop_status !==
+        'planned'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            `La tropa está en estado ${context.troop_status} y no puede generar una nueva solicitud de transporte`,
+        });
+
+      }
+
+
+      // =================================================
+      // EVITAR DOBLE SOLICITUD
+      // =================================================
+
+      if (
+        context.transport_request_id !==
+        null
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La tropa ya tiene una solicitud de transporte',
+
+          transport_request_id:
+            context.transport_request_id,
+        });
+
+      }
+
+
+      // =================================================
+      // EL LOTE DEBE ESTAR OPERATIVO
+      // =================================================
+
+      if (
+        ![
+          'open',
+          'in_transport',
+        ].includes(
+          context.purchase_lot_status
+        )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            `El lote está en estado ${context.purchase_lot_status} y no puede solicitar transporte`,
+        });
+
+      }
+
+
+      // =================================================
+      // NECESITAMOS CANTIDAD
+      // transport_requests.quantity es NOT NULL
+      // =================================================
+
+      const quantity =
+        Number(
+          context.troop_expected_quantity
+        );
+
+
+      if (
+        !Number.isInteger(
+          quantity
+        ) ||
+        quantity <= 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(400).json({
+          error:
+            'La tropa debe tener una cantidad esperada mayor a 0 antes de solicitar transporte',
+        });
+
+      }
+
+
+      // =================================================
+      // NECESITAMOS ORIGEN
+      // =================================================
+
+      if (
+        !context.estate_id
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(400).json({
+          error:
+            'El lote debe tener una estancia de origen antes de solicitar transporte',
+        });
+
+      }
+
+
+      const origin =
+        [
+          context.estate_name,
+          context.estate_location,
+        ]
+          .filter(
+            Boolean
+          )
+          .join(' - ');
+
+
+      if (
+        !origin
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(400).json({
+          error:
+            'La estancia debe tener un nombre o ubicación válida',
+        });
+
+      }
+
+
+      // =================================================
+      // DESTINO = PLANTA DEL FRIGORÍFICO
+      // =================================================
+
+      const destination =
+        context.company_name;
+
+
+      if (
+        !destination
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(400).json({
+          error:
+            'El frigorífico no tiene un nombre válido para usar como destino',
+        });
+
+      }
+
+
+      // =================================================
+      // TIPO DE ANIMAL
+      //
+      // transport_requests.animal_type es NOT NULL.
+      // Preferimos la clasificación completa.
+      // Si todavía no existe clasificación:
+      // "Ganado bovino"
+      // =================================================
+
+      const animalType =
+        context.classification_name ||
+        context.classification_code ||
+        'Ganado bovino';
+
+
+      // =================================================
+      // NOTAS DE TRAZABILIDAD
+      // =================================================
+
+      const transportNotes =
+        [
+          `Frigosi - Lote ${context.lot_number}`,
+
+          context.external_order_number
+            ? `Orden externa: ${context.external_order_number}`
+            : null,
+
+          `Tropa interna ID: ${troopId}`,
+
+          context.seller_name
+            ? `Vendedor: ${context.seller_name}`
+            : null,
+
+          context.troop_notes
+            ? `Nota tropa: ${context.troop_notes}`
+            : null,
+
+          extraNotes,
+        ]
+          .filter(
+            Boolean
+          )
+          .join('\n');
+
+
+      // =================================================
+      // CREAR SOLICITUD EN PLAZA TRANSPORTE
+      // =================================================
+
+      const requestResult =
+        await client.query(
+          `
+            INSERT INTO transport_requests (
+              user_id,
+              origin,
+              destination,
+              quantity,
+              animal_type,
+              travel_date,
+              notes,
+              contact_phone,
+              status,
+
+              origin_lat,
+              origin_lng,
+
+              destination_lat,
+              destination_lng,
+
+              approx_pickup_lat,
+              approx_pickup_lng,
+              approx_pickup_notes,
+              approx_pickup_source,
+
+              approx_dropoff_lat,
+              approx_dropoff_lng,
+              approx_dropoff_notes,
+              approx_dropoff_source,
+
+              requester_company_id,
+              visibility_scope
+            )
+
+            VALUES (
+              $1,
+              $2,
+              $3,
+              $4,
+              $5,
+              $6,
+              $7,
+              $8,
+              'open',
+
+              $9,
+              $10,
+
+              $11,
+              $12,
+
+              $9,
+              $10,
+              $2,
+              'slaughterhouse',
+
+              $11,
+              $12,
+              $3,
+              'slaughterhouse',
+
+              $13,
+              $14
+            )
+
+            RETURNING *
+          `,
+          [
+            userId,
+
+            origin,
+
+            destination,
+
+            quantity,
+
+            animalType,
+
+            context.planned_date,
+
+            transportNotes,
+
+            context.seller_phone,
+
+            context.estate_lat,
+
+            context.estate_lng,
+
+            context.plant_lat,
+
+            context.plant_lng,
+
+            companyId,
+
+            visibilityScope,
+          ],
+        );
+
+
+      const transportRequest =
+        requestResult.rows[0];
+
+
+      // =================================================
+      // VINCULAR SOLICITUD CON TROPA
+      // =================================================
+
+      const troopResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_troops
+
+            SET
+              transport_request_id = $1,
+              status = 'transport_requested',
+              updated_at = NOW()
+
+            WHERE
+              id = $2
+              AND company_id = $3
+
+            RETURNING *
+          `,
+          [
+            transportRequest.id,
+            troopId,
+            companyId,
+          ],
+        );
+
+
+      const troop =
+        troopResult.rows[0];
+
+
+      // =================================================
+      // EL LOTE ENTRA A FASE DE TRANSPORTE
+      // =================================================
+
+      await client.query(
+        `
+          UPDATE slaughterhouse_purchase_lots
+
+          SET
+            status = 'in_transport',
+            updated_at = NOW()
+
+          WHERE
+            id = $1
+            AND company_id = $2
+            AND status = 'open'
+        `,
+        [
+          context.purchase_lot_id,
+          companyId,
+        ],
+      );
+
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'troop',
+            $3,
+            'request_transport',
+            $4::jsonb
+          )
+        `,
+        [
+          companyId,
+
+          userId,
+
+          String(
+            troopId
+          ),
+
+          JSON.stringify({
+            transport_request_id:
+              transportRequest.id,
+
+            visibility_scope:
+              visibilityScope,
+
+            troop_status:
+              troop.status,
+
+            purchase_lot_id:
+              context.purchase_lot_id,
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.status(201).json({
+
+        success: true,
+
+        message:
+          visibilityScope ===
+          'company_network'
+            ? 'Solicitud enviada a la red privada de transportistas'
+            : 'Solicitud publicada en Plaza Transporte',
+
+        troop,
+
+        transport_request:
+          transportRequest,
+
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+
+      console.error(
+        'REQUEST TRANSPORT FOR SLAUGHTERHOUSE TROOP ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error solicitando transporte para la tropa',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+  
+  
+// =====================================================
+// 🚛 ESTADO DE TRANSPORTE DE UNA TROPA
+// GET /slaughterhouse/admin/troops/:id/transport
+//
+// Devuelve:
+// - tropa
+// - solicitud de Plaza Transporte
+// - todas las negociaciones
+// - negociación vinculada a la tropa, si existe
+// - camionista
+// - camión
+// - guía, si existe
+//
+// IMPORTANTE:
+// transport_guides.share_token NO se expone.
+// =====================================================
+
+exports.getTroopTransport =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const troopId =
+        Number(
+          req.params.id
+        );
+
+
+      // =================================================
+      // VALIDAR ID
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          troopId
+        ) ||
+        troopId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de tropa inválido',
+        });
+
+      }
+
+
+      // =================================================
+      // OBTENER TROPA
+      // =================================================
+
+      const troopResult =
+        await pool.query(
+          `
+            SELECT
+
+              st.id,
+              st.company_id,
+              st.purchase_lot_id,
+              st.troop_number,
+              st.status,
+
+              st.transport_request_id,
+              st.transport_negotiation_id,
+              st.transport_guide_id,
+
+              st.truck_id,
+              st.transporter_user_id,
+
+              st.expected_quantity,
+              st.dispatched_quantity,
+              st.received_quantity,
+
+              spl.lot_number,
+              spl.external_order_number,
+
+              seller.full_name
+                AS seller_name
+
+            FROM slaughterhouse_troops st
+
+            JOIN slaughterhouse_purchase_lots spl
+              ON spl.id =
+                st.purchase_lot_id
+              AND spl.company_id =
+                st.company_id
+
+            JOIN slaughterhouse_people seller
+              ON seller.id =
+                spl.seller_person_id
+              AND seller.company_id =
+                st.company_id
+
+            WHERE
+              st.id = $1
+              AND st.company_id = $2
+
+            LIMIT 1
+          `,
+          [
+            troopId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        troopResult.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+          error:
+            'Tropa no encontrada',
+        });
+
+      }
+
+
+      const troop =
+        troopResult.rows[0];
+
+
+      // =================================================
+      // SI TODAVÍA NO HAY SOLICITUD
+      // =================================================
+
+      if (
+        troop.transport_request_id ===
+        null
+      ) {
+
+        return res.json({
+
+          success: true,
+
+          has_transport_request:
+            false,
+
+          troop,
+
+          transport_request:
+            null,
+
+          negotiations: [],
+
+          selected_negotiation:
+            null,
+
+          guide:
+            null,
+
+        });
+
+      }
+
+
+      // =================================================
+      // SOLICITUD DE TRANSPORTE
+      // =================================================
+
+      const requestResult =
+        await pool.query(
+          `
+            SELECT
+
+              tr.id,
+              tr.user_id,
+
+              tr.origin,
+              tr.destination,
+
+              tr.quantity,
+              tr.animal_type,
+              tr.travel_date,
+
+              tr.notes,
+              tr.contact_phone,
+
+              tr.status,
+
+              tr.origin_lat,
+              tr.origin_lng,
+
+              tr.destination_lat,
+              tr.destination_lng,
+
+              tr.approx_pickup_lat,
+              tr.approx_pickup_lng,
+              tr.approx_pickup_notes,
+              tr.approx_pickup_source,
+
+              tr.approx_dropoff_lat,
+              tr.approx_dropoff_lng,
+              tr.approx_dropoff_notes,
+              tr.approx_dropoff_source,
+
+              tr.requester_company_id,
+              tr.visibility_scope,
+
+              tr.created_at
+
+            FROM transport_requests tr
+
+            WHERE
+              tr.id = $1
+              AND tr.requester_company_id = $2
+
+            LIMIT 1
+          `,
+          [
+            troop.transport_request_id,
+            companyId,
+          ],
+        );
+
+
+      if (
+        requestResult.rows.length === 0
+      ) {
+
+        return res.status(409).json({
+          error:
+            'La tropa tiene transport_request_id pero la solicitud no existe o no pertenece al frigorífico',
+        });
+
+      }
+
+
+      const transportRequest =
+        requestResult.rows[0];
+
+
+      // =================================================
+      // NEGOCIACIONES
+      //
+      // Una solicitud puede recibir varias propuestas.
+      // =================================================
+
+      const negotiationsResult =
+        await pool.query(
+          `
+            SELECT
+
+              tn.id,
+              tn.request_id,
+
+              tn.truck_id,
+
+              tn.requester_id,
+              tn.transporter_id,
+
+              tn.status,
+              tn.trip_price,
+              tn.unlock_fee,
+
+              tn.real_origin_lat,
+              tn.real_origin_lng,
+
+              tn.destination_reference,
+              tn.destination_lat,
+              tn.destination_lng,
+
+              tn.trip_started_at,
+              tn.route_id,
+
+              tn.delivered_at,
+
+              tn.real_destination_lat,
+              tn.real_destination_lng,
+
+              tn.cancelled,
+
+              tn.chat_available_until,
+
+              tn.created_at,
+
+
+              truck.plate,
+
+              truck.brand,
+              truck.model,
+              truck.year,
+
+              truck.truck_type,
+
+              truck.capacity_large,
+              truck.capacity_small,
+
+              truck.has_trailer,
+              truck.trailer_capacity,
+
+              truck.is_verified,
+              truck.is_active,
+              truck.is_available,
+
+
+              transporter.name
+                AS transporter_name,
+
+              transporter.phone
+                AS transporter_phone
+
+            FROM transport_negotiations tn
+
+            JOIN transporter_trucks truck
+              ON truck.id =
+                tn.truck_id
+
+            JOIN users transporter
+              ON transporter.id =
+                tn.transporter_id
+
+            WHERE
+              tn.request_id = $1
+
+            ORDER BY
+
+              CASE
+
+                WHEN tn.id = $2
+                  THEN 0
+
+                WHEN tn.cancelled = false
+                  THEN 1
+
+                ELSE 2
+
+              END,
+
+              tn.created_at DESC,
+              tn.id DESC
+          `,
+          [
+            transportRequest.id,
+
+            troop.transport_negotiation_id,
+          ],
+        );
+
+
+      const negotiations =
+        negotiationsResult.rows;
+
+
+      // =================================================
+      // NEGOCIACIÓN SELECCIONADA / VINCULADA
+      // =================================================
+
+      const selectedNegotiation =
+        troop.transport_negotiation_id
+          ? negotiations.find(
+              (item) =>
+                Number(
+                  item.id
+                ) ===
+                Number(
+                  troop.transport_negotiation_id
+                )
+            ) || null
+          : null;
+
+
+      // =================================================
+      // GUÍA
+      //
+      // Primero usamos transport_guide_id de la tropa.
+      // Si todavía no quedó vinculado pero existe guía
+      // para la negociación seleccionada, también la
+      // podemos encontrar por negotiation_id.
+      //
+      // NO devolvemos share_token.
+      // =================================================
+
+      let guide =
+        null;
+
+
+      if (
+        troop.transport_guide_id !==
+        null
+      ) {
+
+        const guideResult =
+          await pool.query(
+            `
+              SELECT
+
+                tg.id,
+                tg.truck_id,
+                tg.user_id,
+                tg.negotiation_id,
+
+                tg.origin,
+                tg.destination,
+
+                tg.driver_name,
+                tg.driver_ci,
+
+                tg.plate,
+
+                tg.male_0_12,
+                tg.female_0_12,
+
+                tg.male_13_24,
+                tg.female_13_24,
+
+                tg.male_25_36,
+                tg.female_25_36,
+
+                tg.male_36_plus,
+                tg.female_36_plus,
+
+                tg.guide_image_url,
+
+                tg.status,
+
+                tg.official_guide_photo_url,
+                tg.official_uploaded_at,
+                tg.official_guide_number,
+
+                tg.created_at
+
+              FROM transport_guides tg
+
+              WHERE
+                tg.id = $1
+
+              LIMIT 1
+            `,
+            [
+              troop.transport_guide_id,
+            ],
+          );
+
+
+        guide =
+          guideResult.rows[0] ||
+          null;
+
+      } else if (
+        troop.transport_negotiation_id !==
+        null
+      ) {
+
+        const guideResult =
+          await pool.query(
+            `
+              SELECT
+
+                tg.id,
+                tg.truck_id,
+                tg.user_id,
+                tg.negotiation_id,
+
+                tg.origin,
+                tg.destination,
+
+                tg.driver_name,
+                tg.driver_ci,
+
+                tg.plate,
+
+                tg.male_0_12,
+                tg.female_0_12,
+
+                tg.male_13_24,
+                tg.female_13_24,
+
+                tg.male_25_36,
+                tg.female_25_36,
+
+                tg.male_36_plus,
+                tg.female_36_plus,
+
+                tg.guide_image_url,
+
+                tg.status,
+
+                tg.official_guide_photo_url,
+                tg.official_uploaded_at,
+                tg.official_guide_number,
+
+                tg.created_at
+
+              FROM transport_guides tg
+
+              WHERE
+                tg.negotiation_id = $1
+
+              ORDER BY
+                tg.created_at DESC,
+                tg.id DESC
+
+              LIMIT 1
+            `,
+            [
+              troop.transport_negotiation_id,
+            ],
+          );
+
+
+        guide =
+          guideResult.rows[0] ||
+          null;
+
+      }
+
+      // =================================================
+      // ESTADO DE AUTORIZACIÓN / PAGO DEL VIAJE
+      // =================================================
+
+      let paymentAuthorization =
+        null;
+
+
+      if (
+        troop.transport_negotiation_id !==
+        null
+      ) {
+
+        const paymentResult =
+          await pool.query(
+            `
+              SELECT
+
+                id,
+                company_id,
+                negotiation_id,
+                troop_id,
+
+                company_payment_account_id,
+
+                trip_price_snapshot,
+
+                status,
+
+                payment_reference,
+                notes,
+
+                authorized_by,
+                authorized_at,
+
+                paid_at,
+
+                created_at
+
+              FROM transport_trip_payment_authorizations
+
+              WHERE
+                company_id = $1
+                AND troop_id = $2
+                AND negotiation_id = $3
+
+              LIMIT 1
+            `,
+            [
+              companyId,
+              troopId,
+              troop.transport_negotiation_id,
+            ],
+          );
+
+
+        paymentAuthorization =
+          paymentResult.rows[0] ||
+          null;
+
+      }
+
+
+      const paymentStatus =
+        paymentAuthorization
+          ? paymentAuthorization.status
+          : 'not_authorized';
+
+      // =================================================
+      // RESUMEN PARA LA TARJETA WEB
+      // =================================================
+
+      const summary = {
+
+        negotiations_count:
+          negotiations.length,
+
+        active_negotiations_count:
+          negotiations.filter(
+            (item) =>
+              item.cancelled !== true
+          ).length,
+
+        has_selected_negotiation:
+          selectedNegotiation !==
+          null,
+
+        has_truck:
+          troop.truck_id !==
+          null,
+
+        has_guide:
+          guide !==
+          null,
+
+        trip_started:
+          selectedNegotiation
+            ?.trip_started_at !==
+            null &&
+          selectedNegotiation
+            ?.trip_started_at !==
+            undefined,
+
+        delivered:
+          selectedNegotiation
+            ?.delivered_at !==
+            null &&
+          selectedNegotiation
+            ?.delivered_at !==
+            undefined,
+
+        payment_status:
+          paymentStatus,
+
+        payment_authorized:
+          paymentAuthorization !==
+            null &&
+          [
+            'authorized',
+            'paid',
+          ].includes(
+            paymentAuthorization.status
+          ),
+
+        payment_paid:
+          paymentAuthorization
+            ?.status ===
+          'paid',
+
+        authorized_trip_price:
+          paymentAuthorization
+            ?.trip_price_snapshot ??
+          null,            
+
+      };
+
+
+      // =================================================
+      // RESPUESTA
+      // =================================================
+
+      return res.json({
+
+        success: true,
+
+        has_transport_request:
+          true,
+
+        troop,
+
+        transport_request:
+          transportRequest,
+
+        summary,
+
+        negotiations,
+
+        selected_negotiation:
+          selectedNegotiation,
+
+        guide,
+
+        payment_authorization:
+          paymentAuthorization,
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        'GET SLAUGHTERHOUSE TROOP TRANSPORT ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo información de transporte de la tropa',
+      });
+
+    }
+
+  };
+  
+// =====================================================
+// ✅ SELECCIONAR NEGOCIACIÓN DE TRANSPORTE PARA TROPA
+// POST /slaughterhouse/admin/troops/:id/select-negotiation
+//
+// Body:
+//
+// {
+//   "negotiation_id": 87
+// }
+//
+// IMPORTANTE:
+//
+// - NO alteramos transport_negotiations.status.
+// - NO alteramos transport_requests.status.
+// - Plaza Transporte conserva su propio flujo.
+// - Aquí únicamente vinculamos a la tropa:
+//     transport_negotiation_id
+//     truck_id
+//     transporter_user_id
+//
+// Y la tropa pasa:
+// transport_requested → transport_assigned
+// =====================================================
+
+exports.selectTroopTransportNegotiation =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+
+      const troopId =
+        Number(
+          req.params.id
+        );
+
+
+      const negotiationId =
+        Number(
+          req.body.negotiation_id
+        );
+
+
+      // =================================================
+      // VALIDACIONES
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          troopId
+        ) ||
+        troopId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de tropa inválido',
+        });
+
+      }
+
+
+      if (
+        !Number.isInteger(
+          negotiationId
+        ) ||
+        negotiationId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'negotiation_id inválido',
+        });
+
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // OBTENER Y BLOQUEAR TROPA
+      // =================================================
+
+      const troopResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM slaughterhouse_troops
+
+            WHERE
+              id = $1
+              AND company_id = $2
+
+            FOR UPDATE
+          `,
+          [
+            troopId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        troopResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'Tropa no encontrada',
+        });
+
+      }
+
+
+      const previous =
+        troopResult.rows[0];
+
+
+      // =================================================
+      // DEBE TENER SOLICITUD DE TRANSPORTE
+      // =================================================
+
+      if (
+        previous.transport_request_id ===
+        null
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La tropa todavía no tiene una solicitud de transporte',
+        });
+
+      }
+
+
+      // =================================================
+      // SOLO DESDE TRANSPORT_REQUESTED
+      // =================================================
+
+      if (
+        previous.status !==
+        'transport_requested'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            `La tropa está en estado ${previous.status} y no puede seleccionar una negociación desde este flujo`,
+        });
+
+      }
+
+
+      // =================================================
+      // PROTEGER CONTRA DOBLE ASIGNACIÓN
+      // =================================================
+
+      if (
+        previous.transport_negotiation_id !==
+        null
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La tropa ya tiene una negociación de transporte seleccionada',
+
+          transport_negotiation_id:
+            previous.transport_negotiation_id,
+        });
+
+      }
+
+
+      // =================================================
+      // VALIDAR NEGOCIACIÓN
+      //
+      // Debe:
+      // - existir
+      // - pertenecer a la solicitud de esta tropa
+      // - no estar cancelada
+      //
+      // También traemos datos del camión y transportista.
+      // =================================================
+
+      const negotiationResult =
+        await client.query(
+          `
+            SELECT
+
+              tn.id,
+              tn.request_id,
+              tn.truck_id,
+              tn.requester_id,
+              tn.transporter_id,
+
+              tn.status,
+              tn.trip_price,
+              tn.unlock_fee,
+
+              tn.cancelled,
+
+              tn.created_at,
+
+
+              truck.plate,
+              truck.brand,
+              truck.model,
+              truck.year,
+
+              truck.is_active
+                AS truck_is_active,
+
+
+              transporter.name
+                AS transporter_name,
+
+              transporter.phone
+                AS transporter_phone
+
+            FROM transport_negotiations tn
+
+            JOIN transporter_trucks truck
+              ON truck.id =
+                tn.truck_id
+
+            JOIN users transporter
+              ON transporter.id =
+                tn.transporter_id
+
+            WHERE
+              tn.id = $1
+              AND tn.request_id = $2
+
+            LIMIT 1
+          `,
+          [
+            negotiationId,
+            previous.transport_request_id,
+          ],
+        );
+
+
+      if (
+        negotiationResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'La negociación no existe o no pertenece a la solicitud de transporte de esta tropa',
+        });
+
+      }
+
+
+      const negotiation =
+        negotiationResult.rows[0];
+
+
+      // =================================================
+      // NO PERMITIR NEGOCIACIÓN CANCELADA
+      // =================================================
+
+      if (
+        negotiation.cancelled ===
+        true
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La negociación seleccionada está cancelada',
+        });
+
+      }
+
+
+      // =================================================
+      // CAMIÓN DEBE SEGUIR ACTIVO
+      // =================================================
+
+      if (
+        negotiation.truck_is_active !==
+        true
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'El camión de esta negociación está inactivo',
+        });
+
+      }
+
+
+      // =================================================
+      // VINCULAR NEGOCIACIÓN A TROPA
+      //
+      // NO tocamos status de Plaza Transporte.
+      // =================================================
+
+      const updatedTroopResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_troops
+
+            SET
+              transport_negotiation_id = $1,
+              truck_id = $2,
+              transporter_user_id = $3,
+              status = 'transport_assigned',
+              updated_at = NOW()
+
+            WHERE
+              id = $4
+              AND company_id = $5
+
+            RETURNING *
+          `,
+          [
+            negotiation.id,
+            negotiation.truck_id,
+            negotiation.transporter_id,
+            troopId,
+            companyId,
+          ],
+        );
+
+
+      const troop =
+        updatedTroopResult.rows[0];
+
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'troop',
+            $3,
+            'select_transport_negotiation',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+
+          userId,
+
+          String(
+            troopId
+          ),
+
+          JSON.stringify(
+            previous
+          ),
+
+          JSON.stringify({
+            ...troop,
+
+            selected_negotiation: {
+              id:
+                negotiation.id,
+
+              trip_price:
+                negotiation.trip_price,
+
+              transporter_id:
+                negotiation.transporter_id,
+
+              transporter_name:
+                negotiation.transporter_name,
+
+              truck_id:
+                negotiation.truck_id,
+
+              plate:
+                negotiation.plate,
+            },
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.json({
+
+        success: true,
+
+        message:
+          'Negociación de transporte seleccionada correctamente',
+
+        troop,
+
+        selected_negotiation: {
+
+          id:
+            negotiation.id,
+
+          status:
+            negotiation.status,
+
+          trip_price:
+            negotiation.trip_price,
+
+          transporter: {
+            user_id:
+              negotiation.transporter_id,
+
+            name:
+              negotiation.transporter_name,
+
+            phone:
+              negotiation.transporter_phone,
+          },
+
+          truck: {
+            id:
+              negotiation.truck_id,
+
+            plate:
+              negotiation.plate,
+
+            brand:
+              negotiation.brand,
+
+            model:
+              negotiation.model,
+
+            year:
+              negotiation.year,
+          },
+
+        },
+
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+
+      console.error(
+        'SELECT SLAUGHTERHOUSE TROOP TRANSPORT NEGOTIATION ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error seleccionando negociación de transporte',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+  
+// =====================================================
+// 💰 AUTORIZAR PAGO DE VIAJE AL TRANSPORTISTA
+// POST /slaughterhouse/admin/troops/:id/authorize-payment
+//
+// Body opcional:
+//
+// {
+//   "company_payment_account_id": 2,
+//   "payment_reference": "OP-4587",
+//   "notes": "Pago autorizado por operaciones"
+// }
+//
+// IMPORTANTE:
+//
+// - Esto NO usa transport_payments.
+// - transport_payments sigue siendo el flujo propio
+//   de Plaza Transporte.
+//
+// Aquí registramos la autorización corporativa:
+//
+// FRIGOSI → TRANSPORTISTA
+//
+// status inicial:
+// authorized
+//
+// El precio se copia desde:
+// transport_negotiations.trip_price
+//
+// hacia:
+// trip_price_snapshot
+// =====================================================
+
+exports.authorizeTroopTransportPayment =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+
+      const troopId =
+        Number(
+          req.params.id
+        );
+
+
+      const paymentAccountRaw =
+        req.body.company_payment_account_id;
+
+
+      const companyPaymentAccountId =
+        paymentAccountRaw !== undefined &&
+        paymentAccountRaw !== null &&
+        paymentAccountRaw !== ''
+          ? Number(
+              paymentAccountRaw
+            )
+          : null;
+
+
+      const paymentReference =
+        req.body.payment_reference
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const notes =
+        req.body.notes
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      // =================================================
+      // VALIDACIONES BÁSICAS
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          troopId
+        ) ||
+        troopId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de tropa inválido',
+        });
+
+      }
+
+
+      if (
+        companyPaymentAccountId !== null &&
+        (
+          !Number.isInteger(
+            companyPaymentAccountId
+          ) ||
+          companyPaymentAccountId <= 0
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'company_payment_account_id inválido',
+        });
+
+      }
+
+
+      if (
+        paymentReference !== null &&
+        paymentReference.length > 150
+      ) {
+
+        return res.status(400).json({
+          error:
+            'payment_reference no puede superar 150 caracteres',
+        });
+
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // OBTENER Y BLOQUEAR TROPA
+      // =================================================
+
+      const troopResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM slaughterhouse_troops
+
+            WHERE
+              id = $1
+              AND company_id = $2
+
+            FOR UPDATE
+          `,
+          [
+            troopId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        troopResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'Tropa no encontrada',
+        });
+
+      }
+
+
+      const troop =
+        troopResult.rows[0];
+
+
+      // =================================================
+      // DEBE EXISTIR NEGOCIACIÓN SELECCIONADA
+      // =================================================
+
+      if (
+        troop.transport_negotiation_id ===
+        null
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La tropa todavía no tiene una negociación de transporte seleccionada',
+        });
+
+      }
+
+
+      // =================================================
+      // ESTADO OPERATIVO MÍNIMO
+      // =================================================
+
+      if (
+        ![
+          'transport_assigned',
+          'dispatched',
+          'in_transit',
+          'received',
+          'in_slaughter',
+          'completed',
+        ].includes(
+          troop.status
+        )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            `La tropa está en estado ${troop.status} y todavía no corresponde autorizar el pago del viaje`,
+        });
+
+      }
+
+
+      // =================================================
+      // OBTENER NEGOCIACIÓN
+      //
+      // Debe corresponder exactamente a:
+      // - negociación vinculada a tropa
+      // - solicitud vinculada a tropa
+      // - no cancelada
+      // =================================================
+
+      const negotiationResult =
+        await client.query(
+          `
+            SELECT
+
+              tn.id,
+              tn.request_id,
+              tn.truck_id,
+              tn.transporter_id,
+
+              tn.status,
+              tn.trip_price,
+              tn.cancelled,
+
+              truck.plate,
+
+              transporter.name
+                AS transporter_name,
+
+              transporter.phone
+                AS transporter_phone
+
+            FROM transport_negotiations tn
+
+            JOIN transporter_trucks truck
+              ON truck.id =
+                tn.truck_id
+
+            JOIN users transporter
+              ON transporter.id =
+                tn.transporter_id
+
+            WHERE
+              tn.id = $1
+              AND tn.request_id = $2
+
+            LIMIT 1
+          `,
+          [
+            troop.transport_negotiation_id,
+            troop.transport_request_id,
+          ],
+        );
+
+
+      if (
+        negotiationResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La negociación vinculada a la tropa no coincide con su solicitud de transporte',
+        });
+
+      }
+
+
+      const negotiation =
+        negotiationResult.rows[0];
+
+
+      if (
+        negotiation.cancelled ===
+        true
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La negociación de transporte está cancelada',
+        });
+
+      }
+
+
+      // =================================================
+      // PRECIO OBLIGATORIO
+      // =================================================
+
+      const tripPrice =
+        Number(
+          negotiation.trip_price
+        );
+
+
+      if (
+        !Number.isFinite(
+          tripPrice
+        ) ||
+        tripPrice <= 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La negociación debe tener un precio de viaje válido antes de autorizar el pago',
+        });
+
+      }
+
+
+      // =================================================
+      // VALIDAR CUENTA CORPORATIVA
+      // =================================================
+
+      if (
+        companyPaymentAccountId !== null
+      ) {
+
+        const accountResult =
+          await client.query(
+            `
+              SELECT
+                id,
+                company_id,
+                bank_id,
+                account_number,
+                account_type,
+                account_holder,
+                label,
+                is_default,
+                is_active
+
+              FROM slaughterhouse_company_payment_accounts
+
+              WHERE
+                id = $1
+                AND company_id = $2
+                AND is_active = true
+
+              LIMIT 1
+            `,
+            [
+              companyPaymentAccountId,
+              companyId,
+            ],
+          );
+
+
+        if (
+          accountResult.rows.length === 0
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+
+          return res.status(400).json({
+            error:
+              'La cuenta de pago no existe, está inactiva o no pertenece al frigorífico',
+          });
+
+        }
+
+      }
+
+
+      // =================================================
+      // EVITAR DOBLE AUTORIZACIÓN
+      //
+      // La tabla ya tiene UNIQUE(negotiation_id),
+      // pero validamos antes para dar mejor respuesta.
+      // =================================================
+
+      const existingResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM transport_trip_payment_authorizations
+
+            WHERE
+              negotiation_id = $1
+
+            LIMIT 1
+          `,
+          [
+            negotiation.id,
+          ],
+        );
+
+
+      if (
+        existingResult.rows.length > 0
+      ) {
+
+        const existing =
+          existingResult.rows[0];
+
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+
+          error:
+            'Esta negociación ya tiene una autorización de pago',
+
+          payment_authorization: {
+            id:
+              existing.id,
+
+            status:
+              existing.status,
+
+            trip_price_snapshot:
+              existing.trip_price_snapshot,
+
+            authorized_at:
+              existing.authorized_at,
+
+            paid_at:
+              existing.paid_at,
+          },
+
+        });
+
+      }
+
+
+      // =================================================
+      // CREAR AUTORIZACIÓN
+      // =================================================
+
+      const authorizationResult =
+        await client.query(
+          `
+            INSERT INTO transport_trip_payment_authorizations (
+              company_id,
+              negotiation_id,
+              troop_id,
+              company_payment_account_id,
+              trip_price_snapshot,
+              status,
+              payment_reference,
+              notes,
+              authorized_by
+            )
+
+            VALUES (
+              $1,
+              $2,
+              $3,
+              $4,
+              $5,
+              'authorized',
+              $6,
+              $7,
+              $8
+            )
+
+            RETURNING *
+          `,
+          [
+            companyId,
+            negotiation.id,
+            troopId,
+            companyPaymentAccountId,
+            tripPrice,
+            paymentReference,
+            notes,
+            userId,
+          ],
+        );
+
+
+      const paymentAuthorization =
+        authorizationResult.rows[0];
+
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'transport_payment_authorization',
+            $3,
+            'authorize',
+            $4::jsonb
+          )
+        `,
+        [
+          companyId,
+
+          userId,
+
+          String(
+            paymentAuthorization.id
+          ),
+
+          JSON.stringify({
+
+            ...paymentAuthorization,
+
+            troop_id:
+              troopId,
+
+            negotiation_id:
+              negotiation.id,
+
+            transporter_id:
+              negotiation.transporter_id,
+
+            transporter_name:
+              negotiation.transporter_name,
+
+            truck_id:
+              negotiation.truck_id,
+
+            plate:
+              negotiation.plate,
+
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.status(201).json({
+
+        success: true,
+
+        message:
+          'Pago del viaje autorizado correctamente',
+
+        payment_authorization:
+          paymentAuthorization,
+
+        transport: {
+
+          negotiation_id:
+            negotiation.id,
+
+          trip_price:
+            negotiation.trip_price,
+
+          transporter: {
+
+            user_id:
+              negotiation.transporter_id,
+
+            name:
+              negotiation.transporter_name,
+
+            phone:
+              negotiation.transporter_phone,
+
+          },
+
+          truck: {
+
+            id:
+              negotiation.truck_id,
+
+            plate:
+              negotiation.plate,
+
+          },
+
+        },
+
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+
+      console.error(
+        'AUTHORIZE SLAUGHTERHOUSE TROOP TRANSPORT PAYMENT ERROR:',
+        error
+      );
+
+
+      if (
+        error.code ===
+        '23505'
+      ) {
+
+        return res.status(409).json({
+          error:
+            'Esta negociación ya tiene una autorización de pago',
+        });
+
+      }
+
+
+      return res.status(500).json({
+        error:
+          'Error autorizando pago del viaje',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+  
+// =====================================================
+// 💳 MARCAR PAGO DE TRANSPORTE COMO REALIZADO
+// POST /slaughterhouse/admin/troops/:id/mark-payment-paid
+//
+// Body:
+//
+// {
+//   "payment_reference": "TRX-458796",
+//   "notes": "Transferencia Banco ..."
+// }
+//
+// Reglas:
+//
+// - Debe existir una negociación seleccionada.
+// - Debe existir autorización corporativa.
+// - Autorización debe estar en status = authorized.
+// - Debe existir referencia/comprobante.
+// - trip_price_snapshot NO se modifica.
+// - NO toca transport_payments.
+// - NO cambia estado de la tropa.
+// =====================================================
+
+exports.markTroopTransportPaymentPaid =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+
+      const troopId =
+        Number(
+          req.params.id
+        );
+
+
+      const paymentReference =
+        req.body.payment_reference
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const notes =
+        req.body.notes
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      // =================================================
+      // VALIDACIONES
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          troopId
+        ) ||
+        troopId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de tropa inválido',
+        });
+
+      }
+
+
+      if (
+        paymentReference !== null &&
+        paymentReference.length > 150
+      ) {
+
+        return res.status(400).json({
+          error:
+            'payment_reference no puede superar 150 caracteres',
+        });
+
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // OBTENER Y BLOQUEAR TROPA
+      // =================================================
+
+      const troopResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM slaughterhouse_troops
+
+            WHERE
+              id = $1
+              AND company_id = $2
+
+            FOR UPDATE
+          `,
+          [
+            troopId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        troopResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'Tropa no encontrada',
+        });
+
+      }
+
+
+      const troop =
+        troopResult.rows[0];
+
+
+      // =================================================
+      // DEBE EXISTIR NEGOCIACIÓN
+      // =================================================
+
+      if (
+        troop.transport_negotiation_id ===
+        null
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La tropa no tiene una negociación de transporte seleccionada',
+        });
+
+      }
+
+
+      // =================================================
+      // OBTENER AUTORIZACIÓN DE PAGO
+      // =================================================
+
+      const authorizationResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM transport_trip_payment_authorizations
+
+            WHERE
+              company_id = $1
+              AND troop_id = $2
+              AND negotiation_id = $3
+
+            LIMIT 1
+
+            FOR UPDATE
+          `,
+          [
+            companyId,
+            troopId,
+            troop.transport_negotiation_id,
+          ],
+        );
+
+
+      if (
+        authorizationResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'No existe una autorización de pago para esta tropa',
+        });
+
+      }
+
+
+      const previous =
+        authorizationResult.rows[0];
+
+
+      // =================================================
+      // YA PAGADO
+      // =================================================
+
+      if (
+        previous.status ===
+        'paid'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+
+          error:
+            'El viaje ya está registrado como pagado',
+
+          payment_authorization: {
+            id:
+              previous.id,
+
+            trip_price_snapshot:
+              previous.trip_price_snapshot,
+
+            payment_reference:
+              previous.payment_reference,
+
+            paid_at:
+              previous.paid_at,
+          },
+
+        });
+
+      }
+
+
+      // =================================================
+      // CANCELADO
+      // =================================================
+
+      if (
+        previous.status ===
+        'cancelled'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La autorización de pago está cancelada',
+        });
+
+      }
+
+
+      // =================================================
+      // SOLO AUTHORIZED → PAID
+      // =================================================
+
+      if (
+        previous.status !==
+        'authorized'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            `La autorización está en estado ${previous.status} y no puede marcarse como pagada`,
+        });
+
+      }
+
+
+      // =================================================
+      // REFERENCIA / COMPROBANTE OBLIGATORIO
+      //
+      // Puede venir:
+      // - cargado previamente al autorizar
+      // - enviado ahora por Finanzas
+      // =================================================
+
+      const finalPaymentReference =
+        paymentReference ||
+        previous.payment_reference;
+
+
+      if (
+        !finalPaymentReference
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(400).json({
+          error:
+            'Debe indicar una referencia o comprobante del pago',
+        });
+
+      }
+
+
+      // =================================================
+      // MARCAR COMO PAGADO
+      //
+      // IMPORTANTE:
+      // trip_price_snapshot NO SE MODIFICA.
+      // =================================================
+
+      const updatedResult =
+        await client.query(
+          `
+            UPDATE transport_trip_payment_authorizations
+
+            SET
+              status = 'paid',
+              payment_reference = $1,
+              notes = COALESCE(
+                $2,
+                notes
+              ),
+              paid_at = NOW()
+
+            WHERE
+              id = $3
+              AND company_id = $4
+
+            RETURNING *
+          `,
+          [
+            finalPaymentReference,
+            notes,
+            previous.id,
+            companyId,
+          ],
+        );
+
+
+      const paymentAuthorization =
+        updatedResult.rows[0];
+
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'transport_payment_authorization',
+            $3,
+            'mark_paid',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+
+          userId,
+
+          String(
+            paymentAuthorization.id
+          ),
+
+          JSON.stringify(
+            previous
+          ),
+
+          JSON.stringify(
+            paymentAuthorization
+          ),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.json({
+
+        success: true,
+
+        message:
+          'Pago del viaje registrado como realizado',
+
+        payment_authorization:
+          paymentAuthorization,
+
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+
+      console.error(
+        'MARK SLAUGHTERHOUSE TROOP TRANSPORT PAYMENT PAID ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error registrando el pago del viaje',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+// =====================================================
+// 🔐 EMITIR AUTORIZACIÓN QR PARA PESAJE
+// POST /slaughterhouse/admin/purchase-lots/:id/weighing-authorizations
+//
+// Body opcional:
+//
+// {
+//   "expected_date": "2026-09-10",
+//   "expires_at": "2026-09-12T23:59:59",
+//   "delivery_channel": "whatsapp"
+// }
+//
+// El QR se entrega al vendedor.
+//
+// IMPORTANTE:
+//
+// - El token real NO se guarda.
+// - Solo almacenamos SHA-256(token).
+// - El payload QR se devuelve UNA SOLA VEZ.
+// - Los endpoints de consulta nunca devolverán token_hash.
+// =====================================================
+
+exports.issueWeighingAuthorization =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+
+    try {
+
+      const crypto =
+        require('crypto');
+
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+
+      const purchaseLotId =
+        Number(
+          req.params.id
+        );
+
+
+      const expectedDate =
+        req.body.expected_date
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const expiresAtInput =
+        req.body.expires_at
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const deliveryChannel =
+        req.body.delivery_channel
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        'whatsapp';
+
+
+      // =================================================
+      // VALIDACIONES
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          purchaseLotId
+        ) ||
+        purchaseLotId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de lote inválido',
+        });
+
+      }
+
+
+      if (
+        expectedDate !== null &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(
+          expectedDate
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'expected_date debe tener formato YYYY-MM-DD',
+        });
+
+      }
+
+
+      if (
+        ![
+          'whatsapp',
+          'sms',
+          'manual',
+        ].includes(
+          deliveryChannel
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'delivery_channel inválido',
+        });
+
+      }
+
+
+      let expiresAt =
+        null;
+
+
+      if (
+        expiresAtInput !== null
+      ) {
+
+        const parsedExpiresAt =
+          new Date(
+            expiresAtInput
+          );
+
+
+        if (
+          Number.isNaN(
+            parsedExpiresAt.getTime()
+          )
+        ) {
+
+          return res.status(400).json({
+            error:
+              'expires_at inválido',
+          });
+
+        }
+
+
+        if (
+          parsedExpiresAt.getTime() <=
+          Date.now()
+        ) {
+
+          return res.status(400).json({
+            error:
+              'expires_at debe ser una fecha futura',
+          });
+
+        }
+
+
+        expiresAt =
+          parsedExpiresAt;
+
+      } else {
+
+        expiresAt =
+          new Date(
+            Date.now() +
+            7 *
+            24 *
+            60 *
+            60 *
+            1000
+          );
+
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // OBTENER Y BLOQUEAR LOTE
+      //
+      // El bloqueo también serializa la generación
+      // del authorization_number por lote.
+      // =================================================
+
+      const lotResult =
+        await client.query(
+          `
+            SELECT
+
+              spl.id,
+              spl.lot_number,
+              spl.status,
+              spl.planned_date,
+
+              spl.seller_person_id,
+
+              seller.full_name
+                AS seller_name,
+
+              seller.phone
+                AS seller_phone,
+
+              spl.estate_id,
+
+              estate.name
+                AS estate_name,
+
+              estate.location_text
+                AS estate_location,
+
+              spl.classification_id,
+
+              classification.generated_code
+                AS classification_code,
+
+              classification.display_name
+                AS classification_name
+
+            FROM slaughterhouse_purchase_lots spl
+
+            JOIN slaughterhouse_people seller
+              ON seller.id =
+                spl.seller_person_id
+              AND seller.company_id =
+                spl.company_id
+
+            LEFT JOIN slaughterhouse_estates estate
+              ON estate.id =
+                spl.estate_id
+              AND estate.company_id =
+                spl.company_id
+
+            LEFT JOIN slaughterhouse_animal_classifications classification
+              ON classification.id =
+                spl.classification_id
+              AND classification.company_id =
+                spl.company_id
+
+            WHERE
+              spl.id = $1
+              AND spl.company_id = $2
+
+            FOR UPDATE OF spl
+          `,
+          [
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        lotResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'Lote de compra no encontrado',
+        });
+
+      }
+
+
+      const purchaseLot =
+        lotResult.rows[0];
+
+
+      // =================================================
+      // VALIDAR ESTADO DEL LOTE
+      // =================================================
+
+      if (
+        ![
+          'open',
+          'in_transport',
+        ].includes(
+          purchaseLot.status
+        )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            `No puede emitirse una autorización de pesaje para un lote en estado ${purchaseLot.status}`,
+        });
+
+      }
+
+
+      // =================================================
+      // WHATSAPP REQUIERE TELÉFONO
+      // =================================================
+
+      if (
+        deliveryChannel ===
+          'whatsapp' &&
+        !purchaseLot.seller_phone
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(400).json({
+          error:
+            'El vendedor no tiene teléfono registrado para enviar el QR por WhatsApp',
+        });
+
+      }
+
+
+      // =================================================
+      // SIGUIENTE NÚMERO DE AUTORIZACIÓN
+      // =================================================
+
+      const numberResult =
+        await client.query(
+          `
+            SELECT
+              COALESCE(
+                MAX(
+                  authorization_number
+                ),
+                0
+              ) + 1
+                AS next_number
+
+            FROM slaughterhouse_weighing_authorizations
+
+            WHERE
+              purchase_lot_id = $1
+          `,
+          [
+            purchaseLotId,
+          ],
+        );
+
+
+      const authorizationNumber =
+        Number(
+          numberResult.rows[0]
+            .next_number
+        );
+
+
+      // =================================================
+      // GENERAR CÓDIGO PÚBLICO
+      // =================================================
+
+      const randomCode =
+        crypto
+          .randomBytes(4)
+          .toString('hex')
+          .toUpperCase();
+
+
+      const publicCode =
+        `WQ-${companyId}-${purchaseLotId}-${authorizationNumber}-${randomCode}`;
+
+
+      // =================================================
+      // TOKEN SECRETO
+      //
+      // Este valor será parte del QR.
+      // NO se almacena en claro.
+      // =================================================
+
+      const token =
+        crypto
+          .randomBytes(32)
+          .toString('base64url');
+
+
+      const tokenHash =
+        crypto
+          .createHash('sha256')
+          .update(token)
+          .digest('hex');
+
+
+      // =================================================
+      // SNAPSHOT
+      //
+      // Conservamos exactamente qué se estaba
+      // autorizando cuando se emitió el QR.
+      // =================================================
+
+      const detailsSnapshot = {
+
+        purchase_lot_id:
+          purchaseLotId,
+
+        lot_number:
+          purchaseLot.lot_number,
+
+        seller_person_id:
+          purchaseLot.seller_person_id,
+
+        seller_name:
+          purchaseLot.seller_name,
+
+        estate_id:
+          purchaseLot.estate_id,
+
+        estate_name:
+          purchaseLot.estate_name,
+
+        classification_id:
+          purchaseLot.classification_id,
+
+        classification_code:
+          purchaseLot.classification_code,
+
+        classification_name:
+          purchaseLot.classification_name,
+
+        expected_date:
+          expectedDate ||
+          purchaseLot.planned_date,
+
+      };
+
+
+      // =================================================
+      // PAYLOAD DEL QR
+      //
+      // El token aparece aquí porque el QR necesita
+      // transportarlo.
+      //
+      // Este payload se devuelve UNA SOLA VEZ.
+      // =================================================
+
+      const qrPayloadObject = {
+
+        version: 1,
+
+        type:
+          'slaughterhouse_weighing_authorization',
+
+        public_code:
+          publicCode,
+
+        purchase_lot_id:
+          purchaseLotId,
+
+        authorization_number:
+          authorizationNumber,
+
+        token,
+
+        expires_at:
+          expiresAt.toISOString(),
+
+      };
+
+
+      const qrPayload =
+        JSON.stringify(
+          qrPayloadObject
+        );
+
+
+      const qrPayloadHash =
+        crypto
+          .createHash('sha256')
+          .update(qrPayload)
+          .digest('hex');
+
+
+      // =================================================
+      // CREAR AUTORIZACIÓN
+      // =================================================
+
+      const result =
+        await client.query(
+          `
+            INSERT INTO slaughterhouse_weighing_authorizations (
+              company_id,
+              purchase_lot_id,
+              authorization_number,
+              public_code,
+              token_hash,
+              qr_payload_hash,
+              key_id,
+              purpose,
+              details_snapshot,
+              recipient_phone_snapshot,
+              delivery_channel,
+              expected_date,
+              status,
+              issued_by,
+              expires_at
+            )
+
+            VALUES (
+              $1,
+              $2,
+              $3,
+              $4,
+              $5,
+              $6,
+              NULL,
+              'weighing_close',
+              $7::jsonb,
+              $8,
+              $9,
+              $10,
+              'pending',
+              $11,
+              $12
+            )
+
+            RETURNING
+              id,
+              company_id,
+              purchase_lot_id,
+              authorization_number,
+              public_code,
+              purpose,
+              details_snapshot,
+              recipient_phone_snapshot,
+              delivery_channel,
+              expected_date,
+              status,
+              issued_by,
+              issued_at,
+              expires_at,
+              created_at
+          `,
+          [
+            companyId,
+
+            purchaseLotId,
+
+            authorizationNumber,
+
+            publicCode,
+
+            tokenHash,
+
+            qrPayloadHash,
+
+            JSON.stringify(
+              detailsSnapshot
+            ),
+
+            purchaseLot.seller_phone,
+
+            deliveryChannel,
+
+            expectedDate ||
+            purchaseLot.planned_date,
+
+            userId,
+
+            expiresAt,
+          ],
+        );
+
+
+      const authorization =
+        result.rows[0];
+
+
+      // =================================================
+      // AUDITORÍA
+      //
+      // IMPORTANTE:
+      // NO guardamos token ni qr_payload.
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'weighing_authorization',
+            $3,
+            'issue',
+            $4::jsonb
+          )
+        `,
+        [
+          companyId,
+
+          userId,
+
+          String(
+            authorization.id
+          ),
+
+          JSON.stringify({
+            authorization_id:
+              authorization.id,
+
+            purchase_lot_id:
+              purchaseLotId,
+
+            authorization_number:
+              authorizationNumber,
+
+            public_code:
+              publicCode,
+
+            recipient_phone:
+              purchaseLot.seller_phone,
+
+            delivery_channel:
+              deliveryChannel,
+
+            expires_at:
+              expiresAt.toISOString(),
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      // =================================================
+      // RESPUESTA
+      //
+      // qr_payload aparece solamente aquí.
+      // La web podrá convertirlo visualmente en QR
+      // y enviarlo al vendedor.
+      // =================================================
+
+      return res.status(201).json({
+
+        success: true,
+
+        message:
+          'Autorización QR de pesaje emitida correctamente',
+
+        authorization,
+
+        qr_payload:
+          qrPayload,
+
+        recipient: {
+
+          seller_person_id:
+            purchaseLot.seller_person_id,
+
+          seller_name:
+            purchaseLot.seller_name,
+
+          phone:
+            purchaseLot.seller_phone,
+
+          delivery_channel:
+            deliveryChannel,
+
+        },
+
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+
+      console.error(
+        'ISSUE SLAUGHTERHOUSE WEIGHING AUTHORIZATION ERROR:',
+        error
+      );
+
+
+      if (
+        error.code ===
+        '23505'
+      ) {
+
+        return res.status(409).json({
+          error:
+            'No se pudo generar una autorización única. Intente nuevamente',
+        });
+
+      }
+
+
+      return res.status(500).json({
+        error:
+          'Error emitiendo autorización QR de pesaje',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+// =====================================================
+// 🔐 LISTAR AUTORIZACIONES QR DE UN LOTE
+// GET /slaughterhouse/admin/purchase-lots/:id/weighing-authorizations
+//
+// IMPORTANTE:
+// NO devuelve:
+// - token_hash
+// - qr_payload_hash
+// =====================================================
+
+exports.getWeighingAuthorizations =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const purchaseLotId =
+        Number(
+          req.params.id
+        );
+
+
+      // =================================================
+      // VALIDAR ID
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          purchaseLotId
+        ) ||
+        purchaseLotId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de lote inválido',
+        });
+
+      }
+
+
+      // =================================================
+      // VERIFICAR LOTE
+      // =================================================
+
+      const lotResult =
+        await pool.query(
+          `
+            SELECT
+              id,
+              lot_number,
+              status
+
+            FROM slaughterhouse_purchase_lots
+
+            WHERE
+              id = $1
+              AND company_id = $2
+
+            LIMIT 1
+          `,
+          [
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        lotResult.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+          error:
+            'Lote de compra no encontrado',
+        });
+
+      }
+
+
+      // =================================================
+      // AUTORIZACIONES
+      // =================================================
+
+      const result =
+        await pool.query(
+          `
+            SELECT
+
+              swa.id,
+              swa.company_id,
+              swa.purchase_lot_id,
+
+              swa.authorization_number,
+              swa.public_code,
+
+              swa.key_id,
+              swa.purpose,
+
+              swa.details_snapshot,
+
+              swa.recipient_phone_snapshot,
+              swa.delivery_channel,
+
+              swa.expected_date,
+
+              swa.status,
+
+              swa.issued_by,
+              issuer.name
+                AS issued_by_name,
+
+              swa.used_by,
+              used_user.name
+                AS used_by_name,
+
+              swa.revoked_by,
+              revoked_user.name
+                AS revoked_by_name,
+
+              swa.issued_at,
+              swa.used_at,
+              swa.revoked_at,
+              swa.expires_at,
+
+              swa.created_at,
+              swa.updated_at,
+
+              CASE
+
+                WHEN
+                  swa.status = 'pending'
+                  AND swa.expires_at IS NOT NULL
+                  AND swa.expires_at <= NOW()
+
+                THEN true
+
+                ELSE false
+
+              END
+                AS is_expired
+
+            FROM slaughterhouse_weighing_authorizations swa
+
+            LEFT JOIN users issuer
+              ON issuer.id =
+                swa.issued_by
+
+            LEFT JOIN users used_user
+              ON used_user.id =
+                swa.used_by
+
+            LEFT JOIN users revoked_user
+              ON revoked_user.id =
+                swa.revoked_by
+
+            WHERE
+              swa.purchase_lot_id = $1
+              AND swa.company_id = $2
+
+            ORDER BY
+              swa.authorization_number DESC,
+              swa.id DESC
+          `,
+          [
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+
+      const authorizations =
+        result.rows;
+
+
+      // =================================================
+      // RESUMEN
+      // =================================================
+
+      const summary = {
+
+        total:
+          authorizations.length,
+
+        pending:
+          authorizations.filter(
+            (item) =>
+              item.status === 'pending' &&
+              item.is_expired !== true
+          ).length,
+
+        used:
+          authorizations.filter(
+            (item) =>
+              item.status === 'used'
+          ).length,
+
+        revoked:
+          authorizations.filter(
+            (item) =>
+              item.status === 'revoked'
+          ).length,
+
+        expired:
+          authorizations.filter(
+            (item) =>
+              item.status === 'expired' ||
+              item.is_expired === true
+          ).length,
+
+      };
+
+
+      return res.json({
+
+        success: true,
+
+        purchase_lot:
+          lotResult.rows[0],
+
+        summary,
+
+        authorizations,
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        'GET SLAUGHTERHOUSE WEIGHING AUTHORIZATIONS ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo autorizaciones QR de pesaje',
+      });
+
+    }
+
+  };
+  
+// =====================================================
+// 🚫 REVOCAR AUTORIZACIÓN QR DE PESAJE
+// PATCH /slaughterhouse/admin/weighing-authorizations/:id/revoke
+//
+// Solo puede revocarse si:
+// - status = pending
+// - no fue usada
+//
+// No se elimina ningún registro.
+// =====================================================
+
+exports.revokeWeighingAuthorization =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+
+      const authorizationId =
+        Number(
+          req.params.id
+        );
+
+
+      const reason =
+        req.body.reason
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      // =================================================
+      // VALIDAR ID
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          authorizationId
+        ) ||
+        authorizationId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de autorización inválido',
+        });
+
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // OBTENER Y BLOQUEAR AUTORIZACIÓN
+      // =================================================
+
+      const previousResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM slaughterhouse_weighing_authorizations
+
+            WHERE
+              id = $1
+              AND company_id = $2
+
+            FOR UPDATE
+          `,
+          [
+            authorizationId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        previousResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'Autorización QR no encontrada',
+        });
+
+      }
+
+
+      const previous =
+        previousResult.rows[0];
+
+
+      // =================================================
+      // YA REVOCADA
+      // =================================================
+
+      if (
+        previous.status ===
+        'revoked'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La autorización QR ya está revocada',
+        });
+
+      }
+
+
+      // =================================================
+      // YA USADA
+      // =================================================
+
+      if (
+        previous.status ===
+          'used' ||
+        previous.used_at !==
+          null
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La autorización QR ya fue utilizada y no puede revocarse',
+        });
+
+      }
+
+
+      // =================================================
+      // YA EXPIRADA
+      // =================================================
+
+      if (
+        previous.status ===
+        'expired'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La autorización QR ya está expirada',
+        });
+
+      }
+
+
+      // =================================================
+      // SOLO PENDING
+      // =================================================
+
+      if (
+        previous.status !==
+        'pending'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            `La autorización está en estado ${previous.status} y no puede revocarse`,
+        });
+
+      }
+
+
+      // =================================================
+      // SI YA VENCIÓ POR FECHA, NO LA REVOCAMOS
+      // =================================================
+
+      if (
+        previous.expires_at !==
+          null &&
+        new Date(
+          previous.expires_at
+        ).getTime() <=
+          Date.now()
+      ) {
+
+        await client.query(
+          `
+            UPDATE slaughterhouse_weighing_authorizations
+
+            SET
+              status = 'expired',
+              updated_at = NOW()
+
+            WHERE
+              id = $1
+              AND company_id = $2
+          `,
+          [
+            authorizationId,
+            companyId,
+          ],
+        );
+
+
+        await client.query(
+          'COMMIT'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La autorización QR ya estaba vencida y fue marcada como expirada',
+        });
+
+      }
+
+
+      // =================================================
+      // REVOCAR
+      // =================================================
+
+      const result =
+        await client.query(
+          `
+            UPDATE slaughterhouse_weighing_authorizations
+
+            SET
+              status = 'revoked',
+              revoked_by = $1,
+              revoked_at = NOW(),
+              updated_at = NOW()
+
+            WHERE
+              id = $2
+              AND company_id = $3
+
+            RETURNING
+              id,
+              company_id,
+              purchase_lot_id,
+              authorization_number,
+              public_code,
+              purpose,
+              details_snapshot,
+              recipient_phone_snapshot,
+              delivery_channel,
+              expected_date,
+              status,
+              issued_by,
+              used_by,
+              revoked_by,
+              issued_at,
+              used_at,
+              revoked_at,
+              expires_at,
+              created_at,
+              updated_at
+          `,
+          [
+            userId,
+            authorizationId,
+            companyId,
+          ],
+        );
+
+
+      const authorization =
+        result.rows[0];
+
+
+      // =================================================
+      // AUDITORÍA
+      //
+      // NO incluimos hashes secretos.
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'weighing_authorization',
+            $3,
+            'revoke',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+
+          userId,
+
+          String(
+            authorizationId
+          ),
+
+          JSON.stringify({
+            id:
+              previous.id,
+
+            purchase_lot_id:
+              previous.purchase_lot_id,
+
+            authorization_number:
+              previous.authorization_number,
+
+            public_code:
+              previous.public_code,
+
+            status:
+              previous.status,
+
+            expires_at:
+              previous.expires_at,
+          }),
+
+          JSON.stringify({
+            ...authorization,
+
+            revocation_reason:
+              reason,
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.json({
+
+        success: true,
+
+        message:
+          'Autorización QR revocada correctamente',
+
+        authorization,
+
+        revocation_reason:
+          reason,
+
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+
+      console.error(
+        'REVOKE SLAUGHTERHOUSE WEIGHING AUTHORIZATION ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error revocando autorización QR de pesaje',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+// =====================================================
+// ⚖️ CREAR PESAJE EN ORIGEN - DRAFT
+// POST /slaughterhouse/admin/purchase-lots/:id/weighings
+//
+// Body ejemplo:
+//
+// {
+//   "troop_id": 12,
+//   "pesador_person_id": 8,
+//   "classification_id": 3,
+//   "shrink_percent": 2,
+//   "price_per_kg": 18.50,
+//   "event_lat": -17.1234567,
+//   "event_lng": -63.1234567,
+//   "event_local_time": "2026-09-04T10:30:00",
+//   "items": [
+//     { "weight_kg": 430.5 },
+//     { "weight_kg": 455.2 },
+//     { "weight_kg": 441.8 }
+//   ]
+// }
+//
+// IMPORTANTE:
+// - quantity se calcula desde items.
+// - gross_weight_kg se calcula desde items.
+// - shrink_weight_kg lo calcula backend.
+// - net_weight_kg lo calcula backend.
+// - total_amount lo calcula backend.
+// - nace siempre status = draft.
+// - todavía NO consume QR.
+// =====================================================
+
+exports.createLiveWeighingDraft =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+
+      const purchaseLotId =
+        Number(
+          req.params.id
+        );
+
+
+      const troopIdRaw =
+        req.body.troop_id;
+
+
+      const troopId =
+        troopIdRaw !== undefined &&
+        troopIdRaw !== null &&
+        troopIdRaw !== ''
+          ? Number(
+              troopIdRaw
+            )
+          : null;
+
+
+      const pesadorPersonIdRaw =
+        req.body.pesador_person_id;
+
+
+      const pesadorPersonId =
+        pesadorPersonIdRaw !== undefined &&
+        pesadorPersonIdRaw !== null &&
+        pesadorPersonIdRaw !== ''
+          ? Number(
+              pesadorPersonIdRaw
+            )
+          : null;
+
+
+      const classificationIdRaw =
+        req.body.classification_id;
+
+
+      const classificationId =
+        classificationIdRaw !== undefined &&
+        classificationIdRaw !== null &&
+        classificationIdRaw !== ''
+          ? Number(
+              classificationIdRaw
+            )
+          : null;
+
+
+      const shrinkPercentRaw =
+        req.body.shrink_percent;
+
+
+      const pricePerKgRaw =
+        req.body.price_per_kg;
+
+
+      const eventLatRaw =
+        req.body.event_lat;
+
+
+      const eventLngRaw =
+        req.body.event_lng;
+
+
+      const eventLocalTime =
+        req.body.event_local_time
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const items =
+        Array.isArray(
+          req.body.items
+        )
+          ? req.body.items
+          : [];
+
+
+      // =================================================
+      // VALIDACIONES BÁSICAS
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          purchaseLotId
+        ) ||
+        purchaseLotId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de lote inválido',
+        });
+
+      }
+
+
+      if (
+        troopId !== null &&
+        (
+          !Number.isInteger(
+            troopId
+          ) ||
+          troopId <= 0
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'troop_id inválido',
+        });
+
+      }
+
+
+      if (
+        pesadorPersonId !== null &&
+        (
+          !Number.isInteger(
+            pesadorPersonId
+          ) ||
+          pesadorPersonId <= 0
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'pesador_person_id inválido',
+        });
+
+      }
+
+
+      if (
+        classificationId !== null &&
+        (
+          !Number.isInteger(
+            classificationId
+          ) ||
+          classificationId <= 0
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'classification_id inválido',
+        });
+
+      }
+
+
+      if (
+        items.length === 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Debe registrar al menos un peso',
+        });
+
+      }
+
+
+      // =================================================
+      // VALIDAR Y NORMALIZAR ITEMS
+      // =================================================
+
+      const normalizedItems =
+        [];
+
+
+      for (
+        let index = 0;
+        index < items.length;
+        index++
+      ) {
+
+        const weightKg =
+          Number(
+            items[index]
+              ?.weight_kg
+          );
+
+
+        if (
+          !Number.isFinite(
+            weightKg
+          ) ||
+          weightKg <= 0
+        ) {
+
+          return res.status(400).json({
+            error:
+              `Peso inválido en el animal ${index + 1}`,
+          });
+
+        }
+
+
+        const notes =
+          items[index]
+            ?.notes
+            ?.toString()
+            .trim() ||
+          null;
+
+
+        normalizedItems.push({
+
+          sequence_number:
+            index + 1,
+
+          weight_kg:
+            Number(
+              weightKg.toFixed(
+                3
+              )
+            ),
+
+          notes,
+
+        });
+
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // OBTENER Y BLOQUEAR LOTE
+      //
+      // También serializa weighing_number.
+      // =================================================
+
+      const lotResult =
+        await client.query(
+          `
+            SELECT
+
+              spl.id,
+              spl.lot_number,
+              spl.status,
+
+              spl.seller_person_id,
+              spl.captador_person_id,
+              spl.classification_id,
+
+              spl.shrink_percent,
+              spl.price_per_unit,
+              spl.purchase_type
+
+            FROM slaughterhouse_purchase_lots spl
+
+            WHERE
+              spl.id = $1
+              AND spl.company_id = $2
+
+            FOR UPDATE
+          `,
+          [
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        lotResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'Lote de compra no encontrado',
+        });
+
+      }
+
+
+      const purchaseLot =
+        lotResult.rows[0];
+
+
+      // =================================================
+      // ESTADO VÁLIDO
+      // =================================================
+
+      if (
+        ![
+          'open',
+          'in_transport',
+        ].includes(
+          purchaseLot.status
+        )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            `No puede registrarse un pesaje para un lote en estado ${purchaseLot.status}`,
+        });
+
+      }
+
+
+      // =================================================
+      // VALIDAR TROPA SI VIENE
+      // =================================================
+
+      if (
+        troopId !== null
+      ) {
+
+        const troopResult =
+          await client.query(
+            `
+              SELECT
+                id,
+                status
+
+              FROM slaughterhouse_troops
+
+              WHERE
+                id = $1
+                AND purchase_lot_id = $2
+                AND company_id = $3
+
+              LIMIT 1
+            `,
+            [
+              troopId,
+              purchaseLotId,
+              companyId,
+            ],
+          );
+
+
+        if (
+          troopResult.rows.length === 0
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+
+          return res.status(400).json({
+            error:
+              'La tropa no pertenece a este lote',
+          });
+
+        }
+
+
+        if (
+          troopResult.rows[0]
+            .status ===
+          'cancelled'
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+
+          return res.status(409).json({
+            error:
+              'No puede registrarse un pesaje para una tropa cancelada',
+          });
+
+        }
+
+      }
+
+
+      // =================================================
+      // VALIDAR PESADOR SI VIENE
+      // =================================================
+
+      if (
+        pesadorPersonId !== null
+      ) {
+
+        const pesadorResult =
+          await client.query(
+            `
+              SELECT id
+
+              FROM slaughterhouse_people
+
+              WHERE
+                id = $1
+                AND company_id = $2
+                AND is_active = true
+
+              LIMIT 1
+            `,
+            [
+              pesadorPersonId,
+              companyId,
+            ],
+          );
+
+
+        if (
+          pesadorResult.rows.length === 0
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+
+          return res.status(400).json({
+            error:
+              'El pesador no existe o está inactivo',
+          });
+
+        }
+
+      }
+
+
+      // =================================================
+      // CLASIFICACIÓN
+      //
+      // Si no viene explícita usamos la del lote.
+      // =================================================
+
+      const finalClassificationId =
+        classificationId ||
+        purchaseLot.classification_id;
+
+
+      if (
+        finalClassificationId !==
+        null
+      ) {
+
+        const classificationResult =
+          await client.query(
+            `
+              SELECT id
+
+              FROM slaughterhouse_animal_classifications
+
+              WHERE
+                id = $1
+                AND company_id = $2
+                AND is_active = true
+
+              LIMIT 1
+            `,
+            [
+              finalClassificationId,
+              companyId,
+            ],
+          );
+
+
+        if (
+          classificationResult.rows.length === 0
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+
+          return res.status(400).json({
+            error:
+              'Clasificación animal inválida o inactiva',
+          });
+
+        }
+
+      }
+
+
+      // =================================================
+      // MERMA
+      //
+      // Si no viene, heredamos la del lote.
+      // =================================================
+
+      const shrinkPercent =
+        shrinkPercentRaw !== undefined &&
+        shrinkPercentRaw !== null &&
+        shrinkPercentRaw !== ''
+          ? Number(
+              shrinkPercentRaw
+            )
+          : Number(
+              purchaseLot.shrink_percent ||
+              0
+            );
+
+
+      if (
+        !Number.isFinite(
+          shrinkPercent
+        ) ||
+        shrinkPercent < 0 ||
+        shrinkPercent > 100
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(400).json({
+          error:
+            'shrink_percent debe estar entre 0 y 100',
+        });
+
+      }
+
+
+      // =================================================
+      // PRECIO POR KG
+      //
+      // NO asumimos que price_per_unit del lote sea
+      // necesariamente precio/kg.
+      //
+      // Por ahora solo usamos price_per_kg si viene
+      // explícitamente en este pesaje.
+      // =================================================
+
+      const pricePerKg =
+        pricePerKgRaw !== undefined &&
+        pricePerKgRaw !== null &&
+        pricePerKgRaw !== ''
+          ? Number(
+              pricePerKgRaw
+            )
+          : null;
+
+
+      if (
+        pricePerKg !== null &&
+        (
+          !Number.isFinite(
+            pricePerKg
+          ) ||
+          pricePerKg < 0
+        )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(400).json({
+          error:
+            'price_per_kg inválido',
+        });
+
+      }
+
+
+      // =================================================
+      // UBICACIÓN
+      // =================================================
+
+      const eventLat =
+        eventLatRaw !== undefined &&
+        eventLatRaw !== null &&
+        eventLatRaw !== ''
+          ? Number(
+              eventLatRaw
+            )
+          : null;
+
+
+      const eventLng =
+        eventLngRaw !== undefined &&
+        eventLngRaw !== null &&
+        eventLngRaw !== ''
+          ? Number(
+              eventLngRaw
+            )
+          : null;
+
+
+      if (
+        eventLat !== null &&
+        (
+          !Number.isFinite(
+            eventLat
+          ) ||
+          eventLat < -90 ||
+          eventLat > 90
+        )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(400).json({
+          error:
+            'event_lat inválido',
+        });
+
+      }
+
+
+      if (
+        eventLng !== null &&
+        (
+          !Number.isFinite(
+            eventLng
+          ) ||
+          eventLng < -180 ||
+          eventLng > 180
+        )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(400).json({
+          error:
+            'event_lng inválido',
+        });
+
+      }
+
+
+      // =================================================
+      // CALCULAR TOTALES EN BACKEND
+      // =================================================
+
+      const quantity =
+        normalizedItems.length;
+
+
+      const grossWeightKg =
+        normalizedItems.reduce(
+          (
+            total,
+            item
+          ) =>
+            total +
+            Number(
+              item.weight_kg
+            ),
+          0
+        );
+
+
+      const roundedGrossWeightKg =
+        Number(
+          grossWeightKg.toFixed(
+            3
+          )
+        );
+
+
+      const shrinkWeightKg =
+        Number(
+          (
+            roundedGrossWeightKg *
+            shrinkPercent /
+            100
+          ).toFixed(
+            3
+          )
+        );
+
+
+      const netWeightKg =
+        Number(
+          (
+            roundedGrossWeightKg -
+            shrinkWeightKg
+          ).toFixed(
+            3
+          )
+        );
+
+
+      const totalAmount =
+        pricePerKg !== null
+          ? Number(
+              (
+                netWeightKg *
+                pricePerKg
+              ).toFixed(
+                2
+              )
+            )
+          : null;
+
+
+      // =================================================
+      // SIGUIENTE NÚMERO DE PESAJE
+      // =================================================
+
+      const numberResult =
+        await client.query(
+          `
+            SELECT
+              COALESCE(
+                MAX(
+                  weighing_number
+                ),
+                0
+              ) + 1
+                AS next_number
+
+            FROM slaughterhouse_live_weighings
+
+            WHERE
+              purchase_lot_id = $1
+          `,
+          [
+            purchaseLotId,
+          ],
+        );
+
+
+      const weighingNumber =
+        Number(
+          numberResult.rows[0]
+            .next_number
+        );
+
+
+      // =================================================
+      // CREAR CABECERA DRAFT
+      // =================================================
+
+      const weighingResult =
+        await client.query(
+          `
+            INSERT INTO slaughterhouse_live_weighings (
+              company_id,
+              purchase_lot_id,
+              troop_id,
+              weighing_number,
+
+              seller_person_id,
+              captador_person_id,
+              pesador_person_id,
+              classification_id,
+
+              quantity,
+
+              gross_weight_kg,
+              shrink_percent,
+              shrink_weight_kg,
+              net_weight_kg,
+
+              price_per_kg,
+              total_amount,
+
+              event_lat,
+              event_lng,
+              event_local_time,
+
+              certified_offline,
+              status,
+
+              created_by
+            )
+
+            VALUES (
+              $1,
+              $2,
+              $3,
+              $4,
+
+              $5,
+              $6,
+              $7,
+              $8,
+
+              $9,
+
+              $10,
+              $11,
+              $12,
+              $13,
+
+              $14,
+              $15,
+
+              $16,
+              $17,
+              $18,
+
+              false,
+              'draft',
+
+              $19
+            )
+
+            RETURNING *
+          `,
+          [
+            companyId,
+            purchaseLotId,
+            troopId,
+            weighingNumber,
+
+            purchaseLot.seller_person_id,
+            purchaseLot.captador_person_id,
+            pesadorPersonId,
+            finalClassificationId,
+
+            quantity,
+
+            roundedGrossWeightKg,
+            shrinkPercent,
+            shrinkWeightKg,
+            netWeightKg,
+
+            pricePerKg,
+            totalAmount,
+
+            eventLat,
+            eventLng,
+            eventLocalTime,
+
+            userId,
+          ],
+        );
+
+
+      const weighing =
+        weighingResult.rows[0];
+
+
+      // =================================================
+      // INSERTAR ITEMS
+      // =================================================
+
+      const insertedItems =
+        [];
+
+
+      for (
+        const item of normalizedItems
+      ) {
+
+        const itemResult =
+          await client.query(
+            `
+              INSERT INTO slaughterhouse_live_weighing_items (
+                weighing_id,
+                sequence_number,
+                weight_kg,
+                notes
+              )
+
+              VALUES (
+                $1,
+                $2,
+                $3,
+                $4
+              )
+
+              RETURNING *
+            `,
+            [
+              weighing.id,
+              item.sequence_number,
+              item.weight_kg,
+              item.notes,
+            ],
+          );
+
+
+        insertedItems.push(
+          itemResult.rows[0]
+        );
+
+      }
+
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'live_weighing',
+            $3,
+            'create_draft',
+            $4::jsonb
+          )
+        `,
+        [
+          companyId,
+
+          userId,
+
+          String(
+            weighing.id
+          ),
+
+          JSON.stringify({
+
+            weighing,
+
+            items:
+              insertedItems,
+
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.status(201).json({
+
+        success: true,
+
+        message:
+          'Pesaje guardado en borrador',
+
+        weighing,
+
+        items:
+          insertedItems,
+
+        calculated: {
+
+          quantity,
+
+          gross_weight_kg:
+            roundedGrossWeightKg,
+
+          shrink_percent:
+            shrinkPercent,
+
+          shrink_weight_kg:
+            shrinkWeightKg,
+
+          net_weight_kg:
+            netWeightKg,
+
+          price_per_kg:
+            pricePerKg,
+
+          total_amount:
+            totalAmount,
+
+        },
+
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+
+      console.error(
+        'CREATE SLAUGHTERHOUSE LIVE WEIGHING DRAFT ERROR:',
+        error
+      );
+
+
+      if (
+        error.code ===
+        '23505'
+      ) {
+
+        return res.status(409).json({
+          error:
+            'Conflicto generando el número de pesaje. Intente nuevamente',
+        });
+
+      }
+
+
+      return res.status(500).json({
+        error:
+          'Error guardando pesaje en borrador',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+// =====================================================
+// 🔏 CERTIFICAR PESAJE CON QR DEL VENDEDOR
+// POST /slaughterhouse/admin/weighings/:id/certify
+//
+// Body:
+//
+// {
+//   "qr_payload": "{\"version\":1,...}"
+// }
+//
+// IMPORTANTE:
+//
+// - El QR debe estar pending.
+// - No debe estar vencido.
+// - Debe corresponder al mismo lote.
+// - El token debe coincidir.
+// - El payload completo debe coincidir.
+// - Los pesos se recalculan DESDE POSTGRESQL.
+// - QR y pesaje se actualizan en la MISMA transacción.
+// - El QR queda used.
+// - El pesaje queda certified.
+// - Se genera document_hash.
+// =====================================================
+
+exports.certifyLiveWeighingWithQr =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+
+    try {
+
+      const crypto =
+        require('crypto');
+
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+
+      const weighingId =
+        Number(
+          req.params.id
+        );
+
+
+      const qrPayload =
+        req.body.qr_payload;
+
+
+      // =================================================
+      // VALIDACIONES BÁSICAS
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          weighingId
+        ) ||
+        weighingId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de pesaje inválido',
+        });
+
+      }
+
+
+      if (
+        typeof qrPayload !==
+          'string' ||
+        !qrPayload.trim()
+      ) {
+
+        return res.status(400).json({
+          error:
+            'qr_payload es obligatorio',
+        });
+
+      }
+
+
+      // =================================================
+      // PARSEAR QR
+      // =================================================
+
+      let qrData;
+
+
+      try {
+
+        qrData =
+          JSON.parse(
+            qrPayload
+          );
+
+      } catch {
+
+        return res.status(400).json({
+          error:
+            'El QR no contiene un payload válido',
+        });
+
+      }
+
+
+      if (
+        qrData?.version !== 1 ||
+        qrData?.type !==
+          'slaughterhouse_weighing_authorization'
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Tipo de QR de pesaje inválido',
+        });
+
+      }
+
+
+      if (
+        typeof qrData.public_code !==
+          'string' ||
+        !qrData.public_code.trim()
+      ) {
+
+        return res.status(400).json({
+          error:
+            'El QR no contiene public_code válido',
+        });
+
+      }
+
+
+      if (
+        typeof qrData.token !==
+          'string' ||
+        !qrData.token
+      ) {
+
+        return res.status(400).json({
+          error:
+            'El QR no contiene token válido',
+        });
+
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // OBTENER Y BLOQUEAR PESAJE
+      // =================================================
+
+      const weighingResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM slaughterhouse_live_weighings
+
+            WHERE
+              id = $1
+              AND company_id = $2
+
+            FOR UPDATE
+          `,
+          [
+            weighingId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        weighingResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'Pesaje no encontrado',
+        });
+
+      }
+
+
+      const previousWeighing =
+        weighingResult.rows[0];
+
+      // =================================================
+      // SI ESTE PESAJE ES UNA RECTIFICACIÓN,
+      // BLOQUEAR Y VALIDAR EL ORIGINAL
+      // =================================================
+
+      let originalWeighing =
+        null;
+
+
+      if (
+        previousWeighing.original_weighing_id !==
+        null
+      ) {
+
+        const originalResult =
+          await client.query(
+            `
+              SELECT *
+
+              FROM slaughterhouse_live_weighings
+
+              WHERE
+                id = $1
+                AND company_id = $2
+                AND purchase_lot_id = $3
+
+              FOR UPDATE
+            `,
+            [
+              previousWeighing.original_weighing_id,
+              companyId,
+              previousWeighing.purchase_lot_id,
+            ],
+          );
+
+
+        if (
+          originalResult.rows.length === 0
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+
+          return res.status(409).json({
+            error:
+              'El pesaje original de esta rectificación no existe',
+          });
+
+        }
+
+
+        originalWeighing =
+          originalResult.rows[0];
+
+
+        if (
+          originalWeighing.status !==
+          'certified'
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+
+          return res.status(409).json({
+            error:
+              `El pesaje original está en estado ${originalWeighing.status} y no puede ser reemplazado por esta rectificación`,
+          });
+
+        }
+
+      }        
+
+      // =================================================
+      // SOLO DRAFT
+      // =================================================
+
+      if (
+        previousWeighing.status !==
+        'draft'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            `El pesaje está en estado ${previousWeighing.status} y no puede certificarse`,
+        });
+
+      }
+
+
+      if (
+        previousWeighing.authorization_id !==
+        null
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'El pesaje ya tiene una autorización QR asociada',
+        });
+
+      }
+
+
+      // =================================================
+      // VALIDAR QUE LOS DATOS DEL QR APUNTEN AL MISMO LOTE
+      // =================================================
+
+      const qrPurchaseLotId =
+        Number(
+          qrData.purchase_lot_id
+        );
+
+
+      if (
+        !Number.isInteger(
+          qrPurchaseLotId
+        ) ||
+        qrPurchaseLotId !==
+          Number(
+            previousWeighing.purchase_lot_id
+          )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'El QR no corresponde al lote de este pesaje',
+        });
+
+      }
+
+
+      // =================================================
+      // OBTENER Y BLOQUEAR AUTORIZACIÓN
+      // =================================================
+
+      const authorizationResult =
+        await client.query(
+          `
+            SELECT
+
+              *,
+
+              CASE
+
+                WHEN
+                  expires_at IS NOT NULL
+                  AND expires_at <= NOW()
+
+                THEN true
+
+                ELSE false
+
+              END
+                AS is_expired
+
+            FROM slaughterhouse_weighing_authorizations
+
+            WHERE
+              company_id = $1
+              AND purchase_lot_id = $2
+              AND public_code = $3
+
+            FOR UPDATE
+          `,
+          [
+            companyId,
+
+            previousWeighing.purchase_lot_id,
+
+            qrData.public_code,
+          ],
+        );
+
+
+      if (
+        authorizationResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'Autorización QR no encontrada',
+        });
+
+      }
+
+
+      const authorization =
+        authorizationResult.rows[0];
+
+
+      // =================================================
+      // VALIDAR NÚMERO DEL QR
+      // =================================================
+
+      if (
+        Number(
+          qrData.authorization_number
+        ) !==
+        Number(
+          authorization.authorization_number
+        )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'El número de autorización del QR no coincide',
+        });
+
+      }
+
+
+      // =================================================
+      // VALIDAR ESTADO
+      // =================================================
+
+      if (
+        authorization.status ===
+        'used'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'Este QR ya fue utilizado',
+        });
+
+      }
+
+
+      if (
+        authorization.status ===
+        'revoked'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'Este QR fue revocado',
+        });
+
+      }
+
+
+      if (
+        authorization.status ===
+          'expired' ||
+        authorization.is_expired ===
+          true
+      ) {
+
+        if (
+          authorization.status ===
+          'pending'
+        ) {
+
+          await client.query(
+            `
+              UPDATE slaughterhouse_weighing_authorizations
+
+              SET
+                status = 'expired',
+                updated_at = NOW()
+
+              WHERE
+                id = $1
+            `,
+            [
+              authorization.id,
+            ],
+          );
+
+
+          await client.query(
+            'COMMIT'
+          );
+
+        } else {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+        }
+
+
+        return res.status(409).json({
+          error:
+            'Este QR está vencido',
+        });
+
+      }
+
+
+      if (
+        authorization.status !==
+        'pending'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            `El QR está en estado ${authorization.status} y no puede utilizarse`,
+        });
+
+      }
+
+
+      // =================================================
+      // VALIDAR HASH DEL PAYLOAD COMPLETO
+      // =================================================
+
+      const receivedPayloadHash =
+        crypto
+          .createHash('sha256')
+          .update(qrPayload)
+          .digest('hex');
+
+
+      if (
+        receivedPayloadHash !==
+        authorization.qr_payload_hash
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(401).json({
+          error:
+            'El contenido del QR fue alterado o no coincide con la autorización emitida',
+        });
+
+      }
+
+
+      // =================================================
+      // VALIDAR TOKEN
+      //
+      // Usamos timingSafeEqual para comparar hashes.
+      // =================================================
+
+      const receivedTokenHash =
+        crypto
+          .createHash('sha256')
+          .update(
+            qrData.token
+          )
+          .digest('hex');
+
+
+      const expectedTokenBuffer =
+        Buffer.from(
+          authorization.token_hash,
+          'hex'
+        );
+
+
+      const receivedTokenBuffer =
+        Buffer.from(
+          receivedTokenHash,
+          'hex'
+        );
+
+
+      if (
+        expectedTokenBuffer.length !==
+          receivedTokenBuffer.length ||
+        !crypto.timingSafeEqual(
+          expectedTokenBuffer,
+          receivedTokenBuffer
+        )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(401).json({
+          error:
+            'Token QR inválido',
+        });
+
+      }
+
+
+      // =================================================
+      // VALIDAR VENDEDOR DEL SNAPSHOT
+      // =================================================
+
+      const snapshotSellerId =
+        Number(
+          authorization
+            .details_snapshot
+            ?.seller_person_id
+        );
+
+
+      if (
+        Number.isInteger(
+          snapshotSellerId
+        ) &&
+        snapshotSellerId !==
+          Number(
+            previousWeighing.seller_person_id
+          )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'El QR pertenece a otro vendedor',
+        });
+
+      }
+
+
+      // =================================================
+      // LEER ITEMS DIRECTAMENTE DE POSTGRESQL
+      //
+      // No confiamos en los pesos enviados por el cliente.
+      // =================================================
+
+      const itemsResult =
+        await client.query(
+          `
+            SELECT
+
+              id,
+              sequence_number,
+              weight_kg,
+              notes,
+              created_at
+
+            FROM slaughterhouse_live_weighing_items
+
+            WHERE
+              weighing_id = $1
+
+            ORDER BY
+              sequence_number ASC
+
+            FOR UPDATE
+          `,
+          [
+            weighingId,
+          ],
+        );
+
+
+      const items =
+        itemsResult.rows;
+
+
+      if (
+        items.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'El pesaje no tiene pesos registrados y no puede certificarse',
+        });
+
+      }
+
+
+      // =================================================
+      // RECALCULAR TODO
+      // =================================================
+
+      const quantity =
+        items.length;
+
+
+      const grossWeightKg =
+        items.reduce(
+          (
+            total,
+            item
+          ) =>
+            total +
+            Number(
+              item.weight_kg
+            ),
+          0
+        );
+
+
+      const roundedGrossWeightKg =
+        Number(
+          grossWeightKg.toFixed(
+            3
+          )
+        );
+
+
+      const shrinkPercent =
+        Number(
+          previousWeighing
+            .shrink_percent ||
+          0
+        );
+
+
+      if (
+        !Number.isFinite(
+          shrinkPercent
+        ) ||
+        shrinkPercent < 0 ||
+        shrinkPercent > 100
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La merma almacenada en el pesaje es inválida',
+        });
+
+      }
+
+
+      const shrinkWeightKg =
+        Number(
+          (
+            roundedGrossWeightKg *
+            shrinkPercent /
+            100
+          ).toFixed(
+            3
+          )
+        );
+
+
+      const netWeightKg =
+        Number(
+          (
+            roundedGrossWeightKg -
+            shrinkWeightKg
+          ).toFixed(
+            3
+          )
+        );
+
+
+      const pricePerKg =
+        previousWeighing
+          .price_per_kg !== null
+          ? Number(
+              previousWeighing
+                .price_per_kg
+            )
+          : null;
+
+
+      const totalAmount =
+        pricePerKg !== null
+          ? Number(
+              (
+                netWeightKg *
+                pricePerKg
+              ).toFixed(
+                2
+              )
+            )
+          : null;
+
+
+      // =================================================
+      // SNAPSHOT INMUTABLE PARA DOCUMENT_HASH
+      //
+      // NO incluimos token.
+      // =================================================
+
+      const certificationDocument = {
+
+        version: 1,
+
+        company_id:
+          companyId,
+
+        purchase_lot_id:
+          Number(
+            previousWeighing
+              .purchase_lot_id
+          ),
+
+        troop_id:
+          previousWeighing
+            .troop_id,
+
+        weighing_id:
+          weighingId,
+
+        weighing_number:
+          Number(
+            previousWeighing
+              .weighing_number
+          ),
+
+        seller_person_id:
+          Number(
+            previousWeighing
+              .seller_person_id
+          ),
+
+        captador_person_id:
+          previousWeighing
+            .captador_person_id,
+
+        pesador_person_id:
+          previousWeighing
+            .pesador_person_id,
+
+        classification_id:
+          previousWeighing
+            .classification_id,
+
+        authorization_id:
+          authorization.id,
+
+        authorization_number:
+          authorization
+            .authorization_number,
+
+        public_code:
+          authorization
+            .public_code,
+
+        quantity,
+
+        gross_weight_kg:
+          roundedGrossWeightKg,
+
+        shrink_percent:
+          shrinkPercent,
+
+        shrink_weight_kg:
+          shrinkWeightKg,
+
+        net_weight_kg:
+          netWeightKg,
+
+        price_per_kg:
+          pricePerKg,
+
+        total_amount:
+          totalAmount,
+
+        event_lat:
+          previousWeighing
+            .event_lat,
+
+        event_lng:
+          previousWeighing
+            .event_lng,
+
+        event_local_time:
+          previousWeighing
+            .event_local_time,
+
+        items:
+          items.map(
+            (item) => ({
+              sequence_number:
+                Number(
+                  item.sequence_number
+                ),
+
+              weight_kg:
+                Number(
+                  item.weight_kg
+                ),
+
+              notes:
+                item.notes,
+            })
+          ),
+
+      };
+
+
+      const documentHash =
+        crypto
+          .createHash('sha256')
+          .update(
+            JSON.stringify(
+              certificationDocument
+            )
+          )
+          .digest('hex');
+
+
+      // =================================================
+      // CERTIFICAR PESAJE
+      // =================================================
+
+      const certifiedResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_live_weighings
+
+            SET
+              authorization_id = $1,
+
+              quantity = $2,
+
+              gross_weight_kg = $3,
+              shrink_weight_kg = $4,
+              net_weight_kg = $5,
+
+              total_amount = $6,
+
+              document_hash = $7,
+
+              certified_offline = false,
+
+              status = 'certified',
+
+              certified_by = $8,
+              certified_at = NOW(),
+
+              updated_at = NOW()
+
+            WHERE
+              id = $9
+              AND company_id = $10
+
+            RETURNING *
+          `,
+          [
+            authorization.id,
+
+            quantity,
+
+            roundedGrossWeightKg,
+
+            shrinkWeightKg,
+
+            netWeightKg,
+
+            totalAmount,
+
+            documentHash,
+
+            userId,
+
+            weighingId,
+
+            companyId,
+          ],
+        );
+
+
+      const certifiedWeighing =
+        certifiedResult.rows[0];
+
+
+      // =================================================
+      // CONSUMIR QR
+      // =================================================
+
+      const usedAuthorizationResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_weighing_authorizations
+
+            SET
+              status = 'used',
+              used_by = $1,
+              used_at = NOW(),
+              updated_at = NOW()
+
+            WHERE
+              id = $2
+              AND status = 'pending'
+
+            RETURNING
+              id,
+              company_id,
+              purchase_lot_id,
+              authorization_number,
+              public_code,
+              purpose,
+              details_snapshot,
+              recipient_phone_snapshot,
+              delivery_channel,
+              expected_date,
+              status,
+              issued_by,
+              used_by,
+              revoked_by,
+              issued_at,
+              used_at,
+              revoked_at,
+              expires_at,
+              created_at,
+              updated_at
+          `,
+          [
+            userId,
+            authorization.id,
+          ],
+        );
+
+
+      if (
+        usedAuthorizationResult.rows.length ===
+        0
+      ) {
+
+        throw new Error(
+          'No fue posible consumir la autorización QR'
+        );
+
+      }
+
+
+      const usedAuthorization =
+        usedAuthorizationResult.rows[0];
+
+      // =================================================
+      // SI ES RECTIFICACIÓN CERTIFICADA,
+      // EL ORIGINAL PASA A RECTIFIED
+      //
+      // Nunca modificamos sus pesos, hash ni datos.
+      // Solamente cambia su estado documental.
+      // =================================================
+
+      let rectifiedOriginal =
+        null;
+
+
+      if (
+        originalWeighing !==
+        null
+      ) {
+
+        const rectifiedOriginalResult =
+          await client.query(
+            `
+              UPDATE slaughterhouse_live_weighings
+
+              SET
+                status = 'rectified',
+                updated_at = NOW()
+
+              WHERE
+                id = $1
+                AND company_id = $2
+                AND status = 'certified'
+
+              RETURNING *
+            `,
+            [
+              originalWeighing.id,
+              companyId,
+            ],
+          );
+
+
+        if (
+          rectifiedOriginalResult.rows.length ===
+          0
+        ) {
+
+          throw new Error(
+            'No fue posible marcar el pesaje original como rectificado'
+          );
+
+        }
+
+
+        rectifiedOriginal =
+          rectifiedOriginalResult.rows[0];
+
+      }        
+
+      // =================================================
+      // AUDITORÍA
+      //
+      // NO almacenamos token ni qr_payload.
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'live_weighing',
+            $3,
+            'certify_with_qr',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+
+          userId,
+
+          String(
+            weighingId
+          ),
+
+          JSON.stringify(
+            previousWeighing
+          ),
+
+          JSON.stringify({
+            weighing:
+              certifiedWeighing,
+
+            authorization: {
+              id:
+                usedAuthorization.id,
+
+              authorization_number:
+                usedAuthorization
+                  .authorization_number,
+
+              public_code:
+                usedAuthorization
+                  .public_code,
+
+              status:
+                usedAuthorization
+                  .status,
+
+              used_by:
+                usedAuthorization
+                  .used_by,
+
+              used_at:
+                usedAuthorization
+                  .used_at,
+            },
+
+            document_hash:
+              documentHash,
+
+            rectification:
+              originalWeighing !== null
+                ? {
+                    original_weighing_id:
+                      originalWeighing.id,
+
+                    original_previous_status:
+                      originalWeighing.status,
+
+                    original_new_status:
+                      rectifiedOriginal.status,
+                  }
+                : null,
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      // =================================================
+      // RESPUESTA
+      // =================================================
+
+      return res.json({
+
+        success: true,
+
+        message:
+          'Pesaje certificado correctamente con QR del vendedor',
+
+        weighing:
+          certifiedWeighing,
+
+        items,
+
+        authorization:
+          usedAuthorization,
+
+        rectification:
+          rectifiedOriginal !== null
+            ? {
+                original_weighing_id:
+                  rectifiedOriginal.id,
+
+                original_weighing_number:
+                  rectifiedOriginal.weighing_number,
+
+                original_status:
+                  rectifiedOriginal.status,
+
+                new_weighing_id:
+                  certifiedWeighing.id,
+
+                new_weighing_number:
+                  certifiedWeighing.weighing_number,
+              }
+            : null,
+
+        certification: {
+
+          document_hash:
+            documentHash,
+
+          quantity,
+
+          gross_weight_kg:
+            roundedGrossWeightKg,
+
+          shrink_percent:
+            shrinkPercent,
+
+          shrink_weight_kg:
+            shrinkWeightKg,
+
+          net_weight_kg:
+            netWeightKg,
+
+          price_per_kg:
+            pricePerKg,
+
+          total_amount:
+            totalAmount,
+
+        },
+
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+
+      console.error(
+        'CERTIFY SLAUGHTERHOUSE LIVE WEIGHING WITH QR ERROR:',
+        error
+      );
+
+
+      if (
+        error.code ===
+        '23505'
+      ) {
+
+        return res.status(409).json({
+          error:
+            'La autorización QR ya está vinculada a otro pesaje',
+        });
+
+      }
+
+
+      return res.status(500).json({
+        error:
+          'Error certificando pesaje con QR',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+// =====================================================
+// ⚖️ LISTAR PESAJES DE UN LOTE
+// GET /slaughterhouse/admin/purchase-lots/:id/weighings
+//
+// Devuelve resumen de cada pesaje.
+// NO carga todos los items individuales.
+//
+// Filtro opcional:
+// ?status=draft
+// ?status=certified
+// ?status=rectified
+// ?status=cancelled
+// =====================================================
+
+exports.getLiveWeighings =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const purchaseLotId =
+        Number(
+          req.params.id
+        );
+
+
+      const status =
+        req.query.status
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        null;
+
+
+      // =================================================
+      // VALIDACIONES
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          purchaseLotId
+        ) ||
+        purchaseLotId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de lote inválido',
+        });
+
+      }
+
+
+      const allowedStatuses =
+        [
+          'draft',
+          'certified',
+          'rectified',
+          'cancelled',
+        ];
+
+
+      if (
+        status !== null &&
+        !allowedStatuses.includes(
+          status
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Estado de pesaje inválido',
+        });
+
+      }
+
+
+      // =================================================
+      // VERIFICAR LOTE
+      // =================================================
+
+      const lotResult =
+        await pool.query(
+          `
+            SELECT
+              spl.id,
+              spl.lot_number,
+              spl.external_order_number,
+              spl.status,
+
+              spl.seller_person_id,
+
+              seller.full_name
+                AS seller_name
+
+            FROM slaughterhouse_purchase_lots spl
+
+            JOIN slaughterhouse_people seller
+              ON seller.id =
+                spl.seller_person_id
+              AND seller.company_id =
+                spl.company_id
+
+            WHERE
+              spl.id = $1
+              AND spl.company_id = $2
+
+            LIMIT 1
+          `,
+          [
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        lotResult.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+          error:
+            'Lote de compra no encontrado',
+        });
+
+      }
+
+
+      // =================================================
+      // LISTAR PESAJES
+      // =================================================
+
+      const result =
+        await pool.query(
+          `
+            SELECT
+
+              w.id,
+              w.company_id,
+              w.purchase_lot_id,
+
+              w.troop_id,
+              troop.troop_number,
+
+              w.authorization_id,
+
+              authorization.authorization_number,
+              authorization.public_code,
+              authorization.status
+                AS authorization_status,
+
+              w.weighing_number,
+
+              w.seller_person_id,
+              seller.full_name
+                AS seller_name,
+
+              w.captador_person_id,
+              captador.full_name
+                AS captador_name,
+
+              w.pesador_person_id,
+              pesador.full_name
+                AS pesador_name,
+
+              w.classification_id,
+              classification.generated_code
+                AS classification_code,
+              classification.display_name
+                AS classification_name,
+
+              w.quantity,
+
+              w.gross_weight_kg,
+              w.shrink_percent,
+              w.shrink_weight_kg,
+              w.net_weight_kg,
+
+              w.price_per_kg,
+              w.total_amount,
+
+              w.signature_url,
+
+              w.event_lat,
+              w.event_lng,
+              w.event_local_time,
+
+              w.document_hash,
+              w.certified_offline,
+
+              w.status,
+
+              w.original_weighing_id,
+
+              w.created_by,
+              creator.name
+                AS created_by_name,
+
+              w.certified_by,
+              certifier.name
+                AS certified_by_name,
+
+              w.created_at,
+              w.certified_at,
+              w.updated_at,
+
+              (
+                SELECT COUNT(*)::int
+
+                FROM slaughterhouse_live_weighing_items item
+
+                WHERE
+                  item.weighing_id = w.id
+              )
+                AS items_count
+
+            FROM slaughterhouse_live_weighings w
+
+            LEFT JOIN slaughterhouse_troops troop
+              ON troop.id =
+                w.troop_id
+              AND troop.company_id =
+                w.company_id
+
+            LEFT JOIN slaughterhouse_weighing_authorizations authorization
+              ON authorization.id =
+                w.authorization_id
+              AND authorization.company_id =
+                w.company_id
+
+            JOIN slaughterhouse_people seller
+              ON seller.id =
+                w.seller_person_id
+              AND seller.company_id =
+                w.company_id
+
+            LEFT JOIN slaughterhouse_people captador
+              ON captador.id =
+                w.captador_person_id
+              AND captador.company_id =
+                w.company_id
+
+            LEFT JOIN slaughterhouse_people pesador
+              ON pesador.id =
+                w.pesador_person_id
+              AND pesador.company_id =
+                w.company_id
+
+            LEFT JOIN slaughterhouse_animal_classifications classification
+              ON classification.id =
+                w.classification_id
+              AND classification.company_id =
+                w.company_id
+
+            LEFT JOIN users creator
+              ON creator.id =
+                w.created_by
+
+            LEFT JOIN users certifier
+              ON certifier.id =
+                w.certified_by
+
+            WHERE
+              w.purchase_lot_id = $1
+              AND w.company_id = $2
+
+              AND (
+                $3::text IS NULL
+                OR w.status = $3
+              )
+
+            ORDER BY
+              w.weighing_number DESC,
+              w.id DESC
+          `,
+          [
+            purchaseLotId,
+            companyId,
+            status,
+          ],
+        );
+
+
+      const weighings =
+        result.rows;
+
+
+      // =================================================
+      // RESUMEN DEL LOTE
+      //
+      // Para totales comerciales usamos únicamente
+      // pesajes certificados.
+      // =================================================
+
+      const certifiedWeighings =
+        weighings.filter(
+          (item) =>
+            item.status ===
+            'certified'
+        );
+
+
+      const certifiedQuantity =
+        certifiedWeighings.reduce(
+          (
+            total,
+            item
+          ) =>
+            total +
+            Number(
+              item.quantity || 0
+            ),
+          0
+        );
+
+
+      const certifiedGrossWeightKg =
+        certifiedWeighings.reduce(
+          (
+            total,
+            item
+          ) =>
+            total +
+            Number(
+              item.gross_weight_kg || 0
+            ),
+          0
+        );
+
+
+      const certifiedNetWeightKg =
+        certifiedWeighings.reduce(
+          (
+            total,
+            item
+          ) =>
+            total +
+            Number(
+              item.net_weight_kg || 0
+            ),
+          0
+        );
+
+
+      const certifiedTotalAmount =
+        certifiedWeighings.reduce(
+          (
+            total,
+            item
+          ) =>
+            total +
+            Number(
+              item.total_amount || 0
+            ),
+          0
+        );
+
+
+      const summary = {
+
+        total_weighings:
+          weighings.length,
+
+        draft:
+          weighings.filter(
+            (item) =>
+              item.status ===
+              'draft'
+          ).length,
+
+        certified:
+          certifiedWeighings.length,
+
+        rectified:
+          weighings.filter(
+            (item) =>
+              item.status ===
+              'rectified'
+          ).length,
+
+        cancelled:
+          weighings.filter(
+            (item) =>
+              item.status ===
+              'cancelled'
+          ).length,
+
+        certified_quantity:
+          certifiedQuantity,
+
+        certified_gross_weight_kg:
+          Number(
+            certifiedGrossWeightKg.toFixed(
+              3
+            )
+          ),
+
+        certified_net_weight_kg:
+          Number(
+            certifiedNetWeightKg.toFixed(
+              3
+            )
+          ),
+
+        certified_total_amount:
+          Number(
+            certifiedTotalAmount.toFixed(
+              2
+            )
+          ),
+
+      };
+
+
+      return res.json({
+
+        success: true,
+
+        purchase_lot:
+          lotResult.rows[0],
+
+        summary,
+
+        weighings,
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        'GET SLAUGHTERHOUSE LIVE WEIGHINGS ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo pesajes del lote',
+      });
+
+    }
+
+  };
+
+// =====================================================
+// ⚖️ DETALLE COMPLETO DE PESAJE
+// GET /slaughterhouse/admin/weighings/:id
+//
+// Devuelve:
+// - cabecera del pesaje
+// - vendedor
+// - captador
+// - pesador
+// - clasificación
+// - tropa
+// - autorización QR utilizada
+// - items individuales
+// - document_hash
+//
+// IMPORTANTE:
+// NO devuelve:
+// - token_hash
+// - qr_payload_hash
+// =====================================================
+
+exports.getLiveWeighingById =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const weighingId =
+        Number(
+          req.params.id
+        );
+
+
+      // =================================================
+      // VALIDAR ID
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          weighingId
+        ) ||
+        weighingId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de pesaje inválido',
+        });
+
+      }
+
+
+      // =================================================
+      // CABECERA DEL PESAJE
+      // =================================================
+
+      const weighingResult =
+        await pool.query(
+          `
+            SELECT
+
+              w.id,
+              w.company_id,
+              w.purchase_lot_id,
+
+              lot.lot_number,
+              lot.external_order_number,
+
+              w.troop_id,
+              troop.troop_number,
+
+              w.authorization_id,
+
+              authorization.authorization_number,
+              authorization.public_code,
+              authorization.purpose,
+              authorization.details_snapshot,
+              authorization.recipient_phone_snapshot,
+              authorization.delivery_channel,
+              authorization.expected_date,
+              authorization.status
+                AS authorization_status,
+              authorization.issued_at,
+              authorization.used_at,
+              authorization.expires_at,
+
+              w.weighing_number,
+
+              w.seller_person_id,
+              seller.full_name
+                AS seller_name,
+              seller.document_number
+                AS seller_document_number,
+              seller.phone
+                AS seller_phone,
+
+              w.captador_person_id,
+              captador.full_name
+                AS captador_name,
+
+              w.pesador_person_id,
+              pesador.full_name
+                AS pesador_name,
+
+              w.classification_id,
+              classification.generated_code
+                AS classification_code,
+              classification.display_name
+                AS classification_name,
+
+              w.quantity,
+
+              w.gross_weight_kg,
+              w.shrink_percent,
+              w.shrink_weight_kg,
+              w.net_weight_kg,
+
+              w.price_per_kg,
+              w.total_amount,
+
+              w.signature_url,
+
+              w.event_lat,
+              w.event_lng,
+              w.event_local_time,
+
+              w.document_hash,
+
+              w.certified_offline,
+
+              w.status,
+
+              w.original_weighing_id,
+
+              w.created_by,
+              creator.name
+                AS created_by_name,
+
+              w.certified_by,
+              certifier.name
+                AS certified_by_name,
+
+              w.created_at,
+              w.certified_at,
+              w.updated_at
+
+            FROM slaughterhouse_live_weighings w
+
+            JOIN slaughterhouse_purchase_lots lot
+              ON lot.id =
+                w.purchase_lot_id
+              AND lot.company_id =
+                w.company_id
+
+            LEFT JOIN slaughterhouse_troops troop
+              ON troop.id =
+                w.troop_id
+              AND troop.company_id =
+                w.company_id
+
+            LEFT JOIN slaughterhouse_weighing_authorizations authorization
+              ON authorization.id =
+                w.authorization_id
+              AND authorization.company_id =
+                w.company_id
+
+            JOIN slaughterhouse_people seller
+              ON seller.id =
+                w.seller_person_id
+              AND seller.company_id =
+                w.company_id
+
+            LEFT JOIN slaughterhouse_people captador
+              ON captador.id =
+                w.captador_person_id
+              AND captador.company_id =
+                w.company_id
+
+            LEFT JOIN slaughterhouse_people pesador
+              ON pesador.id =
+                w.pesador_person_id
+              AND pesador.company_id =
+                w.company_id
+
+            LEFT JOIN slaughterhouse_animal_classifications classification
+              ON classification.id =
+                w.classification_id
+              AND classification.company_id =
+                w.company_id
+
+            LEFT JOIN users creator
+              ON creator.id =
+                w.created_by
+
+            LEFT JOIN users certifier
+              ON certifier.id =
+                w.certified_by
+
+            WHERE
+              w.id = $1
+              AND w.company_id = $2
+
+            LIMIT 1
+          `,
+          [
+            weighingId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        weighingResult.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+          error:
+            'Pesaje no encontrado',
+        });
+
+      }
+
+
+      const weighing =
+        weighingResult.rows[0];
+
+
+      // =================================================
+      // ITEMS INDIVIDUALES
+      // =================================================
+
+      const itemsResult =
+        await pool.query(
+          `
+            SELECT
+
+              id,
+              weighing_id,
+              sequence_number,
+              weight_kg,
+              notes,
+              created_at
+
+            FROM slaughterhouse_live_weighing_items
+
+            WHERE
+              weighing_id = $1
+
+            ORDER BY
+              sequence_number ASC,
+              id ASC
+          `,
+          [
+            weighingId,
+          ],
+        );
+
+
+      const items =
+        itemsResult.rows;
+
+
+      // =================================================
+      // RECTIFICACIONES RELACIONADAS
+      //
+      // Si este pesaje fue rectificado, mostramos
+      // los pesajes posteriores que apuntan a él.
+      // =================================================
+
+      const rectificationsResult =
+        await pool.query(
+          `
+            SELECT
+
+              id,
+              weighing_number,
+              status,
+              original_weighing_id,
+
+              quantity,
+              gross_weight_kg,
+              shrink_percent,
+              shrink_weight_kg,
+              net_weight_kg,
+              price_per_kg,
+              total_amount,
+
+              document_hash,
+
+              created_at,
+              certified_at,
+              updated_at
+
+            FROM slaughterhouse_live_weighings
+
+            WHERE
+              original_weighing_id = $1
+              AND company_id = $2
+
+            ORDER BY
+              created_at ASC,
+              id ASC
+          `,
+          [
+            weighingId,
+            companyId,
+          ],
+        );
+
+
+      const rectifications =
+        rectificationsResult.rows;
+
+
+      // =================================================
+      // PESAJE ORIGINAL SI ESTE ES RECTIFICACIÓN
+      // =================================================
+
+      let originalWeighing =
+        null;
+
+
+      if (
+        weighing.original_weighing_id !==
+        null
+      ) {
+
+        const originalResult =
+          await pool.query(
+            `
+              SELECT
+
+                id,
+                weighing_number,
+                status,
+
+                quantity,
+                gross_weight_kg,
+                shrink_percent,
+                shrink_weight_kg,
+                net_weight_kg,
+
+                price_per_kg,
+                total_amount,
+
+                document_hash,
+
+                created_at,
+                certified_at
+
+              FROM slaughterhouse_live_weighings
+
+              WHERE
+                id = $1
+                AND company_id = $2
+
+              LIMIT 1
+            `,
+            [
+              weighing.original_weighing_id,
+              companyId,
+            ],
+          );
+
+
+        originalWeighing =
+          originalResult.rows[0] ||
+          null;
+
+      }
+
+
+      // =================================================
+      // RESUMEN DE INTEGRIDAD
+      // =================================================
+
+      const calculatedGrossWeightKg =
+        items.reduce(
+          (
+            total,
+            item
+          ) =>
+            total +
+            Number(
+              item.weight_kg || 0
+            ),
+          0
+        );
+
+
+      const integrity = {
+
+        items_count:
+          items.length,
+
+        stored_quantity:
+          weighing.quantity !== null
+            ? Number(
+                weighing.quantity
+              )
+            : null,
+
+        calculated_quantity:
+          items.length,
+
+        stored_gross_weight_kg:
+          weighing.gross_weight_kg !== null
+            ? Number(
+                weighing.gross_weight_kg
+              )
+            : null,
+
+        calculated_gross_weight_kg:
+          Number(
+            calculatedGrossWeightKg.toFixed(
+              3
+            )
+          ),
+
+        quantity_matches:
+          weighing.quantity !== null
+            ? Number(
+                weighing.quantity
+              ) ===
+              items.length
+            : null,
+
+        gross_weight_matches:
+          weighing.gross_weight_kg !== null
+            ? Math.abs(
+                Number(
+                  weighing.gross_weight_kg
+                ) -
+                Number(
+                  calculatedGrossWeightKg.toFixed(
+                    3
+                  )
+                )
+              ) < 0.001
+            : null,
+
+        has_document_hash:
+          Boolean(
+            weighing.document_hash
+          ),
+
+        is_certified:
+          weighing.status ===
+          'certified',
+
+        certified_offline:
+          weighing.certified_offline ===
+          true,
+
+      };
+
+
+      // =================================================
+      // RESPUESTA
+      // =================================================
+
+      return res.json({
+
+        success: true,
+
+        weighing,
+
+        items,
+
+        integrity,
+
+        original_weighing:
+          originalWeighing,
+
+        rectifications,
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        'GET SLAUGHTERHOUSE LIVE WEIGHING DETAIL ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo detalle del pesaje',
+      });
+
+    }
+
+  };
+
+// =====================================================
+// ⚖️ DETALLE COMPLETO DE PESAJE
+// GET /slaughterhouse/admin/weighings/:id
+//
+// Devuelve:
+// - cabecera del pesaje
+// - vendedor
+// - captador
+// - pesador
+// - clasificación
+// - tropa
+// - autorización QR utilizada
+// - items individuales
+// - document_hash
+//
+// IMPORTANTE:
+// NO devuelve:
+// - token_hash
+// - qr_payload_hash
+// =====================================================
+
+exports.getLiveWeighingById =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const weighingId =
+        Number(
+          req.params.id
+        );
+
+
+      // =================================================
+      // VALIDAR ID
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          weighingId
+        ) ||
+        weighingId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de pesaje inválido',
+        });
+
+      }
+
+
+      // =================================================
+      // CABECERA DEL PESAJE
+      // =================================================
+
+      const weighingResult =
+        await pool.query(
+          `
+            SELECT
+
+              w.id,
+              w.company_id,
+              w.purchase_lot_id,
+
+              lot.lot_number,
+              lot.external_order_number,
+
+              w.troop_id,
+              troop.troop_number,
+
+              w.authorization_id,
+
+              authorization.authorization_number,
+              authorization.public_code,
+              authorization.purpose,
+              authorization.details_snapshot,
+              authorization.recipient_phone_snapshot,
+              authorization.delivery_channel,
+              authorization.expected_date,
+              authorization.status
+                AS authorization_status,
+              authorization.issued_at,
+              authorization.used_at,
+              authorization.expires_at,
+
+              w.weighing_number,
+
+              w.seller_person_id,
+              seller.full_name
+                AS seller_name,
+              seller.document_number
+                AS seller_document_number,
+              seller.phone
+                AS seller_phone,
+
+              w.captador_person_id,
+              captador.full_name
+                AS captador_name,
+
+              w.pesador_person_id,
+              pesador.full_name
+                AS pesador_name,
+
+              w.classification_id,
+              classification.generated_code
+                AS classification_code,
+              classification.display_name
+                AS classification_name,
+
+              w.quantity,
+
+              w.gross_weight_kg,
+              w.shrink_percent,
+              w.shrink_weight_kg,
+              w.net_weight_kg,
+
+              w.price_per_kg,
+              w.total_amount,
+
+              w.signature_url,
+
+              w.event_lat,
+              w.event_lng,
+              w.event_local_time,
+
+              w.document_hash,
+
+              w.certified_offline,
+
+              w.status,
+
+              w.original_weighing_id,
+
+              w.created_by,
+              creator.name
+                AS created_by_name,
+
+              w.certified_by,
+              certifier.name
+                AS certified_by_name,
+
+              w.created_at,
+              w.certified_at,
+              w.updated_at
+
+            FROM slaughterhouse_live_weighings w
+
+            JOIN slaughterhouse_purchase_lots lot
+              ON lot.id =
+                w.purchase_lot_id
+              AND lot.company_id =
+                w.company_id
+
+            LEFT JOIN slaughterhouse_troops troop
+              ON troop.id =
+                w.troop_id
+              AND troop.company_id =
+                w.company_id
+
+            LEFT JOIN slaughterhouse_weighing_authorizations authorization
+              ON authorization.id =
+                w.authorization_id
+              AND authorization.company_id =
+                w.company_id
+
+            JOIN slaughterhouse_people seller
+              ON seller.id =
+                w.seller_person_id
+              AND seller.company_id =
+                w.company_id
+
+            LEFT JOIN slaughterhouse_people captador
+              ON captador.id =
+                w.captador_person_id
+              AND captador.company_id =
+                w.company_id
+
+            LEFT JOIN slaughterhouse_people pesador
+              ON pesador.id =
+                w.pesador_person_id
+              AND pesador.company_id =
+                w.company_id
+
+            LEFT JOIN slaughterhouse_animal_classifications classification
+              ON classification.id =
+                w.classification_id
+              AND classification.company_id =
+                w.company_id
+
+            LEFT JOIN users creator
+              ON creator.id =
+                w.created_by
+
+            LEFT JOIN users certifier
+              ON certifier.id =
+                w.certified_by
+
+            WHERE
+              w.id = $1
+              AND w.company_id = $2
+
+            LIMIT 1
+          `,
+          [
+            weighingId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        weighingResult.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+          error:
+            'Pesaje no encontrado',
+        });
+
+      }
+
+
+      const weighing =
+        weighingResult.rows[0];
+
+
+      // =================================================
+      // ITEMS INDIVIDUALES
+      // =================================================
+
+      const itemsResult =
+        await pool.query(
+          `
+            SELECT
+
+              id,
+              weighing_id,
+              sequence_number,
+              weight_kg,
+              notes,
+              created_at
+
+            FROM slaughterhouse_live_weighing_items
+
+            WHERE
+              weighing_id = $1
+
+            ORDER BY
+              sequence_number ASC,
+              id ASC
+          `,
+          [
+            weighingId,
+          ],
+        );
+
+
+      const items =
+        itemsResult.rows;
+
+
+      // =================================================
+      // RECTIFICACIONES RELACIONADAS
+      //
+      // Si este pesaje fue rectificado, mostramos
+      // los pesajes posteriores que apuntan a él.
+      // =================================================
+
+      const rectificationsResult =
+        await pool.query(
+          `
+            SELECT
+
+              id,
+              weighing_number,
+              status,
+              original_weighing_id,
+
+              quantity,
+              gross_weight_kg,
+              shrink_percent,
+              shrink_weight_kg,
+              net_weight_kg,
+              price_per_kg,
+              total_amount,
+
+              document_hash,
+
+              created_at,
+              certified_at,
+              updated_at
+
+            FROM slaughterhouse_live_weighings
+
+            WHERE
+              original_weighing_id = $1
+              AND company_id = $2
+
+            ORDER BY
+              created_at ASC,
+              id ASC
+          `,
+          [
+            weighingId,
+            companyId,
+          ],
+        );
+
+
+      const rectifications =
+        rectificationsResult.rows;
+
+
+      // =================================================
+      // PESAJE ORIGINAL SI ESTE ES RECTIFICACIÓN
+      // =================================================
+
+      let originalWeighing =
+        null;
+
+
+      if (
+        weighing.original_weighing_id !==
+        null
+      ) {
+
+        const originalResult =
+          await pool.query(
+            `
+              SELECT
+
+                id,
+                weighing_number,
+                status,
+
+                quantity,
+                gross_weight_kg,
+                shrink_percent,
+                shrink_weight_kg,
+                net_weight_kg,
+
+                price_per_kg,
+                total_amount,
+
+                document_hash,
+
+                created_at,
+                certified_at
+
+              FROM slaughterhouse_live_weighings
+
+              WHERE
+                id = $1
+                AND company_id = $2
+
+              LIMIT 1
+            `,
+            [
+              weighing.original_weighing_id,
+              companyId,
+            ],
+          );
+
+
+        originalWeighing =
+          originalResult.rows[0] ||
+          null;
+
+      }
+
+
+      // =================================================
+      // RESUMEN DE INTEGRIDAD
+      // =================================================
+
+      const calculatedGrossWeightKg =
+        items.reduce(
+          (
+            total,
+            item
+          ) =>
+            total +
+            Number(
+              item.weight_kg || 0
+            ),
+          0
+        );
+
+
+      const integrity = {
+
+        items_count:
+          items.length,
+
+        stored_quantity:
+          weighing.quantity !== null
+            ? Number(
+                weighing.quantity
+              )
+            : null,
+
+        calculated_quantity:
+          items.length,
+
+        stored_gross_weight_kg:
+          weighing.gross_weight_kg !== null
+            ? Number(
+                weighing.gross_weight_kg
+              )
+            : null,
+
+        calculated_gross_weight_kg:
+          Number(
+            calculatedGrossWeightKg.toFixed(
+              3
+            )
+          ),
+
+        quantity_matches:
+          weighing.quantity !== null
+            ? Number(
+                weighing.quantity
+              ) ===
+              items.length
+            : null,
+
+        gross_weight_matches:
+          weighing.gross_weight_kg !== null
+            ? Math.abs(
+                Number(
+                  weighing.gross_weight_kg
+                ) -
+                Number(
+                  calculatedGrossWeightKg.toFixed(
+                    3
+                  )
+                )
+              ) < 0.001
+            : null,
+
+        has_document_hash:
+          Boolean(
+            weighing.document_hash
+          ),
+
+        is_certified:
+          weighing.status ===
+          'certified',
+
+        certified_offline:
+          weighing.certified_offline ===
+          true,
+
+      };
+
+
+      // =================================================
+      // RESPUESTA
+      // =================================================
+
+      return res.json({
+
+        success: true,
+
+        weighing,
+
+        items,
+
+        integrity,
+
+        original_weighing:
+          originalWeighing,
+
+        rectifications,
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        'GET SLAUGHTERHOUSE LIVE WEIGHING DETAIL ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo detalle del pesaje',
+      });
+
+    }
+
+  };
+
+// =====================================================
+// ✏️ EDITAR PESAJE EN BORRADOR
+// PUT /slaughterhouse/admin/weighings/:id
+//
+// Solo status = draft.
+//
+// Body ejemplo:
+//
+// {
+//   "troop_id": 12,
+//   "pesador_person_id": 8,
+//   "classification_id": 3,
+//   "shrink_percent": 2,
+//   "price_per_kg": 18.50,
+//   "event_lat": -17.1234567,
+//   "event_lng": -63.1234567,
+//   "event_local_time": "2026-09-04T10:30:00",
+//   "items": [
+//     {
+//       "weight_kg": 430.5,
+//       "notes": null
+//     },
+//     {
+//       "weight_kg": 455.2,
+//       "notes": null
+//     }
+//   ]
+// }
+//
+// quantity, pesos totales e importe
+// se recalculan siempre en backend.
+// =====================================================
+
+exports.updateLiveWeighingDraft =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+
+      const weighingId =
+        Number(
+          req.params.id
+        );
+
+
+      const troopIdRaw =
+        req.body.troop_id;
+
+
+      const troopId =
+        troopIdRaw !== undefined &&
+        troopIdRaw !== null &&
+        troopIdRaw !== ''
+          ? Number(
+              troopIdRaw
+            )
+          : null;
+
+
+      const pesadorPersonIdRaw =
+        req.body.pesador_person_id;
+
+
+      const pesadorPersonId =
+        pesadorPersonIdRaw !== undefined &&
+        pesadorPersonIdRaw !== null &&
+        pesadorPersonIdRaw !== ''
+          ? Number(
+              pesadorPersonIdRaw
+            )
+          : null;
+
+
+      const classificationIdRaw =
+        req.body.classification_id;
+
+
+      const classificationId =
+        classificationIdRaw !== undefined &&
+        classificationIdRaw !== null &&
+        classificationIdRaw !== ''
+          ? Number(
+              classificationIdRaw
+            )
+          : null;
+
+
+      const shrinkPercent =
+        req.body.shrink_percent !== undefined &&
+        req.body.shrink_percent !== null &&
+        req.body.shrink_percent !== ''
+          ? Number(
+              req.body.shrink_percent
+            )
+          : 0;
+
+
+      const pricePerKg =
+        req.body.price_per_kg !== undefined &&
+        req.body.price_per_kg !== null &&
+        req.body.price_per_kg !== ''
+          ? Number(
+              req.body.price_per_kg
+            )
+          : null;
+
+
+      const eventLat =
+        req.body.event_lat !== undefined &&
+        req.body.event_lat !== null &&
+        req.body.event_lat !== ''
+          ? Number(
+              req.body.event_lat
+            )
+          : null;
+
+
+      const eventLng =
+        req.body.event_lng !== undefined &&
+        req.body.event_lng !== null &&
+        req.body.event_lng !== ''
+          ? Number(
+              req.body.event_lng
+            )
+          : null;
+
+
+      const eventLocalTime =
+        req.body.event_local_time
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const items =
+        Array.isArray(
+          req.body.items
+        )
+          ? req.body.items
+          : [];
+
+
+      // =================================================
+      // VALIDACIONES
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          weighingId
+        ) ||
+        weighingId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de pesaje inválido',
+        });
+
+      }
+
+
+      if (
+        troopId !== null &&
+        (
+          !Number.isInteger(
+            troopId
+          ) ||
+          troopId <= 0
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'troop_id inválido',
+        });
+
+      }
+
+
+      if (
+        pesadorPersonId !== null &&
+        (
+          !Number.isInteger(
+            pesadorPersonId
+          ) ||
+          pesadorPersonId <= 0
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'pesador_person_id inválido',
+        });
+
+      }
+
+
+      if (
+        classificationId !== null &&
+        (
+          !Number.isInteger(
+            classificationId
+          ) ||
+          classificationId <= 0
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'classification_id inválido',
+        });
+
+      }
+
+
+      if (
+        !Number.isFinite(
+          shrinkPercent
+        ) ||
+        shrinkPercent < 0 ||
+        shrinkPercent > 100
+      ) {
+
+        return res.status(400).json({
+          error:
+            'shrink_percent debe estar entre 0 y 100',
+        });
+
+      }
+
+
+      if (
+        pricePerKg !== null &&
+        (
+          !Number.isFinite(
+            pricePerKg
+          ) ||
+          pricePerKg < 0
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'price_per_kg inválido',
+        });
+
+      }
+
+
+      if (
+        eventLat !== null &&
+        (
+          !Number.isFinite(
+            eventLat
+          ) ||
+          eventLat < -90 ||
+          eventLat > 90
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'event_lat inválido',
+        });
+
+      }
+
+
+      if (
+        eventLng !== null &&
+        (
+          !Number.isFinite(
+            eventLng
+          ) ||
+          eventLng < -180 ||
+          eventLng > 180
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'event_lng inválido',
+        });
+
+      }
+
+
+      if (
+        eventLocalTime !== null &&
+        Number.isNaN(
+          new Date(
+            eventLocalTime
+          ).getTime()
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'event_local_time inválido',
+        });
+
+      }
+
+
+      if (
+        items.length === 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Debe registrar al menos un peso',
+        });
+
+      }
+
+
+      // =================================================
+      // NORMALIZAR ITEMS
+      // =================================================
+
+      const normalizedItems =
+        [];
+
+
+      for (
+        let index = 0;
+        index < items.length;
+        index++
+      ) {
+
+        const weightKg =
+          Number(
+            items[index]
+              ?.weight_kg
+          );
+
+
+        if (
+          !Number.isFinite(
+            weightKg
+          ) ||
+          weightKg <= 0
+        ) {
+
+          return res.status(400).json({
+            error:
+              `Peso inválido en el animal ${index + 1}`,
+          });
+
+        }
+
+
+        normalizedItems.push({
+
+          sequence_number:
+            index + 1,
+
+          weight_kg:
+            Number(
+              weightKg.toFixed(
+                3
+              )
+            ),
+
+          notes:
+            items[index]
+              ?.notes
+              ?.toString()
+              .trim() ||
+            null,
+
+        });
+
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // OBTENER Y BLOQUEAR PESAJE
+      // =================================================
+
+      const previousResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM slaughterhouse_live_weighings
+
+            WHERE
+              id = $1
+              AND company_id = $2
+
+            FOR UPDATE
+          `,
+          [
+            weighingId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        previousResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'Pesaje no encontrado',
+        });
+
+      }
+
+
+      const previousWeighing =
+        previousResult.rows[0];
+
+
+      // =================================================
+      // SOLO DRAFT ES EDITABLE
+      // =================================================
+
+      if (
+        previousWeighing.status !==
+        'draft'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            `El pesaje está en estado ${previousWeighing.status} y ya no puede modificarse`,
+        });
+
+      }
+
+
+      if (
+        previousWeighing.authorization_id !==
+        null
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'El pesaje ya tiene una autorización asociada y no puede editarse',
+        });
+
+      }
+
+
+      // =================================================
+      // ITEMS ANTERIORES PARA AUDITORÍA
+      // =================================================
+
+      const previousItemsResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM slaughterhouse_live_weighing_items
+
+            WHERE
+              weighing_id = $1
+
+            ORDER BY
+              sequence_number ASC
+          `,
+          [
+            weighingId,
+          ],
+        );
+
+
+      const previousItems =
+        previousItemsResult.rows;
+
+
+      // =================================================
+      // VALIDAR TROPA
+      // =================================================
+
+      if (
+        troopId !== null
+      ) {
+
+        const troopResult =
+          await client.query(
+            `
+              SELECT
+                id,
+                status
+
+              FROM slaughterhouse_troops
+
+              WHERE
+                id = $1
+                AND purchase_lot_id = $2
+                AND company_id = $3
+
+              LIMIT 1
+            `,
+            [
+              troopId,
+              previousWeighing.purchase_lot_id,
+              companyId,
+            ],
+          );
+
+
+        if (
+          troopResult.rows.length === 0
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+
+          return res.status(400).json({
+            error:
+              'La tropa no pertenece al lote de este pesaje',
+          });
+
+        }
+
+
+        if (
+          troopResult.rows[0].status ===
+          'cancelled'
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+
+          return res.status(409).json({
+            error:
+              'La tropa seleccionada está cancelada',
+          });
+
+        }
+
+      }
+
+
+      // =================================================
+      // VALIDAR PESADOR
+      // =================================================
+
+      if (
+        pesadorPersonId !== null
+      ) {
+
+        const pesadorResult =
+          await client.query(
+            `
+              SELECT id
+
+              FROM slaughterhouse_people
+
+              WHERE
+                id = $1
+                AND company_id = $2
+                AND is_active = true
+
+              LIMIT 1
+            `,
+            [
+              pesadorPersonId,
+              companyId,
+            ],
+          );
+
+
+        if (
+          pesadorResult.rows.length === 0
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+
+          return res.status(400).json({
+            error:
+              'El pesador no existe o está inactivo',
+          });
+
+        }
+
+      }
+
+
+      // =================================================
+      // VALIDAR CLASIFICACIÓN
+      // =================================================
+
+      if (
+        classificationId !== null
+      ) {
+
+        const classificationResult =
+          await client.query(
+            `
+              SELECT id
+
+              FROM slaughterhouse_animal_classifications
+
+              WHERE
+                id = $1
+                AND company_id = $2
+                AND is_active = true
+
+              LIMIT 1
+            `,
+            [
+              classificationId,
+              companyId,
+            ],
+          );
+
+
+        if (
+          classificationResult.rows.length === 0
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+
+          return res.status(400).json({
+            error:
+              'Clasificación animal inválida o inactiva',
+          });
+
+        }
+
+      }
+
+
+      // =================================================
+      // RECALCULAR
+      // =================================================
+
+      const quantity =
+        normalizedItems.length;
+
+
+      const grossWeightKg =
+        normalizedItems.reduce(
+          (
+            total,
+            item
+          ) =>
+            total +
+            Number(
+              item.weight_kg
+            ),
+          0
+        );
+
+
+      const roundedGrossWeightKg =
+        Number(
+          grossWeightKg.toFixed(
+            3
+          )
+        );
+
+
+      const shrinkWeightKg =
+        Number(
+          (
+            roundedGrossWeightKg *
+            shrinkPercent /
+            100
+          ).toFixed(
+            3
+          )
+        );
+
+
+      const netWeightKg =
+        Number(
+          (
+            roundedGrossWeightKg -
+            shrinkWeightKg
+          ).toFixed(
+            3
+          )
+        );
+
+
+      const totalAmount =
+        pricePerKg !== null
+          ? Number(
+              (
+                netWeightKg *
+                pricePerKg
+              ).toFixed(
+                2
+              )
+            )
+          : null;
+
+
+      // =================================================
+      // ACTUALIZAR CABECERA
+      // =================================================
+
+      const updatedResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_live_weighings
+
+            SET
+              troop_id = $1,
+              pesador_person_id = $2,
+              classification_id = $3,
+
+              quantity = $4,
+
+              gross_weight_kg = $5,
+              shrink_percent = $6,
+              shrink_weight_kg = $7,
+              net_weight_kg = $8,
+
+              price_per_kg = $9,
+              total_amount = $10,
+
+              event_lat = $11,
+              event_lng = $12,
+              event_local_time = $13,
+
+              updated_at = NOW()
+
+            WHERE
+              id = $14
+              AND company_id = $15
+
+            RETURNING *
+          `,
+          [
+            troopId,
+            pesadorPersonId,
+            classificationId,
+
+            quantity,
+
+            roundedGrossWeightKg,
+            shrinkPercent,
+            shrinkWeightKg,
+            netWeightKg,
+
+            pricePerKg,
+            totalAmount,
+
+            eventLat,
+            eventLng,
+            eventLocalTime,
+
+            weighingId,
+            companyId,
+          ],
+        );
+
+
+      const weighing =
+        updatedResult.rows[0];
+
+
+      // =================================================
+      // REEMPLAZAR ITEMS
+      //
+      // Seguro porque el pesaje sigue siendo draft.
+      // =================================================
+
+      await client.query(
+        `
+          DELETE FROM slaughterhouse_live_weighing_items
+
+          WHERE
+            weighing_id = $1
+        `,
+        [
+          weighingId,
+        ],
+      );
+
+
+      const insertedItems =
+        [];
+
+
+      for (
+        const item of normalizedItems
+      ) {
+
+        const itemResult =
+          await client.query(
+            `
+              INSERT INTO slaughterhouse_live_weighing_items (
+                weighing_id,
+                sequence_number,
+                weight_kg,
+                notes
+              )
+
+              VALUES (
+                $1,
+                $2,
+                $3,
+                $4
+              )
+
+              RETURNING *
+            `,
+            [
+              weighingId,
+              item.sequence_number,
+              item.weight_kg,
+              item.notes,
+            ],
+          );
+
+
+        insertedItems.push(
+          itemResult.rows[0]
+        );
+
+      }
+
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'live_weighing',
+            $3,
+            'update_draft',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+
+          userId,
+
+          String(
+            weighingId
+          ),
+
+          JSON.stringify({
+            weighing:
+              previousWeighing,
+
+            items:
+              previousItems,
+          }),
+
+          JSON.stringify({
+            weighing,
+
+            items:
+              insertedItems,
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.json({
+
+        success: true,
+
+        message:
+          'Pesaje en borrador actualizado correctamente',
+
+        weighing,
+
+        items:
+          insertedItems,
+
+        calculated: {
+
+          quantity,
+
+          gross_weight_kg:
+            roundedGrossWeightKg,
+
+          shrink_percent:
+            shrinkPercent,
+
+          shrink_weight_kg:
+            shrinkWeightKg,
+
+          net_weight_kg:
+            netWeightKg,
+
+          price_per_kg:
+            pricePerKg,
+
+          total_amount:
+            totalAmount,
+
+        },
+
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+
+      console.error(
+        'UPDATE SLAUGHTERHOUSE LIVE WEIGHING DRAFT ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error actualizando pesaje en borrador',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+// =====================================================
+// 📝 CREAR RECTIFICACIÓN DE PESAJE CERTIFICADO
+// POST /slaughterhouse/admin/weighings/:id/rectify
+//
+// Crea un NUEVO pesaje:
+// status = draft
+// original_weighing_id = pesaje certificado original
+//
+// El original NO se modifica todavía.
+//
+// La nueva versión copia:
+// - vendedor
+// - captador
+// - pesador
+// - clasificación
+// - tropa
+// - merma
+// - precio
+// - ubicación / hora del evento
+// - todos los items
+//
+// NO copia:
+// - authorization_id
+// - document_hash
+// - certified_by
+// - certified_at
+//
+// Necesitará un NUEVO QR para certificarse.
+// =====================================================
+
+exports.createLiveWeighingRectification =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+
+      const originalWeighingId =
+        Number(
+          req.params.id
+        );
+
+
+      // =================================================
+      // VALIDAR ID
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          originalWeighingId
+        ) ||
+        originalWeighingId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de pesaje inválido',
+        });
+
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // OBTENER Y BLOQUEAR ORIGINAL
+      // =================================================
+
+      const originalResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM slaughterhouse_live_weighings
+
+            WHERE
+              id = $1
+              AND company_id = $2
+
+            FOR UPDATE
+          `,
+          [
+            originalWeighingId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        originalResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'Pesaje original no encontrado',
+        });
+
+      }
+
+
+      const original =
+        originalResult.rows[0];
+
+
+      // =================================================
+      // SOLO UN CERTIFICADO PUEDE RECTIFICARSE
+      // =================================================
+
+      if (
+        original.status !==
+        'certified'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            `Solo puede rectificarse un pesaje certificado. Estado actual: ${original.status}`,
+        });
+
+      }
+
+
+      // =================================================
+      // EVITAR RAMAS DE RECTIFICACIÓN
+      //
+      // No permitimos dos rectificaciones activas
+      // saliendo del mismo documento.
+      // =================================================
+
+      const existingRectificationResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              weighing_number,
+              status,
+              created_at
+
+            FROM slaughterhouse_live_weighings
+
+            WHERE
+              original_weighing_id = $1
+              AND company_id = $2
+              AND status <> 'cancelled'
+
+            ORDER BY
+              created_at DESC,
+              id DESC
+
+            LIMIT 1
+          `,
+          [
+            originalWeighingId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        existingRectificationResult
+          .rows.length > 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+
+          error:
+            'Este pesaje ya tiene una rectificación activa',
+
+          rectification:
+            existingRectificationResult
+              .rows[0],
+
+        });
+
+      }
+
+
+      // =================================================
+      // BLOQUEAR LOTE
+      //
+      // Esto serializa weighing_number igual que en
+      // la creación normal de pesajes.
+      // =================================================
+
+      const lotResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              lot_number,
+              status
+
+            FROM slaughterhouse_purchase_lots
+
+            WHERE
+              id = $1
+              AND company_id = $2
+
+            FOR UPDATE
+          `,
+          [
+            original.purchase_lot_id,
+            companyId,
+          ],
+        );
+
+
+      if (
+        lotResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'El lote asociado al pesaje ya no existe',
+        });
+
+      }
+
+
+      // =================================================
+      // LEER ITEMS DEL ORIGINAL
+      // =================================================
+
+      const originalItemsResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              sequence_number,
+              weight_kg,
+              notes,
+              created_at
+
+            FROM slaughterhouse_live_weighing_items
+
+            WHERE
+              weighing_id = $1
+
+            ORDER BY
+              sequence_number ASC,
+              id ASC
+          `,
+          [
+            originalWeighingId,
+          ],
+        );
+
+
+      const originalItems =
+        originalItemsResult.rows;
+
+
+      if (
+        originalItems.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'El pesaje certificado no tiene items y no puede rectificarse',
+        });
+
+      }
+
+
+      // =================================================
+      // SIGUIENTE NÚMERO DE PESAJE DEL LOTE
+      // =================================================
+
+      const numberResult =
+        await client.query(
+          `
+            SELECT
+              COALESCE(
+                MAX(
+                  weighing_number
+                ),
+                0
+              ) + 1
+                AS next_number
+
+            FROM slaughterhouse_live_weighings
+
+            WHERE
+              purchase_lot_id = $1
+          `,
+          [
+            original.purchase_lot_id,
+          ],
+        );
+
+
+      const weighingNumber =
+        Number(
+          numberResult.rows[0]
+            .next_number
+        );
+
+
+      // =================================================
+      // CREAR NUEVA VERSIÓN EN DRAFT
+      //
+      // NO copiamos autorización ni certificación.
+      // =================================================
+
+      const rectificationResult =
+        await client.query(
+          `
+            INSERT INTO slaughterhouse_live_weighings (
+              company_id,
+              purchase_lot_id,
+              troop_id,
+
+              authorization_id,
+
+              weighing_number,
+
+              seller_person_id,
+              captador_person_id,
+              pesador_person_id,
+              classification_id,
+
+              quantity,
+
+              gross_weight_kg,
+              shrink_percent,
+              shrink_weight_kg,
+              net_weight_kg,
+
+              price_per_kg,
+              total_amount,
+
+              signature_url,
+
+              event_lat,
+              event_lng,
+              event_local_time,
+
+              document_hash,
+              certified_offline,
+
+              status,
+
+              original_weighing_id,
+
+              created_by,
+
+              certified_by,
+              certified_at
+            )
+
+            VALUES (
+              $1,
+              $2,
+              $3,
+
+              NULL,
+
+              $4,
+
+              $5,
+              $6,
+              $7,
+              $8,
+
+              $9,
+
+              $10,
+              $11,
+              $12,
+              $13,
+
+              $14,
+              $15,
+
+              NULL,
+
+              $16,
+              $17,
+              $18,
+
+              NULL,
+              false,
+
+              'draft',
+
+              $19,
+
+              $20,
+
+              NULL,
+              NULL
+            )
+
+            RETURNING *
+          `,
+          [
+            companyId,
+
+            original.purchase_lot_id,
+
+            original.troop_id,
+
+            weighingNumber,
+
+            original.seller_person_id,
+
+            original.captador_person_id,
+
+            original.pesador_person_id,
+
+            original.classification_id,
+
+            original.quantity,
+
+            original.gross_weight_kg,
+
+            original.shrink_percent,
+
+            original.shrink_weight_kg,
+
+            original.net_weight_kg,
+
+            original.price_per_kg,
+
+            original.total_amount,
+
+            original.event_lat,
+
+            original.event_lng,
+
+            original.event_local_time,
+
+            originalWeighingId,
+
+            userId,
+          ],
+        );
+
+
+      const rectification =
+        rectificationResult.rows[0];
+
+
+      // =================================================
+      // COPIAR ITEMS
+      // =================================================
+
+      const copiedItems =
+        [];
+
+
+      for (
+        const item of originalItems
+      ) {
+
+        const itemResult =
+          await client.query(
+            `
+              INSERT INTO slaughterhouse_live_weighing_items (
+                weighing_id,
+                sequence_number,
+                weight_kg,
+                notes
+              )
+
+              VALUES (
+                $1,
+                $2,
+                $3,
+                $4
+              )
+
+              RETURNING *
+            `,
+            [
+              rectification.id,
+
+              item.sequence_number,
+
+              item.weight_kg,
+
+              item.notes,
+            ],
+          );
+
+
+        copiedItems.push(
+          itemResult.rows[0]
+        );
+
+      }
+
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'live_weighing',
+            $3,
+            'create_rectification_draft',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+
+          userId,
+
+          String(
+            rectification.id
+          ),
+
+          JSON.stringify({
+            original_weighing:
+              original,
+
+            original_items:
+              originalItems,
+          }),
+
+          JSON.stringify({
+            rectification:
+              rectification,
+
+            copied_items:
+              copiedItems,
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.status(201).json({
+
+        success: true,
+
+        message:
+          'Borrador de rectificación creado correctamente',
+
+        original_weighing: {
+
+          id:
+            original.id,
+
+          weighing_number:
+            original.weighing_number,
+
+          status:
+            original.status,
+
+          document_hash:
+            original.document_hash,
+
+        },
+
+        rectification,
+
+        items:
+          copiedItems,
+
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+
+      console.error(
+        'CREATE SLAUGHTERHOUSE LIVE WEIGHING RECTIFICATION ERROR:',
+        error
+      );
+
+
+      if (
+        error.code ===
+        '23505'
+      ) {
+
+        return res.status(409).json({
+          error:
+            'Conflicto creando la rectificación. Intente nuevamente',
+        });
+
+      }
+
+
+      return res.status(500).json({
+        error:
+          'Error creando rectificación del pesaje',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+// =====================================================
+// 🚚 DESPACHAR TROPA DESDE ORIGEN
+// POST /slaughterhouse/admin/troops/:id/dispatch
+//
+// Reglas:
+//
+// - La tropa debe estar transport_assigned.
+// - Debe tener solicitud y negociación seleccionada.
+// - Debe tener camión y transportista vinculados.
+// - Debe existir al menos un pesaje CERTIFIED.
+// - dispatched_quantity se calcula desde PostgreSQL.
+// - NO modificamos Plaza Transporte aquí.
+// - La guía puede vincularse posteriormente.
+// =====================================================
+
+exports.dispatchTroop =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+
+      const troopId =
+        Number(
+          req.params.id
+        );
+
+
+      const dispatchNotes =
+        req.body.notes
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      // =================================================
+      // VALIDAR ID
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          troopId
+        ) ||
+        troopId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de tropa inválido',
+        });
+
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // OBTENER Y BLOQUEAR TROPA
+      // =================================================
+
+      const troopResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM slaughterhouse_troops
+
+            WHERE
+              id = $1
+              AND company_id = $2
+
+            FOR UPDATE
+          `,
+          [
+            troopId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        troopResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'Tropa no encontrada',
+        });
+
+      }
+
+
+      const previous =
+        troopResult.rows[0];
+
+
+      // =================================================
+      // ESTADO CORRECTO
+      // =================================================
+
+      if (
+        previous.status !==
+        'transport_assigned'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            `La tropa está en estado ${previous.status} y no puede despacharse`,
+        });
+
+      }
+
+
+      // =================================================
+      // DEBE TENER TRANSPORTE COMPLETAMENTE ASIGNADO
+      // =================================================
+
+      if (
+        previous.transport_request_id ===
+          null ||
+        previous.transport_negotiation_id ===
+          null ||
+        previous.truck_id ===
+          null ||
+        previous.transporter_user_id ===
+          null
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La tropa no tiene transporte completamente asignado',
+        });
+
+      }
+
+
+      // =================================================
+      // VALIDAR NEGOCIACIÓN
+      // =================================================
+
+      const negotiationResult =
+        await client.query(
+          `
+            SELECT
+
+              tn.id,
+              tn.request_id,
+              tn.truck_id,
+              tn.transporter_id,
+
+              tn.status,
+              tn.trip_price,
+
+              tn.cancelled,
+
+              truck.plate,
+              truck.brand,
+              truck.model,
+
+              transporter.name
+                AS transporter_name
+
+            FROM transport_negotiations tn
+
+            JOIN transporter_trucks truck
+              ON truck.id =
+                tn.truck_id
+
+            JOIN users transporter
+              ON transporter.id =
+                tn.transporter_id
+
+            WHERE
+              tn.id = $1
+              AND tn.request_id = $2
+              AND tn.truck_id = $3
+              AND tn.transporter_id = $4
+
+            LIMIT 1
+          `,
+          [
+            previous.transport_negotiation_id,
+            previous.transport_request_id,
+            previous.truck_id,
+            previous.transporter_user_id,
+          ],
+        );
+
+
+      if (
+        negotiationResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La asignación de transporte de la tropa no coincide con la negociación',
+        });
+
+      }
+
+
+      const negotiation =
+        negotiationResult.rows[0];
+
+
+      if (
+        negotiation.cancelled ===
+        true
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La negociación de transporte está cancelada',
+        });
+
+      }
+
+
+      // =================================================
+      // OBTENER PESAJE CERTIFICADO REAL
+      //
+      // Solo status = certified.
+      //
+      // Los originales reemplazados quedan rectified
+      // y por tanto NO entran en esta suma.
+      // =================================================
+
+      const weighingSummaryResult =
+        await client.query(
+          `
+            SELECT
+
+              COUNT(*)::int
+                AS weighings_count,
+
+              COALESCE(
+                SUM(quantity),
+                0
+              )::int
+                AS quantity,
+
+              COALESCE(
+                SUM(gross_weight_kg),
+                0
+              )::numeric(14,3)
+                AS gross_weight_kg,
+
+              COALESCE(
+                SUM(net_weight_kg),
+                0
+              )::numeric(14,3)
+                AS net_weight_kg
+
+            FROM slaughterhouse_live_weighings
+
+            WHERE
+              troop_id = $1
+              AND company_id = $2
+              AND status = 'certified'
+          `,
+          [
+            troopId,
+            companyId,
+          ],
+        );
+
+
+      const weighingSummary =
+        weighingSummaryResult.rows[0];
+
+
+      const certifiedWeighingsCount =
+        Number(
+          weighingSummary.weighings_count
+        );
+
+
+      const dispatchedQuantity =
+        Number(
+          weighingSummary.quantity
+        );
+
+
+      if (
+        certifiedWeighingsCount <= 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La tropa debe tener al menos un pesaje certificado antes del despacho',
+        });
+
+      }
+
+
+      if (
+        !Number.isInteger(
+          dispatchedQuantity
+        ) ||
+        dispatchedQuantity <= 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La cantidad certificada de la tropa es inválida',
+        });
+
+      }
+
+
+      // =================================================
+      // DESPACHAR TROPA
+      // =================================================
+
+      const updatedResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_troops
+
+            SET
+              dispatched_quantity = $1,
+              status = 'dispatched',
+              updated_at = NOW()
+
+            WHERE
+              id = $2
+              AND company_id = $3
+
+            RETURNING *
+          `,
+          [
+            dispatchedQuantity,
+            troopId,
+            companyId,
+          ],
+        );
+
+
+      const troop =
+        updatedResult.rows[0];
+
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'troop',
+            $3,
+            'dispatch',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+
+          userId,
+
+          String(
+            troopId
+          ),
+
+          JSON.stringify(
+            previous
+          ),
+
+          JSON.stringify({
+
+            troop,
+
+            dispatch: {
+
+              certified_weighings_count:
+                certifiedWeighingsCount,
+
+              dispatched_quantity:
+                dispatchedQuantity,
+
+              gross_weight_kg:
+                Number(
+                  weighingSummary
+                    .gross_weight_kg
+                ),
+
+              net_weight_kg:
+                Number(
+                  weighingSummary
+                    .net_weight_kg
+                ),
+
+              negotiation_id:
+                negotiation.id,
+
+              truck_id:
+                negotiation.truck_id,
+
+              plate:
+                negotiation.plate,
+
+              transporter_id:
+                negotiation.transporter_id,
+
+              transporter_name:
+                negotiation.transporter_name,
+
+              notes:
+                dispatchNotes,
+
+            },
+
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.json({
+
+        success: true,
+
+        message:
+          'Tropa despachada correctamente',
+
+        troop,
+
+        dispatch: {
+
+          certified_weighings_count:
+            certifiedWeighingsCount,
+
+          dispatched_quantity:
+            dispatchedQuantity,
+
+          gross_weight_kg:
+            Number(
+              weighingSummary
+                .gross_weight_kg
+            ),
+
+          net_weight_kg:
+            Number(
+              weighingSummary
+                .net_weight_kg
+            ),
+
+          transport: {
+
+            negotiation_id:
+              negotiation.id,
+
+            truck_id:
+              negotiation.truck_id,
+
+            plate:
+              negotiation.plate,
+
+            brand:
+              negotiation.brand,
+
+            model:
+              negotiation.model,
+
+            transporter_id:
+              negotiation.transporter_id,
+
+            transporter_name:
+              negotiation.transporter_name,
+
+          },
+
+          notes:
+            dispatchNotes,
+
+        },
+
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+
+      console.error(
+        'DISPATCH SLAUGHTERHOUSE TROOP ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error despachando tropa',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+// =====================================================
+// 📄 VINCULAR GUÍA DE PLAZA TRANSPORTE A TROPA
+// POST /slaughterhouse/admin/troops/:id/link-guide
+//
+// No crea una nueva guía.
+//
+// Busca la guía existente mediante:
+// - transport_negotiation_id
+// - truck_id
+//
+// Y guarda:
+// slaughterhouse_troops.transport_guide_id
+//
+// NO cambia el estado de la tropa.
+// =====================================================
+
+exports.linkTransportGuideToTroop =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+
+      const troopId =
+        Number(
+          req.params.id
+        );
+
+
+      // =================================================
+      // VALIDAR ID
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          troopId
+        ) ||
+        troopId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de tropa inválido',
+        });
+
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // OBTENER Y BLOQUEAR TROPA
+      // =================================================
+
+      const troopResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM slaughterhouse_troops
+
+            WHERE
+              id = $1
+              AND company_id = $2
+
+            FOR UPDATE
+          `,
+          [
+            troopId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        troopResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'Tropa no encontrada',
+        });
+
+      }
+
+
+      const previous =
+        troopResult.rows[0];
+
+
+      // =================================================
+      // NECESITAMOS NEGOCIACIÓN Y CAMIÓN
+      // =================================================
+
+      if (
+        previous.transport_negotiation_id ===
+          null ||
+        previous.truck_id ===
+          null
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La tropa todavía no tiene negociación y camión asignados',
+        });
+
+      }
+
+
+      // =================================================
+      // ESTADOS DONDE TIENE SENTIDO VINCULAR GUÍA
+      // =================================================
+
+      if (
+        ![
+          'transport_assigned',
+          'dispatched',
+          'in_transit',
+        ].includes(
+          previous.status
+        )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            `La tropa está en estado ${previous.status} y no corresponde vincular una guía`,
+        });
+
+      }
+
+
+      // =================================================
+      // SI YA TIENE GUÍA, VALIDAMOS LA RELACIÓN
+      // Y RESPONDEMOS DE FORMA IDEMPOTENTE
+      // =================================================
+
+      if (
+        previous.transport_guide_id !==
+        null
+      ) {
+
+        const existingGuideResult =
+          await client.query(
+            `
+              SELECT
+
+                id,
+                truck_id,
+                user_id,
+                negotiation_id,
+
+                origin,
+                destination,
+
+                driver_name,
+                driver_ci,
+
+                plate,
+
+                male_0_12,
+                female_0_12,
+
+                male_13_24,
+                female_13_24,
+
+                male_25_36,
+                female_25_36,
+
+                male_36_plus,
+                female_36_plus,
+
+                guide_image_url,
+
+                status,
+
+                official_guide_photo_url,
+                official_uploaded_at,
+                official_guide_number,
+
+                created_at
+
+              FROM transport_guides
+
+              WHERE
+                id = $1
+
+              LIMIT 1
+            `,
+            [
+              previous.transport_guide_id,
+            ],
+          );
+
+
+        if (
+          existingGuideResult.rows.length === 0
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+
+          return res.status(409).json({
+            error:
+              'La tropa tiene transport_guide_id pero la guía vinculada no existe',
+          });
+
+        }
+
+
+        const existingGuide =
+          existingGuideResult.rows[0];
+
+
+        if (
+          Number(
+            existingGuide.negotiation_id
+          ) !==
+            Number(
+              previous.transport_negotiation_id
+            ) ||
+          Number(
+            existingGuide.truck_id
+          ) !==
+            Number(
+              previous.truck_id
+            )
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+
+          return res.status(409).json({
+            error:
+              'La guía actualmente vinculada no coincide con la negociación o el camión de la tropa',
+          });
+
+        }
+
+
+        await client.query(
+          'COMMIT'
+        );
+
+
+        return res.json({
+
+          success: true,
+
+          already_linked: true,
+
+          message:
+            'La guía ya estaba vinculada correctamente a la tropa',
+
+          troop:
+            previous,
+
+          guide:
+            existingGuide,
+
+        });
+
+      }
+
+
+      // =================================================
+      // BUSCAR GUÍA GENERADA POR PLAZA TRANSPORTE
+      //
+      // Puede haber más de un registro histórico;
+      // tomamos el más reciente que corresponda
+      // exactamente a negociación + camión.
+      // =================================================
+
+      const guideResult =
+        await client.query(
+          `
+            SELECT
+
+              tg.id,
+              tg.truck_id,
+              tg.user_id,
+              tg.negotiation_id,
+
+              tg.origin,
+              tg.destination,
+
+              tg.driver_name,
+              tg.driver_ci,
+
+              tg.plate,
+
+              tg.male_0_12,
+              tg.female_0_12,
+
+              tg.male_13_24,
+              tg.female_13_24,
+
+              tg.male_25_36,
+              tg.female_25_36,
+
+              tg.male_36_plus,
+              tg.female_36_plus,
+
+              tg.guide_image_url,
+
+              tg.status,
+
+              tg.official_guide_photo_url,
+              tg.official_uploaded_at,
+              tg.official_guide_number,
+
+              tg.created_at
+
+            FROM transport_guides tg
+
+            WHERE
+              tg.negotiation_id = $1
+              AND tg.truck_id = $2
+
+            ORDER BY
+              tg.created_at DESC,
+              tg.id DESC
+
+            LIMIT 1
+          `,
+          [
+            previous.transport_negotiation_id,
+            previous.truck_id,
+          ],
+        );
+
+
+      if (
+        guideResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'Plaza Transporte todavía no tiene una guía para esta negociación',
+        });
+
+      }
+
+
+      const guide =
+        guideResult.rows[0];
+
+
+      // =================================================
+      // VINCULAR GUÍA A TROPA
+      // =================================================
+
+      const updatedResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_troops
+
+            SET
+              transport_guide_id = $1,
+              updated_at = NOW()
+
+            WHERE
+              id = $2
+              AND company_id = $3
+
+            RETURNING *
+          `,
+          [
+            guide.id,
+            troopId,
+            companyId,
+          ],
+        );
+
+
+      const troop =
+        updatedResult.rows[0];
+
+
+      // =================================================
+      // AUDITORÍA
+      //
+      // NO almacenamos share_token.
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'troop',
+            $3,
+            'link_transport_guide',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+
+          userId,
+
+          String(
+            troopId
+          ),
+
+          JSON.stringify(
+            previous
+          ),
+
+          JSON.stringify({
+
+            troop,
+
+            guide: {
+
+              id:
+                guide.id,
+
+              negotiation_id:
+                guide.negotiation_id,
+
+              truck_id:
+                guide.truck_id,
+
+              plate:
+                guide.plate,
+
+              driver_name:
+                guide.driver_name,
+
+              driver_ci:
+                guide.driver_ci,
+
+              status:
+                guide.status,
+
+              official_guide_number:
+                guide.official_guide_number,
+
+            },
+
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.json({
+
+        success: true,
+
+        already_linked: false,
+
+        message:
+          'Guía de transporte vinculada correctamente a la tropa',
+
+        troop,
+
+        guide,
+
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+
+      console.error(
+        'LINK TRANSPORT GUIDE TO SLAUGHTERHOUSE TROOP ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error vinculando la guía de transporte a la tropa',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+// =====================================================
+// 🔄 SINCRONIZAR ESTADO DE VIAJE DE UNA TROPA
+// POST /slaughterhouse/admin/troops/:id/sync-transport-state
+//
+// Fuente de verdad del viaje:
+// transport_negotiations.trip_started_at
+//
+// Regla:
+//
+// dispatched
+//    +
+// trip_started_at != NULL
+//    ↓
+// in_transit
+//
+// IMPORTANTE:
+//
+// - NO modifica transport_negotiations.
+// - NO modifica transport_requests.
+// - NO marca received por delivered_at.
+// - La recepción física la controla Frigosi.
+// =====================================================
+
+exports.syncTroopTransportState =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+
+      const troopId =
+        Number(
+          req.params.id
+        );
+
+
+      // =================================================
+      // VALIDAR ID
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          troopId
+        ) ||
+        troopId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de tropa inválido',
+        });
+
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // OBTENER Y BLOQUEAR TROPA
+      // =================================================
+
+      const troopResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM slaughterhouse_troops
+
+            WHERE
+              id = $1
+              AND company_id = $2
+
+            FOR UPDATE
+          `,
+          [
+            troopId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        troopResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'Tropa no encontrada',
+        });
+
+      }
+
+
+      const previous =
+        troopResult.rows[0];
+
+
+      // =================================================
+      // NECESITAMOS NEGOCIACIÓN
+      // =================================================
+
+      if (
+        previous.transport_negotiation_id ===
+        null
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La tropa no tiene una negociación de transporte vinculada',
+        });
+
+      }
+
+
+      // =================================================
+      // OBTENER ESTADO REAL DEL VIAJE
+      // =================================================
+
+      const negotiationResult =
+        await client.query(
+          `
+            SELECT
+
+              tn.id,
+              tn.request_id,
+              tn.truck_id,
+              tn.transporter_id,
+
+              tn.status,
+
+              tn.trip_started_at,
+              tn.delivered_at,
+
+              tn.route_id,
+
+              tn.cancelled,
+
+              truck.plate,
+
+              transporter.name
+                AS transporter_name
+
+            FROM transport_negotiations tn
+
+            JOIN transporter_trucks truck
+              ON truck.id =
+                tn.truck_id
+
+            JOIN users transporter
+              ON transporter.id =
+                tn.transporter_id
+
+            WHERE
+              tn.id = $1
+              AND tn.request_id = $2
+              AND tn.truck_id = $3
+              AND tn.transporter_id = $4
+
+            LIMIT 1
+          `,
+          [
+            previous.transport_negotiation_id,
+            previous.transport_request_id,
+            previous.truck_id,
+            previous.transporter_user_id,
+          ],
+        );
+
+
+      if (
+        negotiationResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La negociación de transporte no coincide con los datos vinculados a la tropa',
+        });
+
+      }
+
+
+      const negotiation =
+        negotiationResult.rows[0];
+
+
+      // =================================================
+      // NEGOCIACIÓN CANCELADA
+      // =================================================
+
+      if (
+        negotiation.cancelled ===
+        true
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La negociación de transporte está cancelada',
+        });
+
+      }
+
+
+      // =================================================
+      // YA ESTÁ EN TRÁNSITO
+      //
+      // Respuesta idempotente.
+      // =================================================
+
+      if (
+        previous.status ===
+        'in_transit'
+      ) {
+
+        await client.query(
+          'COMMIT'
+        );
+
+
+        return res.json({
+
+          success: true,
+
+          changed: false,
+
+          message:
+            'La tropa ya está marcada como en tránsito',
+
+          troop:
+            previous,
+
+          transport: {
+
+            negotiation_id:
+              negotiation.id,
+
+            trip_started_at:
+              negotiation.trip_started_at,
+
+            delivered_at:
+              negotiation.delivered_at,
+
+            route_id:
+              negotiation.route_id,
+
+            plate:
+              negotiation.plate,
+
+            transporter_name:
+              negotiation.transporter_name,
+
+          },
+
+        });
+
+      }
+
+
+      // =================================================
+      // SOLO DISPATCHED PUEDE PASAR AUTOMÁTICAMENTE
+      // A IN_TRANSIT
+      // =================================================
+
+      if (
+        previous.status !==
+        'dispatched'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            `La tropa está en estado ${previous.status}. La sincronización automática del viaje solo aplica desde dispatched`,
+        });
+
+      }
+
+
+      // =================================================
+      // VIAJE TODAVÍA NO INICIADO
+      // =================================================
+
+      if (
+        negotiation.trip_started_at ===
+        null
+      ) {
+
+        await client.query(
+          'COMMIT'
+        );
+
+
+        return res.json({
+
+          success: true,
+
+          changed: false,
+
+          message:
+            'Plaza Transporte todavía no registra el inicio del viaje',
+
+          troop:
+            previous,
+
+          transport: {
+
+            negotiation_id:
+              negotiation.id,
+
+            trip_started_at:
+              null,
+
+            delivered_at:
+              negotiation.delivered_at,
+
+            route_id:
+              negotiation.route_id,
+
+            plate:
+              negotiation.plate,
+
+            transporter_name:
+              negotiation.transporter_name,
+
+          },
+
+        });
+
+      }
+
+
+      // =================================================
+      // SINCRONIZAR:
+      // dispatched → in_transit
+      // =================================================
+
+      const updatedResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_troops
+
+            SET
+              status = 'in_transit',
+              updated_at = NOW()
+
+            WHERE
+              id = $1
+              AND company_id = $2
+              AND status = 'dispatched'
+
+            RETURNING *
+          `,
+          [
+            troopId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        updatedResult.rows.length === 0
+      ) {
+
+        throw new Error(
+          'No fue posible sincronizar el estado de la tropa'
+        );
+
+      }
+
+
+      const troop =
+        updatedResult.rows[0];
+
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'troop',
+            $3,
+            'sync_transport_started',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+
+          userId,
+
+          String(
+            troopId
+          ),
+
+          JSON.stringify(
+            previous
+          ),
+
+          JSON.stringify({
+
+            troop,
+
+            transport: {
+
+              negotiation_id:
+                negotiation.id,
+
+              trip_started_at:
+                negotiation.trip_started_at,
+
+              route_id:
+                negotiation.route_id,
+
+              truck_id:
+                negotiation.truck_id,
+
+              plate:
+                negotiation.plate,
+
+              transporter_id:
+                negotiation.transporter_id,
+
+              transporter_name:
+                negotiation.transporter_name,
+
+            },
+
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.json({
+
+        success: true,
+
+        changed: true,
+
+        message:
+          'Inicio de viaje sincronizado correctamente',
+
+        troop,
+
+        transport: {
+
+          negotiation_id:
+            negotiation.id,
+
+          trip_started_at:
+            negotiation.trip_started_at,
+
+          delivered_at:
+            negotiation.delivered_at,
+
+          route_id:
+            negotiation.route_id,
+
+          truck_id:
+            negotiation.truck_id,
+
+          plate:
+            negotiation.plate,
+
+          transporter_id:
+            negotiation.transporter_id,
+
+          transporter_name:
+            negotiation.transporter_name,
+
+        },
+
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+
+      console.error(
+        'SYNC SLAUGHTERHOUSE TROOP TRANSPORT STATE ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error sincronizando estado de transporte de la tropa',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+// =====================================================
+// 🏭 RECEPCIONAR TROPA EN PORTERÍA
+// POST /slaughterhouse/admin/troops/:id/receive
+//
+// Body:
+//
+// {
+//   "troop_number": "T-2026-00125",
+//   "received_quantity": 40,
+//   "live_weight_kg": 18450.50,
+//   "reception_notes": null
+// }
+//
+// Reglas:
+//
+// - Plaza Transporte debe registrar delivered_at.
+// - Debe existir guía.
+// - Si cantidad guía != cantidad recibida,
+//   exige observación.
+// - No permite doble recepción.
+// - Reutiliza automáticamente una recepción OPEN
+//   del mismo lote.
+// - Si no existe, crea una.
+// - Vincula la tropa con reception +
+//   reception_truck.
+// - Tropa pasa a received.
+// =====================================================
+
+exports.receiveTroop =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+
+      const troopId =
+        Number(
+          req.params.id
+        );
+
+
+      const troopNumber =
+        req.body.troop_number
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const receivedQuantity =
+        Number(
+          req.body.received_quantity
+        );
+
+
+      const liveWeightRaw =
+        req.body.live_weight_kg;
+
+
+      const liveWeightKg =
+        liveWeightRaw !== undefined &&
+        liveWeightRaw !== null &&
+        liveWeightRaw !== ''
+          ? Number(
+              liveWeightRaw
+            )
+          : null;
+
+
+      const receptionNotes =
+        req.body.reception_notes
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      // =================================================
+      // VALIDACIONES
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          troopId
+        ) ||
+        troopId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de tropa inválido',
+        });
+
+      }
+
+
+      if (
+        troopNumber !== null &&
+        troopNumber.length > 100
+      ) {
+
+        return res.status(400).json({
+          error:
+            'troop_number no puede superar 100 caracteres',
+        });
+
+      }
+
+
+      if (
+        !Number.isInteger(
+          receivedQuantity
+        ) ||
+        receivedQuantity < 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'received_quantity inválido',
+        });
+
+      }
+
+
+      if (
+        liveWeightKg !== null &&
+        (
+          !Number.isFinite(
+            liveWeightKg
+          ) ||
+          liveWeightKg <= 0
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'live_weight_kg inválido',
+        });
+
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // TROPA + LOTE
+      // =================================================
+
+      const troopResult =
+        await client.query(
+          `
+            SELECT
+
+              st.*,
+
+              spl.lot_number,
+              spl.status
+                AS purchase_lot_status
+
+            FROM slaughterhouse_troops st
+
+            JOIN slaughterhouse_purchase_lots spl
+              ON spl.id =
+                st.purchase_lot_id
+              AND spl.company_id =
+                st.company_id
+
+            WHERE
+              st.id = $1
+              AND st.company_id = $2
+
+            FOR UPDATE OF st, spl
+          `,
+          [
+            troopId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        troopResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'Tropa no encontrada',
+        });
+
+      }
+
+
+      const previous =
+        troopResult.rows[0];
+
+
+      // =================================================
+      // EVITAR DOBLE RECEPCIÓN
+      // =================================================
+
+      if (
+        previous.reception_id !== null ||
+        previous.reception_truck_id !== null ||
+        previous.status === 'received' ||
+        previous.status === 'in_slaughter' ||
+        previous.status === 'completed'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La tropa ya fue recepcionada',
+        });
+
+      }
+
+
+      // =================================================
+      // DEBE TENER TRANSPORTE ASIGNADO
+      // =================================================
+
+      if (
+        previous.transport_request_id === null ||
+        previous.transport_negotiation_id === null ||
+        previous.truck_id === null ||
+        previous.transporter_user_id === null
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La tropa no tiene transporte completamente vinculado',
+        });
+
+      }
+
+
+      if (
+        ![
+          'dispatched',
+          'in_transit',
+        ].includes(
+          previous.status
+        )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            `La tropa está en estado ${previous.status} y no puede recepcionarse`,
+        });
+
+      }
+
+
+      // =================================================
+      // TRANSPORTE + CAMIÓN + ÚLTIMA GUÍA
+      // =================================================
+
+      const transportResult =
+        await client.query(
+          `
+            SELECT
+
+              tn.id
+                AS negotiation_id,
+
+              tn.request_id,
+
+              tn.status
+                AS negotiation_status,
+
+              tn.trip_started_at,
+              tn.delivered_at,
+
+              tn.truck_id,
+              tn.transporter_id,
+
+              tn.cancelled,
+
+
+              tr.origin,
+              tr.destination,
+              tr.animal_type,
+              tr.quantity
+                AS request_quantity,
+
+
+              truck.plate,
+              truck.brand,
+              truck.model,
+
+
+              tg.id
+                AS guide_id,
+
+              tg.status
+                AS guide_status,
+
+              tg.driver_name,
+              tg.driver_ci,
+
+              tg.plate
+                AS guide_plate,
+
+              tg.male_0_12,
+              tg.female_0_12,
+
+              tg.male_13_24,
+              tg.female_13_24,
+
+              tg.male_25_36,
+              tg.female_25_36,
+
+              tg.male_36_plus,
+              tg.female_36_plus,
+
+              tg.guide_image_url,
+              tg.official_guide_photo_url,
+              tg.official_guide_number
+
+            FROM transport_negotiations tn
+
+            JOIN transport_requests tr
+              ON tr.id =
+                tn.request_id
+
+            JOIN transporter_trucks truck
+              ON truck.id =
+                tn.truck_id
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+                tg2.*
+
+              FROM transport_guides tg2
+
+              WHERE
+                tg2.negotiation_id =
+                  tn.id
+                AND tg2.truck_id =
+                  tn.truck_id
+
+              ORDER BY
+                tg2.created_at DESC,
+                tg2.id DESC
+
+              LIMIT 1
+
+            ) tg
+              ON true
+
+            WHERE
+              tn.id = $1
+              AND tn.request_id = $2
+              AND tn.truck_id = $3
+              AND tn.transporter_id = $4
+
+              AND tr.requester_company_id = $5
+
+            LIMIT 1
+
+            FOR UPDATE OF tn
+          `,
+          [
+            previous.transport_negotiation_id,
+            previous.transport_request_id,
+            previous.truck_id,
+            previous.transporter_user_id,
+            companyId,
+          ],
+        );
+
+
+      if (
+        transportResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'El transporte vinculado a la tropa no es válido para este frigorífico',
+        });
+
+      }
+
+
+      const transport =
+        transportResult.rows[0];
+
+
+      // =================================================
+      // NEGOCIACIÓN NO CANCELADA
+      // =================================================
+
+      if (
+        transport.cancelled === true
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La negociación de transporte está cancelada',
+        });
+
+      }
+
+
+      // =================================================
+      // PLAZA TRANSPORTE DEBE HABER REGISTRADO LLEGADA
+      // =================================================
+
+      if (
+        transport.delivered_at === null
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'Plaza Transporte todavía no registra la llegada del camión',
+        });
+
+      }
+
+
+      // =================================================
+      // DEBE EXISTIR GUÍA
+      // =================================================
+
+      if (
+        transport.guide_id === null
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'El transporte no tiene guía registrada',
+        });
+
+      }
+
+
+      // =================================================
+      // CANTIDAD DE GUÍA
+      // =================================================
+
+      const guideQuantity =
+
+        Number(
+          transport.male_0_12 || 0
+        ) +
+
+        Number(
+          transport.female_0_12 || 0
+        ) +
+
+        Number(
+          transport.male_13_24 || 0
+        ) +
+
+        Number(
+          transport.female_13_24 || 0
+        ) +
+
+        Number(
+          transport.male_25_36 || 0
+        ) +
+
+        Number(
+          transport.female_25_36 || 0
+        ) +
+
+        Number(
+          transport.male_36_plus || 0
+        ) +
+
+        Number(
+          transport.female_36_plus || 0
+        );
+
+
+      // =================================================
+      // DIFERENCIA GUÍA VS RECEPCIÓN
+      // =================================================
+
+      if (
+        receivedQuantity !==
+          guideQuantity &&
+        !receptionNotes
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(400).json({
+
+          error:
+            'Existe diferencia entre la guía y lo recibido. Debe registrar una observación.',
+
+          guide_quantity:
+            guideQuantity,
+
+          received_quantity:
+            receivedQuantity,
+
+          difference:
+            receivedQuantity -
+            guideQuantity,
+
+        });
+
+      }
+
+
+      // =================================================
+      // EVITAR DOBLE RECEPCIÓN DE LA NEGOCIACIÓN
+      // =================================================
+
+      const duplicateResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              reception_id,
+              received_at
+
+            FROM slaughterhouse_reception_trucks
+
+            WHERE
+              transport_negotiation_id = $1
+
+            LIMIT 1
+          `,
+          [
+            transport.negotiation_id,
+          ],
+        );
+
+
+      if (
+        duplicateResult.rows.length > 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+
+          error:
+            'Este transporte ya fue recepcionado',
+
+          reception:
+            duplicateResult.rows[0],
+
+        });
+
+      }
+
+
+      // =================================================
+      // BUSCAR RECEPCIÓN OPEN DEL MISMO LOTE
+      //
+      // Si otra tropa del mismo lote ya llegó,
+      // usamos la misma recepción.
+      // =================================================
+
+      const openReceptionResult =
+        await client.query(
+          `
+            SELECT
+              sr.*
+
+            FROM slaughterhouse_troops other_troop
+
+            JOIN slaughterhouse_receptions sr
+              ON sr.id =
+                other_troop.reception_id
+
+            WHERE
+              other_troop.purchase_lot_id = $1
+              AND other_troop.company_id = $2
+
+              AND sr.company_id = $2
+              AND sr.status = 'open'
+
+            ORDER BY
+              sr.opened_at ASC,
+              sr.id ASC
+
+            LIMIT 1
+
+            FOR UPDATE OF sr
+          `,
+          [
+            previous.purchase_lot_id,
+            companyId,
+          ],
+        );
+
+
+      let reception;
+
+
+      if (
+        openReceptionResult.rows.length > 0
+      ) {
+
+        reception =
+          openReceptionResult.rows[0];
+
+      } else {
+
+        // ===============================================
+        // PRIMER CAMIÓN DEL LOTE:
+        // CREAR RECEPCIÓN
+        //
+        // plant_lot_number hereda el número del lote
+        // comercial para mantener trazabilidad.
+        // ===============================================
+
+        const newReceptionResult =
+          await client.query(
+            `
+              INSERT INTO slaughterhouse_receptions (
+                company_id,
+                plant_lot_number,
+                status,
+                created_by,
+                opened_at
+              )
+
+              VALUES (
+                $1,
+                $2,
+                'open',
+                $3,
+                NOW()
+              )
+
+              RETURNING *
+            `,
+            [
+              companyId,
+              previous.lot_number,
+              userId,
+            ],
+          );
+
+
+        reception =
+          newReceptionResult.rows[0];
+
+      }
+
+
+      // =================================================
+      // SNAPSHOT DEL CAMIÓN RECIBIDO
+      // =================================================
+
+      const receptionTruckResult =
+        await client.query(
+          `
+            INSERT INTO slaughterhouse_reception_trucks (
+
+              reception_id,
+
+              transport_negotiation_id,
+              transport_request_id,
+              transport_guide_id,
+
+              truck_id,
+              transporter_id,
+
+              plate_snapshot,
+
+              animal_type_snapshot,
+              origin_snapshot,
+              destination_snapshot,
+
+              guide_quantity,
+              received_quantity,
+
+              male_0_12,
+              female_0_12,
+
+              male_13_24,
+              female_13_24,
+
+              male_25_36,
+              female_25_36,
+
+              male_36_plus,
+              female_36_plus,
+
+              guide_image_url,
+
+              live_weight_kg,
+
+              transport_delivered_at,
+
+              received_at,
+              received_by,
+
+              reception_notes,
+
+              official_guide_number_snapshot,
+
+              truck_brand_snapshot,
+              truck_model_snapshot,
+
+              driver_name_snapshot,
+              driver_ci_snapshot
+
+            )
+
+            VALUES (
+
+              $1,
+
+              $2,
+              $3,
+              $4,
+
+              $5,
+              $6,
+
+              $7,
+
+              $8,
+              $9,
+              $10,
+
+              $11,
+              $12,
+
+              $13,
+              $14,
+
+              $15,
+              $16,
+
+              $17,
+              $18,
+
+              $19,
+              $20,
+
+              $21,
+
+              $22,
+
+              $23,
+
+              NOW(),
+              $24,
+
+              $25,
+
+              $26,
+
+              $27,
+              $28,
+
+              $29,
+              $30
+
+            )
+
+            RETURNING *
+          `,
+          [
+            reception.id,
+
+            transport.negotiation_id,
+            transport.request_id,
+            transport.guide_id,
+
+            transport.truck_id,
+            transport.transporter_id,
+
+            transport.plate,
+
+            transport.animal_type,
+            transport.origin,
+            transport.destination,
+
+            guideQuantity,
+            receivedQuantity,
+
+            Number(
+              transport.male_0_12 || 0
+            ),
+
+            Number(
+              transport.female_0_12 || 0
+            ),
+
+            Number(
+              transport.male_13_24 || 0
+            ),
+
+            Number(
+              transport.female_13_24 || 0
+            ),
+
+            Number(
+              transport.male_25_36 || 0
+            ),
+
+            Number(
+              transport.female_25_36 || 0
+            ),
+
+            Number(
+              transport.male_36_plus || 0
+            ),
+
+            Number(
+              transport.female_36_plus || 0
+            ),
+
+            transport.official_guide_photo_url ||
+            transport.guide_image_url,
+
+            liveWeightKg,
+
+            transport.delivered_at,
+
+            userId,
+
+            receptionNotes,
+
+            transport.official_guide_number,
+
+            transport.brand,
+
+            transport.model,
+
+            transport.driver_name,
+
+            transport.driver_ci,
+          ],
+        );
+
+
+      const receptionTruck =
+        receptionTruckResult.rows[0];
+
+
+      // =================================================
+      // ACTUALIZAR TROPA
+      //
+      // Portería puede asignar aquí troop_number.
+      // =================================================
+
+      const updatedTroopResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_troops
+
+            SET
+              troop_number =
+                COALESCE(
+                  $1,
+                  troop_number
+                ),
+
+              transport_guide_id = $2,
+
+              reception_id = $3,
+              reception_truck_id = $4,
+
+              received_quantity = $5,
+
+              status = 'received',
+
+              updated_at = NOW()
+
+            WHERE
+              id = $6
+              AND company_id = $7
+
+            RETURNING *
+          `,
+          [
+            troopNumber,
+
+            transport.guide_id,
+
+            reception.id,
+
+            receptionTruck.id,
+
+            receivedQuantity,
+
+            troopId,
+
+            companyId,
+          ],
+        );
+
+
+      const troop =
+        updatedTroopResult.rows[0];
+
+
+      // =================================================
+      // ¿YA LLEGARON TODAS LAS TROPAS DEL LOTE?
+      // =================================================
+
+      const lotProgressResult =
+        await client.query(
+          `
+            SELECT
+
+              COUNT(*) FILTER (
+                WHERE
+                  status <> 'cancelled'
+              )::int
+                AS active_troops,
+
+              COUNT(*) FILTER (
+                WHERE
+                  status <> 'cancelled'
+                  AND status NOT IN (
+                    'received',
+                    'in_slaughter',
+                    'completed'
+                  )
+              )::int
+                AS pending_troops
+
+            FROM slaughterhouse_troops
+
+            WHERE
+              purchase_lot_id = $1
+              AND company_id = $2
+          `,
+          [
+            previous.purchase_lot_id,
+            companyId,
+          ],
+        );
+
+
+      const lotProgress =
+        lotProgressResult.rows[0];
+
+
+      const allTroopsReceived =
+        Number(
+          lotProgress.active_troops
+        ) > 0 &&
+        Number(
+          lotProgress.pending_troops
+        ) === 0;
+
+
+      if (
+        allTroopsReceived
+      ) {
+
+        await client.query(
+          `
+            UPDATE slaughterhouse_purchase_lots
+
+            SET
+              status = 'received',
+              updated_at = NOW()
+
+            WHERE
+              id = $1
+              AND company_id = $2
+              AND status IN (
+                'open',
+                'in_transport'
+              )
+          `,
+          [
+            previous.purchase_lot_id,
+            companyId,
+          ],
+        );
+
+      }
+
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'troop',
+            $3,
+            'receive',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+
+          userId,
+
+          String(
+            troopId
+          ),
+
+          JSON.stringify(
+            previous
+          ),
+
+          JSON.stringify({
+
+            troop,
+
+            reception: {
+              id:
+                reception.id,
+
+              reception_number:
+                reception.reception_number,
+
+              plant_lot_number:
+                reception.plant_lot_number,
+            },
+
+            reception_truck: {
+              id:
+                receptionTruck.id,
+
+              guide_quantity:
+                guideQuantity,
+
+              received_quantity:
+                receivedQuantity,
+
+              difference:
+                receivedQuantity -
+                guideQuantity,
+
+              live_weight_kg:
+                liveWeightKg,
+
+              official_guide_number:
+                transport.official_guide_number,
+
+              received_at:
+                receptionTruck.received_at,
+            },
+
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.status(201).json({
+
+        success: true,
+
+        message:
+          'Tropa recepcionada correctamente',
+
+        troop,
+
+        reception: {
+
+          id:
+            reception.id,
+
+          reception_number:
+            reception.reception_number,
+
+          plant_lot_number:
+            reception.plant_lot_number,
+
+          status:
+            reception.status,
+
+        },
+
+        reception_truck:
+          receptionTruck,
+
+        reconciliation: {
+
+          guide_quantity:
+            guideQuantity,
+
+          received_quantity:
+            receivedQuantity,
+
+          difference:
+            receivedQuantity -
+            guideQuantity,
+
+        },
+
+        purchase_lot: {
+
+          id:
+            previous.purchase_lot_id,
+
+          all_troops_received:
+            allTroopsReceived,
+
+          active_troops:
+            Number(
+              lotProgress.active_troops
+            ),
+
+          pending_troops:
+            Number(
+              lotProgress.pending_troops
+            ),
+
+        },
+
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+
+      console.error(
+        'RECEIVE SLAUGHTERHOUSE TROOP ERROR:',
+        error
+      );
+
+
+      if (
+        error.code === '23505' &&
+        error.constraint ===
+          'uq_slaughterhouse_troop_number'
+      ) {
+
+        return res.status(409).json({
+          error:
+            'Ese número de tropa ya está utilizado',
+        });
+
+      }
+
+
+      if (
+        error.code === '23505' &&
+        error.constraint ===
+          'slaughterhouse_reception_trucks_negotiation_unique'
+      ) {
+
+        return res.status(409).json({
+          error:
+            'Este transporte ya fue recepcionado',
+        });
+
+      }
+
+
+      return res.status(500).json({
+        error:
+          'Error recepcionando la tropa',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+// =====================================================
+// 📋 LISTAR RECEPCIONES - ADMIN FRIGOSI
+// GET /slaughterhouse/admin/receptions
+//
+// Filtros opcionales:
+// ?status=open
+// ?q=REC-000123
+//
+// Devuelve resumen por recepción.
+// El detalle de tropas/camiones irá en:
+// GET /receptions/:id
+// =====================================================
+
+exports.getAdminReceptions =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const status =
+        req.query.status
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        null;
+
+
+      const q =
+        req.query.q
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      // =================================================
+      // VALIDAR ESTADO
+      // =================================================
+
+      const allowedStatuses =
+        [
+          'open',
+          'closed',
+          'in_slaughter',
+          'completed',
+          'cancelled',
+        ];
+
+
+      if (
+        status !== null &&
+        !allowedStatuses.includes(
+          status
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Estado de recepción inválido',
+        });
+
+      }
+
+
+      // =================================================
+      // CONSULTA
+      //
+      // IMPORTANTE:
+      //
+      // Camiones y tropas se agregan por separado
+      // mediante LATERAL.
+      //
+      // Así evitamos multiplicación de filas:
+      //
+      // 2 camiones x 3 tropas
+      // NO genera 6 registros para los SUM().
+      // =================================================
+
+      const result =
+        await pool.query(
+          `
+            SELECT
+
+              sr.id,
+              sr.company_id,
+
+              sr.reception_number,
+              sr.plant_lot_number,
+
+              sr.status,
+              sr.notes,
+
+              sr.created_by,
+
+              creator.name
+                AS created_by_name,
+
+              sr.opened_at,
+              sr.closed_at,
+              sr.slaughter_started_at,
+              sr.completed_at,
+
+              sr.created_at,
+              sr.updated_at,
+
+
+              COALESCE(
+                trucks.trucks_count,
+                0
+              )::int
+                AS trucks_count,
+
+
+              COALESCE(
+                troops.troops_count,
+                0
+              )::int
+                AS troops_count,
+
+
+              COALESCE(
+                trucks.guide_quantity_total,
+                0
+              )::int
+                AS guide_quantity_total,
+
+
+              COALESCE(
+                trucks.received_quantity_total,
+                0
+              )::int
+                AS received_quantity_total,
+
+
+              (
+                COALESCE(
+                  trucks.received_quantity_total,
+                  0
+                )
+                -
+                COALESCE(
+                  trucks.guide_quantity_total,
+                  0
+                )
+              )::int
+                AS quantity_difference,
+
+
+              COALESCE(
+                trucks.live_weight_kg_total,
+                0
+              )::numeric(16,2)
+                AS live_weight_kg_total,
+
+
+              trucks.first_truck_received_at,
+
+              trucks.last_truck_received_at
+
+
+            FROM slaughterhouse_receptions sr
+
+
+            // =================================================
+            // CAMIONES AGREGADOS INDEPENDIENTEMENTE
+            // =================================================
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+
+                COUNT(*)::int
+                  AS trucks_count,
+
+
+                COALESCE(
+                  SUM(
+                    srt.guide_quantity
+                  ),
+                  0
+                )::int
+                  AS guide_quantity_total,
+
+
+                COALESCE(
+                  SUM(
+                    srt.received_quantity
+                  ),
+                  0
+                )::int
+                  AS received_quantity_total,
+
+
+                COALESCE(
+                  SUM(
+                    srt.live_weight_kg
+                  ),
+                  0
+                )::numeric(16,2)
+                  AS live_weight_kg_total,
+
+
+                MIN(
+                  srt.received_at
+                )
+                  AS first_truck_received_at,
+
+
+                MAX(
+                  srt.received_at
+                )
+                  AS last_truck_received_at
+
+
+              FROM slaughterhouse_reception_trucks srt
+
+              WHERE
+                srt.reception_id =
+                  sr.id
+
+            ) trucks
+              ON true
+
+
+            // =================================================
+            // TROPAS AGREGADAS INDEPENDIENTEMENTE
+            // =================================================
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+
+                COUNT(*)::int
+                  AS troops_count
+
+              FROM slaughterhouse_troops st
+
+              WHERE
+                st.reception_id =
+                  sr.id
+
+                AND st.company_id =
+                  sr.company_id
+
+            ) troops
+              ON true
+
+
+            LEFT JOIN users creator
+              ON creator.id =
+                sr.created_by
+
+
+            WHERE
+              sr.company_id = $1
+
+              AND (
+                $2::text IS NULL
+                OR sr.status = $2
+              )
+
+              AND (
+                $3::text IS NULL
+
+                OR sr.reception_number ILIKE
+                  '%' || $3 || '%'
+
+                OR sr.plant_lot_number ILIKE
+                  '%' || $3 || '%'
+              )
+
+
+            ORDER BY
+
+              CASE
+
+                WHEN sr.status = 'open'
+                  THEN 1
+
+                WHEN sr.status = 'closed'
+                  THEN 2
+
+                WHEN sr.status = 'in_slaughter'
+                  THEN 3
+
+                WHEN sr.status = 'completed'
+                  THEN 4
+
+                WHEN sr.status = 'cancelled'
+                  THEN 5
+
+                ELSE 6
+
+              END,
+
+              sr.opened_at DESC,
+              sr.id DESC
+          `,
+          [
+            companyId,
+            status,
+            q,
+          ],
+        );
+
+
+      const receptions =
+        result.rows;
+
+
+      // =================================================
+      // RESUMEN GENERAL
+      // =================================================
+
+      const summary = {
+
+        total:
+          receptions.length,
+
+        open:
+          receptions.filter(
+            (item) =>
+              item.status ===
+              'open'
+          ).length,
+
+        closed:
+          receptions.filter(
+            (item) =>
+              item.status ===
+              'closed'
+          ).length,
+
+        in_slaughter:
+          receptions.filter(
+            (item) =>
+              item.status ===
+              'in_slaughter'
+          ).length,
+
+        completed:
+          receptions.filter(
+            (item) =>
+              item.status ===
+              'completed'
+          ).length,
+
+      };
+
+
+      return res.json({
+
+        success: true,
+
+        summary,
+
+        receptions,
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        'GET SLAUGHTERHOUSE ADMIN RECEPTIONS ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo recepciones',
+      });
+
+    }
+
+  };
+
+// =====================================================
+// 📋 DETALLE DE RECEPCIÓN - ADMIN FRIGOSI
+// GET /slaughterhouse/admin/receptions/:id
+//
+// Devuelve:
+// - cabecera de recepción
+// - tropas vinculadas
+// - lote(s) de compra
+// - camiones recibidos
+// - snapshots de guía/transporte
+// - resumen de cantidades y peso vivo
+// =====================================================
+
+exports.getAdminReceptionById =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const receptionId =
+        Number(
+          req.params.id
+        );
+
+
+      // =================================================
+      // VALIDAR ID
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          receptionId
+        ) ||
+        receptionId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de recepción inválido',
+        });
+
+      }
+
+
+      // =================================================
+      // CABECERA
+      // =================================================
+
+      const receptionResult =
+        await pool.query(
+          `
+            SELECT
+
+              sr.*,
+
+              creator.name
+                AS created_by_name,
+
+              creator.full_name
+                AS created_by_full_name
+
+            FROM slaughterhouse_receptions sr
+
+            LEFT JOIN users creator
+              ON creator.id =
+                sr.created_by
+
+            WHERE
+              sr.id = $1
+              AND sr.company_id = $2
+
+            LIMIT 1
+          `,
+          [
+            receptionId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        receptionResult.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+          error:
+            'Recepción no encontrada',
+        });
+
+      }
+
+
+      const reception =
+        receptionResult.rows[0];
+
+
+      // =================================================
+      // TROPAS + LOTE DE COMPRA
+      // =================================================
+
+      const troopsResult =
+        await pool.query(
+          `
+            SELECT
+
+              st.id,
+              st.purchase_lot_id,
+
+              st.troop_number,
+
+              st.transport_request_id,
+              st.transport_negotiation_id,
+              st.transport_guide_id,
+
+              st.truck_id,
+              st.transporter_user_id,
+
+              st.reception_id,
+              st.reception_truck_id,
+
+              st.expected_quantity,
+              st.dispatched_quantity,
+              st.received_quantity,
+
+              st.status,
+              st.notes,
+
+              st.created_at,
+              st.updated_at,
+
+
+              spl.lot_number,
+
+              spl.external_order_number,
+
+              spl.seller_person_id,
+              seller.full_name
+                AS seller_name,
+
+              seller.document_number
+                AS seller_document_number,
+
+              seller.phone
+                AS seller_phone,
+
+              spl.estate_id,
+
+              spl.captador_person_id,
+              captador.full_name
+                AS captador_name,
+
+              spl.commissioner_person_id,
+              commissioner.full_name
+                AS commissioner_name,
+
+              spl.classification_id,
+
+              spl.purchase_type,
+
+              spl.expected_quantity
+                AS lot_expected_quantity,
+
+              spl.price_per_unit,
+
+              spl.currency,
+
+              spl.shrink_percent,
+
+              spl.planned_date,
+
+              spl.status
+                AS purchase_lot_status
+
+            FROM slaughterhouse_troops st
+
+            JOIN slaughterhouse_purchase_lots spl
+              ON spl.id =
+                st.purchase_lot_id
+              AND spl.company_id =
+                st.company_id
+
+            LEFT JOIN slaughterhouse_people seller
+              ON seller.id =
+                spl.seller_person_id
+
+            LEFT JOIN slaughterhouse_people captador
+              ON captador.id =
+                spl.captador_person_id
+
+            LEFT JOIN slaughterhouse_people commissioner
+              ON commissioner.id =
+                spl.commissioner_person_id
+
+            WHERE
+              st.reception_id = $1
+              AND st.company_id = $2
+
+            ORDER BY
+              st.troop_number ASC NULLS LAST,
+              st.id ASC
+          `,
+          [
+            receptionId,
+            companyId,
+          ],
+        );
+
+
+      const troops =
+        troopsResult.rows;
+
+
+      // =================================================
+      // CAMIONES RECEPCIONADOS
+      //
+      // Usamos principalmente los snapshots porque
+      // representan exactamente lo recibido en Portería.
+      //
+      // También mostramos información actual de la guía
+      // para trazabilidad.
+      // =================================================
+
+      const trucksResult =
+        await pool.query(
+          `
+            SELECT
+
+              srt.*,
+
+
+              tg.status
+                AS current_guide_status,
+
+              tg.official_guide_number
+                AS current_official_guide_number,
+
+              tg.official_guide_photo_url
+                AS current_official_guide_photo_url,
+
+              tg.guide_image_url
+                AS current_guide_image_url,
+
+              tg.driver_name
+                AS current_driver_name,
+
+              tg.driver_ci
+                AS current_driver_ci,
+
+
+              tn.status
+                AS transport_status,
+
+              tn.trip_started_at,
+
+              tn.delivered_at,
+
+              tn.route_id,
+
+
+              truck.plate
+                AS current_plate,
+
+              truck.brand
+                AS current_truck_brand,
+
+              truck.model
+                AS current_truck_model,
+
+
+              transporter.name
+                AS transporter_name,
+
+              transporter.full_name
+                AS transporter_full_name
+
+            FROM slaughterhouse_reception_trucks srt
+
+            LEFT JOIN transport_guides tg
+              ON tg.id =
+                srt.transport_guide_id
+
+            LEFT JOIN transport_negotiations tn
+              ON tn.id =
+                srt.transport_negotiation_id
+
+            LEFT JOIN transporter_trucks truck
+              ON truck.id =
+                srt.truck_id
+
+            LEFT JOIN users transporter
+              ON transporter.id =
+                srt.transporter_id
+
+            WHERE
+              srt.reception_id = $1
+
+            ORDER BY
+              srt.received_at ASC,
+              srt.id ASC
+          `,
+          [
+            receptionId,
+          ],
+        );
+
+
+      const trucks =
+        trucksResult.rows;
+
+
+      // =================================================
+      // RESUMEN
+      // =================================================
+
+      let guideQuantityTotal = 0;
+
+      let receivedQuantityTotal = 0;
+
+      let liveWeightKgTotal = 0;
+
+
+      for (
+        const truck of trucks
+      ) {
+
+        guideQuantityTotal +=
+          Number(
+            truck.guide_quantity || 0
+          );
+
+
+        receivedQuantityTotal +=
+          Number(
+            truck.received_quantity || 0
+          );
+
+
+        if (
+          truck.live_weight_kg !==
+            null &&
+          truck.live_weight_kg !==
+            undefined
+        ) {
+
+          liveWeightKgTotal +=
+            Number(
+              truck.live_weight_kg
+            );
+
+        }
+
+      }
+
+
+      // =================================================
+      // LOTES DE COMPRA ÚNICOS
+      //
+      // Normalmente habrá uno.
+      // Lo dejamos preparado para histórico / migraciones.
+      // =================================================
+
+      const purchaseLotsMap =
+        new Map();
+
+
+      for (
+        const troop of troops
+      ) {
+
+        if (
+          !purchaseLotsMap.has(
+            troop.purchase_lot_id
+          )
+        ) {
+
+          purchaseLotsMap.set(
+            troop.purchase_lot_id,
+            {
+
+              id:
+                troop.purchase_lot_id,
+
+              lot_number:
+                troop.lot_number,
+
+              external_order_number:
+                troop.external_order_number,
+
+              seller_person_id:
+                troop.seller_person_id,
+
+              seller_name:
+                troop.seller_name,
+
+              seller_document_number:
+                troop.seller_document_number,
+
+              seller_phone:
+                troop.seller_phone,
+
+              estate_id:
+                troop.estate_id,
+
+              captador_person_id:
+                troop.captador_person_id,
+
+              captador_name:
+                troop.captador_name,
+
+              commissioner_person_id:
+                troop.commissioner_person_id,
+
+              commissioner_name:
+                troop.commissioner_name,
+
+              classification_id:
+                troop.classification_id,
+
+              purchase_type:
+                troop.purchase_type,
+
+              expected_quantity:
+                troop.lot_expected_quantity,
+
+              price_per_unit:
+                troop.price_per_unit,
+
+              currency:
+                troop.currency,
+
+              shrink_percent:
+                troop.shrink_percent,
+
+              planned_date:
+                troop.planned_date,
+
+              status:
+                troop.purchase_lot_status,
+
+            },
+          );
+
+        }
+
+      }
+
+
+      const purchaseLots =
+        Array.from(
+          purchaseLotsMap.values()
+        );
+
+
+      return res.json({
+
+        success: true,
+
+        reception,
+
+        summary: {
+
+          troops_count:
+            troops.length,
+
+          trucks_count:
+            trucks.length,
+
+          purchase_lots_count:
+            purchaseLots.length,
+
+          guide_quantity_total:
+            guideQuantityTotal,
+
+          received_quantity_total:
+            receivedQuantityTotal,
+
+          quantity_difference:
+            receivedQuantityTotal -
+            guideQuantityTotal,
+
+          live_weight_kg_total:
+            Number(
+              liveWeightKgTotal.toFixed(
+                2
+              )
+            ),
+
+        },
+
+        purchase_lots:
+          purchaseLots,
+
+        troops,
+
+        trucks,
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        'GET SLAUGHTERHOUSE ADMIN RECEPTION DETAIL ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo detalle de recepción',
+      });
+
+    }
+
+  };
+
+// =====================================================
+// 🔒 CERRAR RECEPCIÓN
+// POST /slaughterhouse/admin/receptions/:id/close
+//
+// Reglas:
+//
+// - recepción debe estar OPEN
+// - debe existir al menos una tropa recibida
+// - debe existir al menos un camión recibido
+// - todas las tropas activas del/los lote(s)
+//   asociados deben haber llegado
+// - todas las tropas recibidas deben tener
+//   troop_number asignado
+// - NO inicia faena
+//
+// Resultado:
+//
+// open → closed
+// =====================================================
+
+exports.closeAdminReception =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+
+      const receptionId =
+        Number(
+          req.params.id
+        );
+
+
+      // =================================================
+      // VALIDAR ID
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          receptionId
+        ) ||
+        receptionId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de recepción inválido',
+        });
+
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // BLOQUEAR RECEPCIÓN
+      // =================================================
+
+      const receptionResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM slaughterhouse_receptions
+
+            WHERE
+              id = $1
+              AND company_id = $2
+
+            FOR UPDATE
+          `,
+          [
+            receptionId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        receptionResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(404).json({
+          error:
+            'Recepción no encontrada',
+        });
+
+      }
+
+
+      const previous =
+        receptionResult.rows[0];
+
+
+      // =================================================
+      // SOLO OPEN
+      // =================================================
+
+      if (
+        previous.status !==
+        'open'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            `La recepción está en estado ${previous.status} y no puede cerrarse`,
+        });
+
+      }
+
+
+      // =================================================
+      // RESUMEN DE RECEPCIÓN
+      // =================================================
+
+      const summaryResult =
+        await client.query(
+          `
+            SELECT
+
+              (
+                SELECT
+                  COUNT(*)::int
+
+                FROM slaughterhouse_troops st
+
+                WHERE
+                  st.reception_id = $1
+                  AND st.company_id = $2
+              )
+                AS troops_count,
+
+
+              (
+                SELECT
+                  COUNT(*)::int
+
+                FROM slaughterhouse_reception_trucks srt
+
+                WHERE
+                  srt.reception_id = $1
+              )
+                AS trucks_count,
+
+
+              (
+                SELECT
+                  COALESCE(
+                    SUM(
+                      st.received_quantity
+                    ),
+                    0
+                  )::int
+
+                FROM slaughterhouse_troops st
+
+                WHERE
+                  st.reception_id = $1
+                  AND st.company_id = $2
+              )
+                AS received_quantity_total,
+
+
+              (
+                SELECT
+                  COUNT(*)::int
+
+                FROM slaughterhouse_troops st
+
+                WHERE
+                  st.reception_id = $1
+                  AND st.company_id = $2
+
+                  AND (
+                    st.troop_number IS NULL
+                    OR BTRIM(
+                      st.troop_number
+                    ) = ''
+                  )
+              )
+                AS missing_troop_number_count
+          `,
+          [
+            receptionId,
+            companyId,
+          ],
+        );
+
+
+      const summary =
+        summaryResult.rows[0];
+
+
+      const troopsCount =
+        Number(
+          summary.troops_count
+        );
+
+
+      const trucksCount =
+        Number(
+          summary.trucks_count
+        );
+
+
+      const receivedQuantityTotal =
+        Number(
+          summary.received_quantity_total
+        );
+
+
+      const missingTroopNumberCount =
+        Number(
+          summary.missing_troop_number_count
+        );
+
+
+      // =================================================
+      // DEBE HABER TROPAS
+      // =================================================
+
+      if (
+        troopsCount <= 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La recepción no tiene tropas vinculadas',
+        });
+
+      }
+
+
+      // =================================================
+      // DEBE HABER CAMIONES
+      // =================================================
+
+      if (
+        trucksCount <= 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La recepción no tiene camiones recepcionados',
+        });
+
+      }
+
+
+      // =================================================
+      // CONTROL DE CONSISTENCIA
+      //
+      // En el flujo nuevo:
+      // 1 tropa = 1 camión
+      // =================================================
+
+      if (
+        troopsCount !==
+        trucksCount
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+
+          error:
+            'La recepción tiene inconsistencia entre tropas y camiones',
+
+          troops_count:
+            troopsCount,
+
+          trucks_count:
+            trucksCount,
+
+        });
+
+      }
+
+
+      // =================================================
+      // DEBE HABER GANADO RECIBIDO
+      // =================================================
+
+      if (
+        receivedQuantityTotal <= 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'La recepción no tiene animales recibidos',
+        });
+
+      }
+
+
+      // =================================================
+      // TODA TROPA DEBE TENER NÚMERO DEFINITIVO
+      // =================================================
+
+      if (
+        missingTroopNumberCount > 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+
+          error:
+            'Hay tropas recibidas sin número de tropa asignado',
+
+          missing_troop_number_count:
+            missingTroopNumberCount,
+
+        });
+
+      }
+
+
+      // =================================================
+      // BUSCAR TROPAS PENDIENTES DE LOS LOTES
+      // ASOCIADOS A ESTA RECEPCIÓN
+      //
+      // Esto evita cerrar la recepción si todavía
+      // viene otro camión del mismo lote.
+      // =================================================
+
+      const pendingResult =
+        await client.query(
+          `
+            SELECT
+
+              st.id,
+              st.troop_number,
+              st.purchase_lot_id,
+              st.status,
+
+              spl.lot_number
+
+            FROM slaughterhouse_troops st
+
+            JOIN slaughterhouse_purchase_lots spl
+              ON spl.id =
+                st.purchase_lot_id
+              AND spl.company_id =
+                st.company_id
+
+            WHERE
+              st.company_id = $2
+
+              AND st.purchase_lot_id IN (
+
+                SELECT DISTINCT
+                  linked.purchase_lot_id
+
+                FROM slaughterhouse_troops linked
+
+                WHERE
+                  linked.reception_id = $1
+                  AND linked.company_id = $2
+
+              )
+
+              AND st.status <> 'cancelled'
+
+              AND st.status NOT IN (
+                'received',
+                'in_slaughter',
+                'completed'
+              )
+
+            ORDER BY
+              st.purchase_lot_id ASC,
+              st.id ASC
+          `,
+          [
+            receptionId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        pendingResult.rows.length > 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+
+          error:
+            'Todavía existen tropas pendientes de recepción para este lote',
+
+          pending_troops:
+            pendingResult.rows,
+
+        });
+
+      }
+
+
+      // =================================================
+      // CERRAR RECEPCIÓN
+      // =================================================
+
+      const updatedResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_receptions
+
+            SET
+              status = 'closed',
+              closed_at = NOW(),
+              updated_at = NOW()
+
+            WHERE
+              id = $1
+              AND company_id = $2
+              AND status = 'open'
+
+            RETURNING *
+          `,
+          [
+            receptionId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        updatedResult.rows.length === 0
+      ) {
+
+        throw new Error(
+          'No fue posible cerrar la recepción'
+        );
+
+      }
+
+
+      const reception =
+        updatedResult.rows[0];
+
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'reception',
+            $3,
+            'close',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+
+          userId,
+
+          String(
+            receptionId
+          ),
+
+          JSON.stringify(
+            previous
+          ),
+
+          JSON.stringify({
+
+            reception,
+
+            summary: {
+
+              troops_count:
+                troopsCount,
+
+              trucks_count:
+                trucksCount,
+
+              received_quantity_total:
+                receivedQuantityTotal,
+
+            },
+
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.json({
+
+        success: true,
+
+        message:
+          'Recepción cerrada correctamente y lista para faena',
+
+        reception,
+
+        summary: {
+
+          troops_count:
+            troopsCount,
+
+          trucks_count:
+            trucksCount,
+
+          received_quantity_total:
+            receivedQuantityTotal,
+
+        },
+
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+
+      console.error(
+        'CLOSE SLAUGHTERHOUSE ADMIN RECEPTION ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error cerrando recepción',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
   };  

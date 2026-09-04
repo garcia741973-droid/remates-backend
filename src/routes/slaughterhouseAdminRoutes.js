@@ -128,6 +128,48 @@ const {
 
   reactivateTroop,
 
+  requestTransportForTroop,
+
+  getTroopTransport,
+
+  selectTroopTransportNegotiation,
+
+  authorizeTroopTransportPayment,
+
+  markTroopTransportPaymentPaid,
+
+  issueWeighingAuthorization,
+
+  getWeighingAuthorizations,
+
+  revokeWeighingAuthorization,
+
+  createLiveWeighingDraft,
+
+  certifyLiveWeighingWithQr,
+
+  getLiveWeighings,
+
+  getLiveWeighingById,
+
+  updateLiveWeighingDraft,
+
+  createLiveWeighingRectification,
+
+  dispatchTroop,
+
+  linkTransportGuideToTroop,
+
+  syncTroopTransportState,
+
+  receiveTroop,
+
+  getAdminReceptions,
+
+  getAdminReceptionById,
+
+  closeAdminReception,
+
 } = require(
 
   '../controllers/slaughterhouseAdminController'
@@ -1085,6 +1127,374 @@ router.patch(
   ),
 
   reactivateTroop,
+
+);
+
+router.post(
+
+  '/troops/:id/request-transport',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'transport.request'
+  ),
+
+  requestTransportForTroop,
+
+);
+
+router.get(
+
+  '/troops/:id/transport',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'transport.view'
+  ),
+
+  getTroopTransport,
+
+);
+
+router.post(
+
+  '/troops/:id/select-negotiation',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'transport.negotiate'
+  ),
+
+  selectTroopTransportNegotiation,
+
+);
+
+router.post(
+
+  '/troops/:id/authorize-payment',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'transport.authorize_payment'
+  ),
+
+  authorizeTroopTransportPayment,
+
+);
+
+router.post(
+
+  '/troops/:id/mark-payment-paid',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'transport.mark_payment_paid'
+  ),
+
+  markTroopTransportPaymentPaid,
+
+);
+
+router.post(
+
+  '/purchase-lots/:id/weighing-authorizations',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'weighing.issue_qr'
+  ),
+
+  issueWeighingAuthorization,
+
+);
+
+router.post(
+
+  '/purchase-lots/:id/weighing-authorizations',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'weighing.issue_qr'
+  ),
+
+  issueWeighingAuthorization,
+
+);
+
+router.get(
+
+  '/purchase-lots/:id/weighing-authorizations',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'weighing.view'
+  ),
+
+  getWeighingAuthorizations,
+
+);
+
+router.patch(
+
+  '/weighing-authorizations/:id/revoke',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'weighing.issue_qr'
+  ),
+
+  revokeWeighingAuthorization,
+
+);
+
+router.post(
+
+  '/purchase-lots/:id/weighings',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'weighing.manage'
+  ),
+
+  createLiveWeighingDraft,
+
+);
+
+router.post(
+
+  '/weighings/:id/certify',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'weighing.manage'
+  ),
+
+  certifyLiveWeighingWithQr,
+
+);
+
+router.get(
+
+  '/purchase-lots/:id/weighings',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'weighing.view'
+  ),
+
+  getLiveWeighings,
+
+);
+
+router.get(
+
+  '/purchase-lots/:id/weighings',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'weighing.view'
+  ),
+
+  getLiveWeighings,
+
+);
+
+router.get(
+
+  '/weighings/:id',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'weighing.view'
+  ),
+
+  getLiveWeighingById,
+
+);
+
+router.put(
+
+  '/weighings/:id',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'weighing.manage'
+  ),
+
+  updateLiveWeighingDraft,
+
+);
+
+router.post(
+
+  '/weighings/:id/rectify',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'weighing.manage'
+  ),
+
+  createLiveWeighingRectification,
+
+);
+
+router.post(
+
+  '/troops/:id/dispatch',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'troops.manage'
+  ),
+
+  dispatchTroop,
+
+);
+
+router.post(
+
+  '/troops/:id/link-guide',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'transport.view'
+  ),
+
+  linkTransportGuideToTroop,
+
+);
+
+router.post(
+
+  '/troops/:id/sync-transport-state',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'transport.view'
+  ),
+
+  syncTroopTransportState,
+
+);
+
+router.post(
+
+  '/troops/:id/receive',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'reception.manage'
+  ),
+
+  receiveTroop,
+
+);
+
+router.get(
+
+  '/receptions',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'reception.view'
+  ),
+
+  getAdminReceptions,
+
+);
+
+router.get(
+
+  '/receptions/:id',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'reception.view'
+  ),
+
+  getAdminReceptionById,
+
+);
+
+router.post(
+
+  '/receptions/:id/close',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'reception.manage'
+  ),
+
+  closeAdminReception,
 
 );
 
