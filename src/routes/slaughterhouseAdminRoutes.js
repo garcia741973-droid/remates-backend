@@ -182,6 +182,8 @@ const {
 
   exportPreliquidation,
 
+  exportPreliquidationCsv,
+
   getAdminReceptions,
 
   getAdminReceptionById,
@@ -1167,6 +1169,24 @@ router.patch(
   ),
 
   exportPreliquidation,
+
+);
+
+router.post(
+
+  '/preliquidations/:id/export-csv',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'preliquidation.export'
+
+  ),
+
+  exportPreliquidationCsv,
 
 );
 

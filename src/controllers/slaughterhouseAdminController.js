@@ -32515,4 +32515,626 @@ exports.exportPreliquidation =
 
     }
 
+  };
+  
+// =====================================================
+// 💰 EXPORTAR PRELIQUIDACIÓN A CSV
+// POST /slaughterhouse/admin/preliquidations/:id/export-csv
+//
+// Permitido:
+// approved -> exported
+// exported -> permite volver a descargar
+//
+// El archivo contiene:
+// - resumen de la preliquidación
+// - ajustes individuales
+//
+// Formato plano para facilitar importación a ERP.
+// =====================================================
+
+exports.exportPreliquidationCsv =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+      const preliquidationId =
+        Number(
+          req.params.id
+        );
+
+
+      // =================================================
+      // 1. VALIDAR ID
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          preliquidationId
+        ) ||
+        preliquidationId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de preliquidación inválido',
+        });
+
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // 2. OBTENER Y BLOQUEAR PRELIQUIDACIÓN
+      // =================================================
+
+      const preliqResult =
+        await client.query(
+          `
+            SELECT
+              *
+            FROM slaughterhouse_preliquidations
+            WHERE
+              id = $1
+              AND company_id = $2
+            FOR UPDATE
+          `,
+          [
+            preliquidationId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        preliqResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'Preliquidación no encontrada',
+        });
+
+      }
+
+
+      const preliquidation =
+        preliqResult.rows[0];
+
+
+      // =================================================
+      // 3. SOLO APPROVED / EXPORTED
+      // =================================================
+
+      if (
+        ![
+          'approved',
+          'exported',
+        ].includes(
+          preliquidation.status
+        )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Solo una preliquidación aprobada puede exportarse',
+
+          status:
+            preliquidation.status,
+        });
+
+      }
+
+
+      // =================================================
+      // 4. OBTENER AJUSTES
+      // =================================================
+
+      const adjustmentsResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              code,
+              description,
+              adjustment_type,
+              calculation_type,
+              rate,
+              quantity,
+              amount
+            FROM slaughterhouse_preliquidation_adjustments
+            WHERE
+              preliquidation_id = $1
+            ORDER BY
+              id ASC
+          `,
+          [
+            preliquidationId,
+          ],
+        );
+
+
+      const adjustments =
+        adjustmentsResult.rows;
+
+        const csvExportedAt =
+        preliquidation.exported_at ||
+        new Date().toISOString();
+
+      // =================================================
+      // 5. ESCAPE CSV
+      // =================================================
+
+      const csvValue =
+        (value) => {
+
+          if (
+            value === null ||
+            value === undefined
+          ) {
+            return '""';
+          }
+
+          const text =
+            String(value)
+              .replace(
+                /"/g,
+                '""'
+              );
+
+          return `"${text}"`;
+        };
+
+
+      // =================================================
+      // 6. COLUMNAS
+      //
+      // CSV plano:
+      // una fila SUMMARY +
+      // una fila por cada ADJUSTMENT.
+      // =================================================
+
+      const columns = [
+
+        'section',
+
+        'preliquidation_id',
+
+        'purchase_lot_id',
+
+        'version',
+
+        'status',
+
+        'adjustment_id',
+
+        'code',
+
+        'description',
+
+        'adjustment_type',
+
+        'calculation_type',
+
+        'rate',
+
+        'quantity',
+
+        'amount',
+
+        'gross_weight_kg',
+
+        'shrink_percent',
+
+        'shrink_weight_kg',
+
+        'net_weight_kg',
+
+        'price_per_kg',
+
+        'base_amount',
+
+        'discounts_total',
+
+        'additions_total',
+
+        'total_payable',
+
+        'approved_at',
+
+        'exported_at',
+
+      ];
+
+
+      const lines = [];
+
+
+      lines.push(
+        columns
+          .map(csvValue)
+          .join(';')
+      );
+
+
+      // =================================================
+      // 7. FILA RESUMEN
+      // =================================================
+
+      const summaryRow = {
+
+        section:
+          'SUMMARY',
+
+        preliquidation_id:
+          preliquidation.id,
+
+        purchase_lot_id:
+          preliquidation.purchase_lot_id,
+
+        version:
+          preliquidation.version,
+
+        status:
+          'exported',
+
+        adjustment_id:
+          null,
+
+        code:
+          null,
+
+        description:
+          'Resumen preliquidación',
+
+        adjustment_type:
+          null,
+
+        calculation_type:
+          null,
+
+        rate:
+          null,
+
+        quantity:
+          null,
+
+        amount:
+          preliquidation.total_payable,
+
+        gross_weight_kg:
+          preliquidation.gross_weight_kg,
+
+        shrink_percent:
+          preliquidation.shrink_percent,
+
+        shrink_weight_kg:
+          preliquidation.shrink_weight_kg,
+
+        net_weight_kg:
+          preliquidation.net_weight_kg,
+
+        price_per_kg:
+          preliquidation.price_per_kg,
+
+        base_amount:
+          preliquidation.base_amount,
+
+        discounts_total:
+          preliquidation.discounts_total,
+
+        additions_total:
+          preliquidation.additions_total,
+
+        total_payable:
+          preliquidation.total_payable,
+
+        approved_at:
+          preliquidation.approved_at,
+
+        exported_at:
+        csvExportedAt,
+
+      };
+
+
+      lines.push(
+        columns
+          .map(
+            (column) =>
+              csvValue(
+                summaryRow[column]
+              )
+          )
+          .join(';')
+      );
+
+
+      // =================================================
+      // 8. FILAS DE AJUSTES
+      // =================================================
+
+      for (
+        const adjustment
+        of adjustments
+      ) {
+
+        const row = {
+
+          section:
+            'ADJUSTMENT',
+
+          preliquidation_id:
+            preliquidation.id,
+
+          purchase_lot_id:
+            preliquidation.purchase_lot_id,
+
+          version:
+            preliquidation.version,
+
+          status:
+            'exported',
+
+          adjustment_id:
+            adjustment.id,
+
+          code:
+            adjustment.code,
+
+          description:
+            adjustment.description,
+
+          adjustment_type:
+            adjustment.adjustment_type,
+
+          calculation_type:
+            adjustment.calculation_type,
+
+          rate:
+            adjustment.rate,
+
+          quantity:
+            adjustment.quantity,
+
+          amount:
+            adjustment.amount,
+
+          gross_weight_kg:
+            null,
+
+          shrink_percent:
+            null,
+
+          shrink_weight_kg:
+            null,
+
+          net_weight_kg:
+            null,
+
+          price_per_kg:
+            null,
+
+          base_amount:
+            null,
+
+          discounts_total:
+            null,
+
+          additions_total:
+            null,
+
+          total_payable:
+            null,
+
+          approved_at:
+            preliquidation.approved_at,
+
+            exported_at:
+            csvExportedAt,
+
+        };
+
+
+        lines.push(
+          columns
+            .map(
+              (column) =>
+                csvValue(
+                  row[column]
+                )
+            )
+            .join(';')
+        );
+
+      }
+
+
+      // =================================================
+      // 9. MARCAR COMO EXPORTED
+      //
+      // Si ya estaba exportada:
+      // conserva exported_at original.
+      // =================================================
+
+      const exportedResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_preliquidations
+            SET
+              status = 'exported',
+                exported_at = COALESCE(
+                exported_at,
+                $3::timestamptz
+                    AT TIME ZONE 'America/La_Paz'
+                ),
+              updated_at = NOW()
+            WHERE
+              id = $1
+              AND company_id = $2
+            RETURNING *
+          `,
+            [
+            preliquidationId,
+            companyId,
+            csvExportedAt,
+            ],
+        );
+
+
+      const exportedPreliquidation =
+        exportedResult.rows[0];
+
+
+      // =================================================
+      // 10. AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            new_data
+          )
+          VALUES (
+            $1,
+            $2,
+            'preliquidation',
+            $3,
+            'export_csv',
+            $4::jsonb
+          )
+        `,
+        [
+          companyId,
+
+          userId,
+
+          String(
+            preliquidationId
+          ),
+
+          JSON.stringify({
+
+            version:
+              exportedPreliquidation.version,
+
+            purchase_lot_id:
+              exportedPreliquidation.purchase_lot_id,
+
+            adjustments_count:
+              adjustments.length,
+
+            exported_at:
+              exportedPreliquidation.exported_at,
+
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      // =================================================
+      // 11. CONSTRUIR ARCHIVO
+      // =================================================
+
+      const csv =
+        '\uFEFF' +
+        lines.join(
+          '\r\n'
+        ) +
+        '\r\n';
+
+
+      const filename =
+        `preliquidacion_lote_${preliquidation.purchase_lot_id}` +
+        `_v${preliquidation.version}.csv`;
+
+
+      // =================================================
+      // 12. RESPUESTA
+      // =================================================
+
+      res.setHeader(
+        'Content-Type',
+        'text/csv; charset=utf-8'
+      );
+
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${filename}"`
+      );
+
+      res.setHeader(
+        'Cache-Control',
+        'no-store'
+      );
+
+
+      return res
+        .status(200)
+        .send(csv);
+
+
+    } catch (error) {
+
+      try {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+      } catch (_) {}
+
+
+      console.error(
+        'EXPORT PRELIQUIDATION CSV ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error generando CSV de la preliquidación',
+      });
+
+
+    } finally {
+
+      client.release();
+
+    }
+
   };  
