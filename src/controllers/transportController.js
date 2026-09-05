@@ -1644,9 +1644,103 @@ const getOpenTransportRequests = async (req, res) => {
         ON tr.approx_pickup_saved_location_id = pickup.id
       LEFT JOIN transport_saved_locations dropoff
         ON tr.approx_dropoff_saved_location_id = dropoff.id
-        WHERE tr.status = 'open'
-        AND tr.user_id != $1
-        AND tr.id NOT IN (
+      WHERE tr.status = 'open'
+
+      AND tr.user_id != $1
+
+      -- =====================================================
+      -- VISIBILIDAD DE SOLICITUD
+      -- =====================================================
+
+      AND (
+        -- Solicitudes públicas:
+        -- visibles para cualquier transportista.
+        COALESCE(
+          tr.visibility_scope,
+          'public'
+        ) = 'public'
+
+        OR
+
+        (
+          -- Red privada:
+          -- solo transportistas aprobados
+          -- de la empresa solicitante.
+          tr.visibility_scope =
+            'company_network'
+
+          AND tr.requester_company_id
+            IS NOT NULL
+
+          AND EXISTS (
+            SELECT 1
+            FROM slaughterhouse_company_transporters sct
+
+            JOIN slaughterhouse_people sp
+              ON sp.id =
+                sct.person_id
+
+            WHERE
+              sct.company_id =
+                tr.requester_company_id
+
+              AND sct.status =
+                'approved'
+
+              AND sp.user_id =
+                $1
+
+              AND sp.is_active =
+                true
+          )
+        )
+
+        OR
+
+        (
+          -- Selección específica:
+          -- solo transportistas invitados.
+          tr.visibility_scope =
+            'selected'
+
+          AND EXISTS (
+            SELECT 1
+            FROM transport_request_invites tri
+
+            JOIN slaughterhouse_company_transporters sct
+              ON sct.id =
+                tri.company_transporter_id
+
+            JOIN slaughterhouse_people sp
+              ON sp.id =
+                sct.person_id
+
+            WHERE
+              tri.request_id =
+                tr.id
+
+              AND sct.company_id =
+                tr.requester_company_id
+
+              AND sct.status =
+                'approved'
+
+              AND sp.user_id =
+                $1
+
+              AND sp.is_active =
+                true
+
+              AND tri.status IN (
+                'pending',
+                'viewed',
+                'accepted'
+              )
+          )
+        )
+      )
+
+      AND tr.id NOT IN (
           SELECT request_id
           FROM transport_request_rejections
           WHERE transporter_id = $1
