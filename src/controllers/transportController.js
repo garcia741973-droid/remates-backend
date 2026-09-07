@@ -7354,6 +7354,7 @@ const importLocation = async (
 const createLocationRoute = async (req, res) => {
   try {
         const {
+          client_route_id,
           saved_location_id,
           name,
           route_type,
@@ -7362,28 +7363,36 @@ const createLocationRoute = async (req, res) => {
           duration_minutes,
         } = req.body;
 
-    const result = await pool.query(
-      `
-        INSERT INTO transport_location_routes (
-            saved_location_id,
-            name,
-            route_type,
-            route_points,
-            distance_km,
-            duration_minutes
-        )
-        VALUES ($1,$2,$3,$4,$5,$6)
-        RETURNING *
-      `,
-        [
+        const result = await pool.query(
+          `
+            INSERT INTO transport_location_routes (
+              client_route_id,
+              saved_location_id,
+              name,
+              route_type,
+              route_points,
+              distance_km,
+              duration_minutes
+            )
+            VALUES ($1,$2,$3,$4,$5,$6,$7)
+
+            ON CONFLICT (client_route_id)
+            DO UPDATE SET
+              client_route_id =
+                EXCLUDED.client_route_id
+
+            RETURNING *
+          `,
+          [
+            client_route_id ?? null,
             saved_location_id,
             name,
             route_type,
             route_points,
             distance_km,
             duration_minutes,
-        ]
-    );
+          ]
+        );
 
     res.json(result.rows[0]);
   } catch (error) {
