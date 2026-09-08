@@ -3231,58 +3231,97 @@ const getRequestNegotiations = async (req, res) => {
 };
 
 const acceptTransportNegotiation = async (req, res) => {
+
+  const client =
+    await pool.connect();
+
   try {
+
     const userId =
       req.user.user_id;
 
     const {
       negotiation_id,
+      trip_price,
     } = req.body;
 
-    /// 🔥 BUSCAR NEGOCIACIÓN
+
+    if (
+      !negotiation_id
+    ) {
+
+      return res.status(400).json({
+        error:
+          'negotiation_id requerido',
+      });
+
+    }
+
+
+    await client.query(
+      'BEGIN'
+    );
+
+
+    // =====================================================
+    // 🔒 OBTENER Y BLOQUEAR NEGOCIACIÓN
+    // =====================================================
+
     const negotiationRes =
-      await pool.query(
+      await client.query(
         `
         SELECT *
         FROM transport_negotiations
-        WHERE id = $1
-        AND status = 'open'
-        LIMIT 1
+        WHERE
+          id = $1
+          AND status = 'open'
+        FOR UPDATE
         `,
-        [negotiation_id]
+        [
+          negotiation_id,
+        ],
       );
+
 
     if (
       negotiationRes.rows.length === 0
     ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
       return res.status(404).json({
         error:
-          'Negociación no encontrada',
+          'Negociación no encontrada o ya fue cerrada',
       });
+
     }
+
 
     const negotiation =
       negotiationRes.rows[0];
 
 
     // =====================================================
-    // 🔐 VALIDAR ACCESO A LA SOLICITUD
+    // 🔒 OBTENER SOLICITUD
     // =====================================================
 
     const requestRes =
-      await pool.query(
+      await client.query(
         `
         SELECT
           id,
           user_id,
-          requester_company_id
+          requester_company_id,
+          status
         FROM transport_requests
         WHERE id = $1
-        LIMIT 1
+        FOR UPDATE
         `,
         [
           negotiation.request_id,
-        ]
+        ],
       );
 
 
@@ -3290,12 +3329,15 @@ const acceptTransportNegotiation = async (req, res) => {
       requestRes.rows.length === 0
     ) {
 
-      return res.status(404).json({
+      await client.query(
+        'ROLLBACK'
+      );
 
+      return res.status(404).json({
         error:
           'Solicitud no encontrada',
-
       });
+
     }
 
 
@@ -3319,12 +3361,16 @@ const acceptTransportNegotiation = async (req, res) => {
     // =====================================================
 
     const isOwner =
-      Number(request.user_id) ===
-      Number(userId);
+      Number(
+        request.user_id
+      ) ===
+      Number(
+        userId
+      );
 
 
     // =====================================================
-    // 🏭 MISMO FRIGORÍFICO
+    // 🏭 USUARIO DEL FRIGORÍFICO
     // =====================================================
 
     const belongsToSlaughterhouse =
@@ -3347,102 +3393,635 @@ const acceptTransportNegotiation = async (req, res) => {
       !belongsToSlaughterhouse
     ) {
 
-      return res.status(403).json({
+      await client.query(
+        'ROLLBACK'
+      );
 
+      return res.status(403).json({
         error:
           'No autorizado',
-
       });
+
     }
 
-    /// 🔥 ACEPTAR ESTA
-    const configRes = await pool.query(
-    `
-    SELECT amount
-    FROM system_payment_configs
-    WHERE code = 'transport_unlock'
-      AND is_active = true
-    LIMIT 1
-    `
-    );
 
-    if (configRes.rows.length === 0) {
+    // =====================================================
+    // 🏭 FLUJO CORPORATIVO FRIGORÍFICO
+    // =====================================================
+
+    if (
+      belongsToSlaughterhouse
+    ) {
+
+      // ===================================================
+      // 💰 PRECIO FINAL ACORDADO DEL VIAJE
+      //
+      // Este es el precio:
+      // FRIGORÍFICO → TRANSPORTISTA
+      //
+      // NO es la tarifa que Plaza Ganadera cobra
+      // al frigorífico.
+      // ===================================================
+
+      const finalTripPrice =
+        Number(
+          trip_price
+        );
+
+
+      if (
+        !Number.isFinite(
+          finalTripPrice
+        ) ||
+        finalTripPrice <= 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(400).json({
+          error:
+            'Debe indicar un precio final válido para el viaje',
+        });
+
+      }      
+
+      // ===================================================
+      // OBTENER TROPA DE ESTA SOLICITUD
+      // ===================================================
+
+      const troopResult =
+        await client.query(
+          `
+          SELECT *
+          FROM slaughterhouse_troops
+          WHERE
+            company_id = $1
+            AND transport_request_id = $2
+          LIMIT 1
+          FOR UPDATE
+          `,
+          [
+            slaughterhouseCompanyId,
+            request.id,
+          ],
+        );
+
+
+      if (
+        troopResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'La solicitud corporativa no tiene una tropa vinculada',
+        });
+
+      }
+
+
+      const previousTroop =
+        troopResult.rows[0];
+
+
+      if (
+        previousTroop.status !==
+          'transport_requested' ||
+        previousTroop
+            .transport_negotiation_id !==
+          null
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'La tropa ya fue asignada o no está disponible para seleccionar transporte',
+        });
+
+      }
+
+
+      // ===================================================
+      // CUENTA CORPORATIVA
+      // ===================================================
+
+      const corporateAccountResult =
+        await client.query(
+          `
+          SELECT
+            id,
+            company_id,
+            billing_mode,
+            monthly_fee,
+            per_operation_fee,
+            billing_day,
+            status
+          FROM transport_corporate_accounts
+          WHERE
+            company_id = $1
+            AND status = 'active'
+          LIMIT 1
+          FOR UPDATE
+          `,
+          [
+            slaughterhouseCompanyId,
+          ],
+        );
+
+
+      if (
+        corporateAccountResult
+          .rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El frigorífico no tiene una cuenta corporativa de transporte activa',
+        });
+
+      }
+
+
+      const corporateAccount =
+        corporateAccountResult.rows[0];
+
+
+      // monthly_flat:
+      // registramos uso, pero no cargo individual.
+      //
+      // monthly_usage / hybrid:
+      // usamos tarifa por operación.
+
+      const usageAmount =
+        corporateAccount.billing_mode ===
+          'monthly_flat'
+          ? 0
+          : Number(
+              corporateAccount
+                .per_operation_fee || 0
+            );
+
+
+      // ===================================================
+      // GANADORA → PAID OPERATIVO
+      //
+      // NO usamos unlock_fee.
+      // NO esperamos comprobante.
+      // ===================================================
+
+      await client.query(
+        `
+        UPDATE transport_negotiations
+        SET
+          status = 'paid',
+          trip_price = $2,
+          unlock_fee = NULL
+        WHERE id = $1
+        `,
+        [
+          negotiation.id,
+          finalTripPrice,
+        ],
+      );
+
+
+      // ===================================================
+      // SOLICITUD → PAID
+      // ===================================================
+
+      await client.query(
+        `
+        UPDATE transport_requests
+        SET status = 'paid'
+        WHERE id = $1
+        `,
+        [
+          request.id,
+        ],
+      );
+
+
+      // ===================================================
+      // CANCELAR AUTOMÁTICAMENTE LAS DEMÁS
+      // ===================================================
+
+      await client.query(
+        `
+        UPDATE transport_negotiations
+        SET
+          status = 'cancelled',
+          cancelled = true,
+          cancelled_by = $3
+        WHERE
+          request_id = $1
+          AND id != $2
+          AND status = 'open'
+        `,
+        [
+          request.id,
+          negotiation.id,
+          userId,
+        ],
+      );
+
+
+      // ===================================================
+      // VINCULAR GANADOR A LA TROPA
+      // ===================================================
+
+      const troopUpdateResult =
+        await client.query(
+          `
+          UPDATE slaughterhouse_troops
+          SET
+            transport_negotiation_id = $1,
+            truck_id = $2,
+            transporter_user_id = $3,
+            status = 'transport_assigned',
+            updated_at = NOW()
+          WHERE
+            id = $4
+            AND company_id = $5
+          RETURNING *
+          `,
+          [
+            negotiation.id,
+            negotiation.truck_id,
+            negotiation.transporter_id,
+            previousTroop.id,
+            slaughterhouseCompanyId,
+          ],
+        );
+
+
+      const troop =
+        troopUpdateResult.rows[0];
+
+
+      // ===================================================
+      // REGISTRAR USO CORPORATIVO
+      //
+      // Plaza Ganadera → frigorífico
+      //
+      // Queda pendiente para facturación mensual.
+      // ===================================================
+
+      const usageResult =
+        await client.query(
+          `
+          INSERT INTO transport_corporate_usage (
+            corporate_account_id,
+            request_id,
+            negotiation_id,
+            troop_id,
+            service_date,
+            charge_type,
+            amount,
+            description,
+            status
+          )
+          VALUES (
+            $1,
+            $2,
+            $3,
+            $4,
+            CURRENT_DATE,
+            'transport_operation',
+            $5,
+            $6,
+            'unbilled'
+          )
+          RETURNING *
+          `,
+          [
+            corporateAccount.id,
+            request.id,
+            negotiation.id,
+            troop.id,
+            usageAmount,
+            `Uso Plaza Transporte - solicitud #${request.id} - negociación #${negotiation.id}`,
+          ],
+        );
+
+
+      const corporateUsage =
+        usageResult.rows[0];
+
+
+      // ===================================================
+      // AUDITORÍA FRIGORÍFICO
+      // ===================================================
+
+      await client.query(
+        `
+        INSERT INTO slaughterhouse_audit_log (
+          company_id,
+          user_id,
+          entity_type,
+          entity_id,
+          action,
+          old_data,
+          new_data
+        )
+        VALUES (
+          $1,
+          $2,
+          'troop',
+          $3,
+          'accept_transport_negotiation',
+          $4::jsonb,
+          $5::jsonb
+        )
+        `,
+        [
+          slaughterhouseCompanyId,
+          userId,
+          String(
+            troop.id
+          ),
+          JSON.stringify(
+            previousTroop
+          ),
+          JSON.stringify({
+            ...troop,
+            selected_negotiation: {
+              id:
+                negotiation.id,
+              transporter_id:
+                negotiation
+                  .transporter_id,
+              truck_id:
+                negotiation.truck_id,
+              trip_price:
+                finalTripPrice,
+            },
+            corporate_usage_id:
+              corporateUsage.id,
+            corporate_usage_amount:
+              usageAmount,
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      // ===================================================
+      // NOTIFICACIÓN
+      //
+      // Fuera de la transacción.
+      // Si falla push, no deshacemos el cierre.
+      // ===================================================
+
+      try {
+
+        await sendUserNotification({
+          userId:
+            negotiation.transporter_id,
+          title:
+            'Transporte confirmado',
+          body:
+            'El frigorífico confirmó tu propuesta. Ya puedes continuar con el viaje.',
+          data: {
+            type:
+              'transport_paid',
+            negotiation_id:
+              negotiation.id,
+            request_id:
+              request.id,
+          },
+        });
+
+      } catch (notificationError) {
+
+        console.error(
+          'CORPORATE TRANSPORT NOTIFICATION ERROR:',
+          notificationError
+        );
+
+      }
+
+
+      return res.json({
+
+        success: true,
+
+        corporate: true,
+
+        status:
+          'paid',
+
+        message:
+          'Negociación corporativa aceptada correctamente',
+
+        troop,
+
+        corporate_usage: {
+          id:
+            corporateUsage.id,
+          amount:
+            corporateUsage.amount,
+          status:
+            corporateUsage.status,
+        },
+
+      });
+
+    }
+
+
+    // =====================================================
+    // 👤 FLUJO NORMAL PLAZA TRANSPORTE
+    // =====================================================
+
+    const configRes =
+      await client.query(
+        `
+        SELECT amount
+        FROM system_payment_configs
+        WHERE
+          code = 'transport_unlock'
+          AND is_active = true
+        LIMIT 1
+        `,
+      );
+
+
+    if (
+      configRes.rows.length === 0
+    ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
       return res.status(400).json({
-        error: 'Configuración de pago no encontrada',
+        error:
+          'Configuración de pago no encontrada',
       });
+
     }
+
 
     const unlockFee =
-      Number(configRes.rows[0].amount);
+      Number(
+        configRes.rows[0].amount
+      );
 
-    await pool.query(
-    `
-    UPDATE transport_negotiations
-    SET
-      status = 'payment_pending',
-      unlock_fee = $2
-    WHERE id = $1
-    `,
-    [
-      negotiation_id,
-      unlockFee
-    ]
-    );
 
-    /// 🔥 CAMBIAR REQUEST
-    await pool.query(
-      `
-        UPDATE transport_requests
-        SET status = 'payment_pending'
-        WHERE id = $1
-      `,
-      [negotiation.request_id]
-    );
+    // =====================================================
+    // NEGOCIACIÓN → PAYMENT_PENDING
+    // =====================================================
 
-    /// 🔥 CANCELAR OTRAS
-    await pool.query(
+    await client.query(
       `
       UPDATE transport_negotiations
-      SET status = 'cancelled'
-      WHERE request_id = $1
-      AND id != $2
-      AND status = 'open'
+      SET
+        status = 'payment_pending',
+        unlock_fee = $2
+      WHERE id = $1
       `,
       [
-        negotiation.request_id,
-        negotiation_id,
-      ]
+        negotiation.id,
+        unlockFee,
+      ],
     );
 
-    /// 🔥 NOTIFICAR CAMIONERO
-    await sendUserNotification({
-      userId:
-        negotiation.transporter_id,
-      title:
-        'Trato aceptado',
-      body:
-        'Tu propuesta fue aceptada',
-      data: {
-        type:
-          'transport_negotiation',
-        negotiation_id,
-        request_id:
-          negotiation.request_id,
-      },
+
+    // =====================================================
+    // REQUEST → PAYMENT_PENDING
+    // =====================================================
+
+    await client.query(
+      `
+      UPDATE transport_requests
+      SET status = 'payment_pending'
+      WHERE id = $1
+      `,
+      [
+        request.id,
+      ],
+    );
+
+
+    // =====================================================
+    // CANCELAR LAS DEMÁS
+    // =====================================================
+
+    await client.query(
+      `
+      UPDATE transport_negotiations
+      SET
+        status = 'cancelled',
+        cancelled = true,
+        cancelled_by = $3
+      WHERE
+        request_id = $1
+        AND id != $2
+        AND status = 'open'
+      `,
+      [
+        request.id,
+        negotiation.id,
+        userId,
+      ],
+    );
+
+
+    await client.query(
+      'COMMIT'
+    );
+
+
+    // =====================================================
+    // PUSH AL CAMIONERO
+    // =====================================================
+
+    try {
+
+      await sendUserNotification({
+        userId:
+          negotiation.transporter_id,
+        title:
+          'Trato aceptado',
+        body:
+          'Tu propuesta fue aceptada',
+        data: {
+          type:
+            'transport_negotiation',
+          negotiation_id:
+            negotiation.id,
+          request_id:
+            request.id,
+        },
+      });
+
+    } catch (notificationError) {
+
+      console.error(
+        'TRANSPORT ACCEPT NOTIFICATION ERROR:',
+        notificationError
+      );
+
+    }
+
+
+    return res.json({
+
+      success: true,
+
+      corporate: false,
+
+      status:
+        'payment_pending',
+
     });
 
-    res.json({
-      success: true,
-    });
 
   } catch (error) {
-    console.error(error);
 
-    res.status(500).json({
+    try {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+    } catch (_) {}
+
+
+    console.error(
+      'ACCEPT TRANSPORT NEGOTIATION ERROR:',
+      error
+    );
+
+
+    return res.status(500).json({
       error:
         'Error aceptando negociación',
     });
+
+
+  } finally {
+
+    client.release();
+
   }
+
 };
 
 
