@@ -2,6 +2,12 @@ const { pool } = require('../config/db');
 
 const crypto = require('crypto');
 
+const cloudinary =
+  require('../config/cloudinary');
+
+const streamifier =
+  require('streamifier');
+
 const admin = require('firebase-admin');
 
 const {
@@ -8509,6 +8515,245 @@ const acceptTransportConsent = async (
   }
 };
 
+// =====================================================
+// 📎 SUBIR ADJUNTO CHAT TRANSPORTE
+// POST /transport/upload-attachment
+//
+// multipart/form-data
+//
+// negotiation_id
+// file
+//
+// Permitidos:
+// PDF
+// JPG / JPEG
+// PNG
+// =====================================================
+
+const uploadTransportAttachment =
+  async (req, res) => {
+
+    try {
+
+      const userId =
+        req.user.user_id;
+
+      const authCompanyId =
+        req.user.company_id || null;
+
+      const negotiationId =
+        Number(
+          req.body.negotiation_id
+        );
+
+
+      if (
+        !Number.isInteger(
+          negotiationId
+        ) ||
+        negotiationId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'negotiation_id inválido',
+        });
+
+      }
+
+
+      // =================================================
+      // VALIDAR ACCESO A NEGOCIACIÓN
+      // =================================================
+
+      const access =
+        await getTransportNegotiationAccess(
+          negotiationId,
+          userId,
+          authCompanyId
+        );
+
+
+      if (!access.exists) {
+
+        return res.status(404).json({
+          error:
+            'Negociación no encontrada',
+        });
+
+      }
+
+
+      if (!access.allowed) {
+
+        return res.status(403).json({
+          error:
+            'No autorizado',
+        });
+
+      }
+
+
+      // =================================================
+      // VALIDAR ARCHIVO
+      // =================================================
+
+      if (!req.file) {
+
+        return res.status(400).json({
+          error:
+            'Debes seleccionar un archivo',
+        });
+
+      }
+
+
+      const allowedMimeTypes =
+        [
+          'application/pdf',
+          'image/jpeg',
+          'image/png',
+        ];
+
+
+      if (
+        !allowedMimeTypes.includes(
+          req.file.mimetype
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Formato no permitido. Usa PDF, JPG, JPEG o PNG.',
+        });
+
+      }
+
+
+      // Máximo 15 MB
+      if (
+        req.file.size >
+        15 * 1024 * 1024
+      ) {
+
+        return res.status(400).json({
+          error:
+            'El archivo supera el máximo permitido de 15 MB.',
+        });
+
+      }
+
+
+      // =================================================
+      // SUBIR A CLOUDINARY
+      // resource_type auto permite PDF + imágenes
+      // =================================================
+
+      const uploadFromBuffer =
+        (buffer) => {
+
+          return new Promise(
+            (
+              resolve,
+              reject
+            ) => {
+
+              const stream =
+                cloudinary.uploader
+                    .upload_stream(
+                  {
+                    folder:
+                      `transport_attachments/${negotiationId}`,
+
+                    resource_type:
+                      'auto',
+                  },
+                  (
+                    error,
+                    result
+                  ) => {
+
+                    if (result) {
+
+                      resolve(
+                        result
+                      );
+
+                    } else {
+
+                      reject(
+                        error
+                      );
+
+                    }
+
+                  },
+                );
+
+
+              streamifier
+                  .createReadStream(
+                    buffer
+                  )
+                  .pipe(
+                    stream
+                  );
+
+            },
+          );
+
+        };
+
+
+      const uploadResult =
+        await uploadFromBuffer(
+          req.file.buffer
+        );
+
+
+      return res.json({
+
+        success: true,
+
+        attachment: {
+
+          url:
+            uploadResult.secure_url,
+
+          file_name:
+            req.file.originalname,
+
+          mime_type:
+            req.file.mimetype,
+
+          file_size:
+            req.file.size,
+
+          resource_type:
+            uploadResult.resource_type,
+
+        },
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'UPLOAD TRANSPORT ATTACHMENT ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error subiendo archivo de transporte',
+      });
+
+    }
+
+  };
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -8532,6 +8777,7 @@ module.exports = {
   getOpenTransportRequests,
   createTransportNegotiation,
   sendTransportMessage,
+  uploadTransportAttachment,
   getTransportMessages,
   getMyTransportRequests,
   getRequestNegotiations,

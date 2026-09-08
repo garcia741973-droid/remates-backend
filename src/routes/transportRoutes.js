@@ -3,6 +3,9 @@ const router = express.Router();
 
 const { requireAuth } = require('../middleware/authMiddleware');
 
+const upload =
+  require('../middleware/uploadMiddleware');
+
 const {
   registerTruck,
   getMyTruck,
@@ -21,6 +24,7 @@ const {
   getOpenTransportRequests,
   createTransportNegotiation,
   sendTransportMessage,
+  uploadTransportAttachment,
   getTransportNegotiationDetails,
   getTransportRoutePoints,
   getTransportMessages,
@@ -175,6 +179,13 @@ router.post(
   '/create-negotiation',
   requireAuth,
   createTransportNegotiation
+);
+
+router.post(
+  '/upload-attachment',
+  requireAuth,
+  upload.single('file'),
+  uploadTransportAttachment
 );
 
 router.post(
