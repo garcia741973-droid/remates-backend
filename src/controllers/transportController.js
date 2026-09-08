@@ -2263,11 +2263,12 @@ const finalMessage =
       /@/,
     ];
 
-    const blocked =
-      forbiddenPatterns.some(
-        (pattern) =>
-          pattern.test(finalMessage)
-      );
+  const blocked =
+    cleanMessage.length > 0 &&
+    forbiddenPatterns.some(
+      (pattern) =>
+        pattern.test(cleanMessage)
+    );
 
     if (blocked) {
       return res.status(400).json({
