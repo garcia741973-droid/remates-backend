@@ -2149,11 +2149,49 @@ const sendTransportMessage = async (req, res) => {
   try {
     const senderId = req.user.user_id;
 
-    const {
-      negotiation_id,
-      message,
-      photo_url,
-    } = req.body;
+const {
+  negotiation_id,
+  message,
+  photo_url,
+  attachment_url,
+  attachment_name,
+  attachment_mime_type,
+  attachment_size,
+} = req.body;
+
+
+const cleanMessage =
+  typeof message === 'string'
+    ? message.trim()
+    : '';
+
+
+const hasAttachment =
+  attachment_url &&
+  attachment_name;
+
+
+if (
+  !cleanMessage &&
+  !photo_url &&
+  !hasAttachment
+) {
+
+  return res.status(400).json({
+    error:
+      'Debes enviar un mensaje o adjuntar un archivo',
+  });
+
+}
+
+
+const finalMessage =
+  cleanMessage ||
+  (
+    hasAttachment
+      ? `Documento adjunto: ${attachment_name}`
+      : 'Imagen adjunta'
+  );
 
 
     // =====================================================
@@ -2228,7 +2266,7 @@ const sendTransportMessage = async (req, res) => {
     const blocked =
       forbiddenPatterns.some(
         (pattern) =>
-          pattern.test(message)
+          pattern.test(finalMessage)
       );
 
     if (blocked) {
@@ -2283,16 +2321,30 @@ const sendTransportMessage = async (req, res) => {
           negotiation_id,
           sender_id,
           message,
-          photo_url
+          photo_url,
+          attachment_url,
+          attachment_name,
+          attachment_mime_type,
+          attachment_size
         )
-        VALUES ($1,$2,$3,$4)
+
+        VALUES (
+          $1,$2,$3,$4,$5,$6,$7,$8
+        )
+
         RETURNING *
         `,
         [
           negotiation_id,
           senderId,
-          message,
+          finalMessage,
           photo_url || null,
+          attachment_url || null,
+          attachment_name || null,
+          attachment_mime_type || null,
+          attachment_size
+            ? Number(attachment_size)
+            : null,
         ]
       );
 
@@ -2309,10 +2361,26 @@ const sendTransportMessage = async (req, res) => {
     )
     .collection('messages')
     .add({
-        sender_id: senderId,
-        message,
-        photo_url: photo_url || null,
-        created_at:
+      sender_id: senderId,
+      message: finalMessage,
+      photo_url:
+        photo_url || null,
+
+      attachment_url:
+        attachment_url || null,
+
+      attachment_name:
+        attachment_name || null,
+
+      attachment_mime_type:
+        attachment_mime_type || null,
+
+      attachment_size:
+        attachment_size
+          ? Number(attachment_size)
+          : null,
+
+      created_at:
         admin.firestore.FieldValue.serverTimestamp(),
     });
 
