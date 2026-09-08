@@ -1871,6 +1871,135 @@ const createTransportNegotiation = async (req, res) => {
       });
     }
 
+    // =====================================================
+    // 🔐 VALIDAR VISIBILIDAD DE LA SOLICITUD
+    // =====================================================
+
+    const visibilityScope =
+      request.visibility_scope ||
+      'public';
+
+    if (
+      visibilityScope ===
+      'company_network'
+    ) {
+      const accessResult =
+        await pool.query(
+          `
+          SELECT EXISTS (
+            SELECT 1
+            FROM slaughterhouse_company_transporters sct
+
+            JOIN slaughterhouse_people sp
+              ON sp.id =
+                sct.person_id
+
+            WHERE
+              sct.company_id =
+                $1
+
+              AND sct.status =
+                'approved'
+
+              AND sp.user_id =
+                $2
+
+              AND sp.is_active =
+                true
+          ) AS allowed
+          `,
+          [
+            request.requester_company_id,
+            transporterId,
+          ],
+        );
+
+      if (
+        accessResult.rows[0]
+          ?.allowed !== true
+      ) {
+        return res.status(403).json({
+          error:
+            'Esta solicitud está disponible únicamente para la red privada de transportistas de la empresa',
+        });
+      }
+    }
+
+    if (
+      visibilityScope ===
+      'selected'
+    ) {
+      const accessResult =
+        await pool.query(
+          `
+          SELECT EXISTS (
+            SELECT 1
+            FROM transport_request_invites tri
+
+            JOIN slaughterhouse_company_transporters sct
+              ON sct.id =
+                tri.company_transporter_id
+
+            JOIN slaughterhouse_people sp
+              ON sp.id =
+                sct.person_id
+
+            WHERE
+              tri.request_id =
+                $1
+
+              AND sct.company_id =
+                $2
+
+              AND sct.status =
+                'approved'
+
+              AND sp.user_id =
+                $3
+
+              AND sp.is_active =
+                true
+
+              AND tri.status IN (
+                'pending',
+                'viewed',
+                'accepted'
+              )
+          ) AS allowed
+          `,
+          [
+            request.id,
+            request.requester_company_id,
+            transporterId,
+          ],
+        );
+
+      if (
+        accessResult.rows[0]
+          ?.allowed !== true
+      ) {
+        return res.status(403).json({
+          error:
+            'No tienes invitación para esta solicitud de transporte',
+        });
+      }
+    }
+
+    if (
+      ![
+        'public',
+        'company_network',
+        'selected',
+      ].includes(
+        visibilityScope,
+      )
+    ) {
+      return res.status(403).json({
+        error:
+          'Solicitud de transporte no disponible',
+      });
+    }
+
     /// 🔥 BUSCAR CAMIÓN ACTIVO
     const truckRes =
       await pool.query(
