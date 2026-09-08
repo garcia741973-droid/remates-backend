@@ -5982,10 +5982,11 @@ const getMyOpenNegotiations = async (req, res) => {
       WHERE
         tn.transporter_id = $1
         AND tn.hidden_by_transporter = false
-        AND tn.status IN (
-          'open',
-          'payment_pending'
-        )
+      AND tn.status IN (
+        'open',
+        'payment_pending',
+        'paid'
+      )
 
       ORDER BY tn.id DESC
       `,
