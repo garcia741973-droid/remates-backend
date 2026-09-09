@@ -26387,6 +26387,18 @@ exports.receiveTroop =
           .trim() ||
         null;
 
+      const platePhotoUrl =
+        req.body.plate_photo_url
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const driverLicensePhotoUrl =
+        req.body.driver_license_photo_url
+          ?.toString()
+          .trim() ||
+        null;        
 
       // =================================================
       // VALIDACIONES
@@ -27015,9 +27027,7 @@ exports.receiveTroop =
         await client.query(
           `
             INSERT INTO slaughterhouse_reception_trucks (
-
               reception_id,
-
               transport_negotiation_id,
               transport_request_id,
               transport_guide_id,
@@ -27026,6 +27036,7 @@ exports.receiveTroop =
               transporter_id,
 
               plate_snapshot,
+              plate_photo_url,
 
               animal_type_snapshot,
               origin_snapshot,
@@ -27063,14 +27074,13 @@ exports.receiveTroop =
               truck_model_snapshot,
 
               driver_name_snapshot,
-              driver_ci_snapshot
+              driver_ci_snapshot,
 
+              driver_license_photo_url
             )
 
             VALUES (
-
               $1,
-
               $2,
               $3,
               $4,
@@ -27079,45 +27089,47 @@ exports.receiveTroop =
               $6,
 
               $7,
-
               $8,
+
               $9,
               $10,
-
               $11,
+
               $12,
-
               $13,
+
               $14,
-
               $15,
+
               $16,
-
               $17,
+
               $18,
-
               $19,
-              $20,
 
+              $20,
               $21,
 
               $22,
 
               $23,
 
-              NOW(),
               $24,
 
+              NOW(),
               $25,
 
               $26,
 
               $27,
+
               $28,
-
               $29,
-              $30
 
+              $30,
+              $31,
+
+              $32
             )
 
             RETURNING *
@@ -27133,6 +27145,7 @@ exports.receiveTroop =
             transport.transporter_id,
 
             transport.plate,
+            platePhotoUrl,
 
             transport.animal_type,
             transport.origin,
@@ -27187,12 +27200,12 @@ exports.receiveTroop =
             transport.official_guide_number,
 
             transport.brand,
-
             transport.model,
 
             transport.driver_name,
-
             transport.driver_ci,
+
+            driverLicensePhotoUrl,
           ],
         );
 
