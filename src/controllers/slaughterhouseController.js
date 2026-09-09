@@ -1,4 +1,6 @@
 const { pool } = require('../config/db');
+const cloudinary = require('../config/cloudinary');
+const streamifier = require('streamifier');
 
 
 // =====================================================
@@ -795,6 +797,207 @@ exports.getOpenSlaughterhouseReceptions =
       });
 
     }
+  };
+
+// =====================================================
+// 📷 SUBIR FOTO DE RECEPCIÓN / PORTERÍA
+// =====================================================
+//
+// negotiation_id
+// file
+//
+// Permitidos:
+// JPG / JPEG
+// PNG
+//
+// =====================================================
+
+exports.uploadSlaughterhouseReceptionPhoto =
+  async (req, res) => {
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+      if (!operator) {
+
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+
+      }
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+      const negotiationId =
+        Number(
+          req.body.negotiation_id,
+        );
+
+      if (
+        !Number.isInteger(
+          negotiationId,
+        ) ||
+        negotiationId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'negotiation_id inválido',
+        });
+
+      }
+
+      // ===============================================
+      // VALIDAR ARCHIVO
+      // ===============================================
+
+      if (!req.file) {
+
+        return res.status(400).json({
+          error:
+            'Debes seleccionar una foto',
+        });
+
+      }
+
+      const allowedMimeTypes =
+        [
+          'image/jpeg',
+          'image/png',
+        ];
+
+      if (
+        !allowedMimeTypes.includes(
+          req.file.mimetype,
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Formato no permitido. Usa JPG, JPEG o PNG.',
+        });
+
+      }
+
+      // Máximo 15 MB
+
+      if (
+        req.file.size >
+        15 * 1024 * 1024
+      ) {
+
+        return res.status(400).json({
+          error:
+            'La foto supera el máximo permitido de 15 MB.',
+        });
+
+      }
+
+      // ===============================================
+      // SUBIR A CLOUDINARY
+      // ===============================================
+
+      const uploadFromBuffer =
+        (buffer) => {
+
+          return new Promise(
+            (
+              resolve,
+              reject,
+            ) => {
+
+              const stream =
+                cloudinary.uploader
+                  .upload_stream(
+                    {
+                      folder:
+                        `slaughterhouse_reception/${companyId}/${negotiationId}`,
+                      resource_type:
+                        'image',
+                    },
+                    (
+                      error,
+                      result,
+                    ) => {
+
+                      if (result) {
+
+                        resolve(
+                          result,
+                        );
+
+                      } else {
+
+                        reject(
+                          error,
+                        );
+
+                      }
+
+                    },
+                  );
+
+              streamifier
+                .createReadStream(
+                  buffer,
+                )
+                .pipe(
+                  stream,
+                );
+
+            },
+          );
+
+        };
+
+      const uploadResult =
+        await uploadFromBuffer(
+          req.file.buffer,
+        );
+
+      return res.json({
+        success: true,
+
+        attachment: {
+          url:
+            uploadResult.secure_url,
+
+          file_name:
+            req.file.originalname,
+
+          mime_type:
+            req.file.mimetype,
+
+          file_size:
+            req.file.size,
+
+          resource_type:
+            uploadResult.resource_type,
+        },
+      });
+
+    } catch (error) {
+
+      console.error(
+        'UPLOAD SLAUGHTERHOUSE RECEPTION PHOTO ERROR:',
+        error,
+      );
+
+      return res.status(500).json({
+        error:
+          'Error subiendo foto de recepción',
+      });
+
+    }
+
   };
 
 exports.createSlaughterhouseReception =
