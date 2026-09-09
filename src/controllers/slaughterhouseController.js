@@ -865,6 +865,10 @@ exports.createSlaughterhouseReception =
           ?.toString()
           .trim() || null;
 
+      const platePhotoUrl =
+        req.body.plate_photo_url
+          ?.toString()
+          .trim() || null;          
 
       // =================================================
       // VALIDACIONES BÁSICAS
@@ -1387,7 +1391,8 @@ exports.createSlaughterhouseReception =
 
             received_by,
 
-            reception_notes
+            reception_notes,
+            plate_photo_url
 
           )
 
@@ -1407,7 +1412,7 @@ exports.createSlaughterhouseReception =
 
             NOW(),
 
-            $24,$25
+            $24,$25,$26
 
           )
 
@@ -1463,6 +1468,8 @@ exports.createSlaughterhouseReception =
             userId,
 
             receptionNotes,
+
+            platePhotoUrl,
           ],
         );
 
