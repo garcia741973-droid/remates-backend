@@ -419,6 +419,10 @@ exports.getSlaughterhouseReceptionCandidates =
 
             tg.guide_image_url,
 
+            tg.driver_name,
+
+            tg.driver_ci,
+
             COALESCE(
               tg.male_0_12,
               0
