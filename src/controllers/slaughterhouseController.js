@@ -1595,7 +1595,10 @@ exports.createSlaughterhouseReception =
             received_by,
 
             reception_notes,
-            plate_photo_url
+
+            plate_photo_url,
+
+            official_guide_number_snapshot
 
           )
 
@@ -1615,7 +1618,7 @@ exports.createSlaughterhouseReception =
 
             NOW(),
 
-            $24,$25,$26
+            $24,$25,$26,$27
 
           )
 
@@ -1673,6 +1676,8 @@ exports.createSlaughterhouseReception =
             receptionNotes,
 
             platePhotoUrl,
+
+            officialGuideNumber,
           ],
         );
 
