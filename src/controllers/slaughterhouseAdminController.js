@@ -26393,6 +26393,10 @@ exports.receiveTroop =
           .trim() ||
         null;
 
+      const officialGuideNumber =
+        req.body.official_guide_number
+          ?.toString()
+          .trim() || null;        
 
       const driverLicensePhotoUrl =
         req.body.driver_license_photo_url
@@ -26464,6 +26468,12 @@ exports.receiveTroop =
 
       }
 
+      if (!officialGuideNumber) {
+        return res.status(400).json({
+          error:
+            'El número de guía SENASAG es obligatorio',
+        });
+      }      
 
       await client.query(
         'BEGIN'
