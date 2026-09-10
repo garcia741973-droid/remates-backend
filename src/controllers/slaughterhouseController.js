@@ -1071,7 +1071,17 @@ exports.createSlaughterhouseReception =
       const platePhotoUrl =
         req.body.plate_photo_url
           ?.toString()
-          .trim() || null;          
+          .trim() || null;
+
+      const officialGuideNumber =
+        req.body.official_guide_number
+          ?.toString()
+          .trim() || null;
+
+      const officialGuidePhotoUrl =
+        req.body.official_guide_photo_url
+          ?.toString()
+          .trim() || null;        
 
       // =================================================
       // VALIDACIONES BÁSICAS
@@ -1135,6 +1145,24 @@ exports.createSlaughterhouseReception =
         return res.status(400).json({
           error:
             'Recepción inválida',
+        });
+      }
+
+
+      if (!officialGuideNumber) {
+
+        return res.status(400).json({
+          error:
+            'El número de guía SENASAG es obligatorio',
+        });
+      }
+
+
+      if (!officialGuidePhotoUrl) {
+
+        return res.status(400).json({
+          error:
+            'La foto de la guía SENASAG es obligatoria',
         });
       }
 
@@ -1598,7 +1626,9 @@ exports.createSlaughterhouseReception =
 
             plate_photo_url,
 
-            official_guide_number_snapshot
+            official_guide_number_snapshot,
+
+            official_guide_photo_url
 
           )
 
@@ -1618,7 +1648,7 @@ exports.createSlaughterhouseReception =
 
             NOW(),
 
-            $24,$25,$26,$27
+            $24,$25,$26,$27,$28
 
           )
 
@@ -1678,6 +1708,8 @@ exports.createSlaughterhouseReception =
             platePhotoUrl,
 
             officialGuideNumber,
+
+            officialGuidePhotoUrl,
           ],
         );
 
