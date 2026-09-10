@@ -4821,6 +4821,32 @@ const createDispatch = async (req, res) => {
         ]
       );
 
+      await pool.query(
+        `
+        INSERT INTO transport_negotiation_messages (
+          negotiation_id,
+          sender_id,
+          message,
+          photo_url,
+          signature_url
+        )
+        VALUES ($1, $2, $3, $4, $5)
+        `,
+        [
+          negotiation_id,
+          userId,
+          `🚛 Carga despachada correctamente.
+
+      📍 Punto de carga registrado.
+      ✍️ Firma registrada por: ${signed_by}
+      🕒 Hora: ${localTimeFormatted}
+
+      📦 Datos registrados para continuar con la generación de la guía SENASAG.`,
+          photo_url || null,
+          signature_url || null,
+        ]
+      );
+
     await pool.query(
       `
       UPDATE transport_negotiations
