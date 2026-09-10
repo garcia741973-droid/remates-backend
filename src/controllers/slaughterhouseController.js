@@ -1081,7 +1081,12 @@ exports.createSlaughterhouseReception =
       const officialGuidePhotoUrl =
         req.body.official_guide_photo_url
           ?.toString()
-          .trim() || null;        
+          .trim() || null;
+
+      const driverLicensePhotoUrl =
+        req.body.driver_license_photo_url
+          ?.toString()
+          .trim() || null;
 
       // =================================================
       // VALIDACIONES BÁSICAS
@@ -1163,6 +1168,15 @@ exports.createSlaughterhouseReception =
         return res.status(400).json({
           error:
             'La foto de la guía SENASAG es obligatoria',
+        });
+      }
+
+
+      if (!driverLicensePhotoUrl) {
+
+        return res.status(400).json({
+          error:
+            'La foto de la licencia de conducir es obligatoria',
         });
       }
 
@@ -1628,7 +1642,9 @@ exports.createSlaughterhouseReception =
 
             official_guide_number_snapshot,
 
-            official_guide_photo_url
+            official_guide_photo_url,
+
+            driver_license_photo_url
 
           )
 
@@ -1648,7 +1664,9 @@ exports.createSlaughterhouseReception =
 
             NOW(),
 
-            $24,$25,$26,$27,$28
+            NOW(),
+
+            $24,$25,$26,$27,$28,$29
 
           )
 
@@ -1710,6 +1728,8 @@ exports.createSlaughterhouseReception =
             officialGuideNumber,
 
             officialGuidePhotoUrl,
+
+            driverLicensePhotoUrl,
           ],
         );
 
