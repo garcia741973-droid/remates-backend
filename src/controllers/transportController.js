@@ -25,6 +25,7 @@ const {
 const {
   sendUserNotification,
   sendAdminNotification,
+  sendSlaughterhouseOperatorNotification,
 } = require('../services/notificationService');
 
 const registerTruck = async (req, res) => {
@@ -5176,6 +5177,87 @@ const finishTrip = async (req, res) => {
         negotiation_id,
       ]
     );
+
+    // =====================================================
+    // 🚛 ALERTA DE LLEGADA AL FRIGORÍFICO
+    // =====================================================
+
+    const slaughterhouseResult =
+      await pool.query(
+        `
+        SELECT
+          tr.requester_company_id,
+          tr.id AS request_id,
+          c.name AS company_name,
+          tt.id AS truck_id,
+          tt.plate,
+          transporter.name AS transporter_name,
+          transporter.full_name AS transporter_full_name
+
+        FROM transport_negotiations tn
+
+        JOIN transport_requests tr
+          ON tr.id = tn.request_id
+
+        JOIN companies c
+          ON c.id = tr.requester_company_id
+
+        JOIN transporter_trucks tt
+          ON tt.id = tn.truck_id
+
+        JOIN users transporter
+          ON transporter.id = tn.transporter_id
+
+        WHERE tn.id = $1
+          AND c.company_type = 'slaughterhouse'
+
+        LIMIT 1
+        `,
+        [
+          negotiation_id,
+        ],
+      );
+
+    if (
+      slaughterhouseResult.rows.length > 0
+    ) {
+
+      const arrival =
+        slaughterhouseResult.rows[0];
+
+      const transporterName =
+        arrival.transporter_full_name ||
+        arrival.transporter_name ||
+        'Transportista';
+
+      await sendSlaughterhouseOperatorNotification({
+        companyId:
+          Number(
+            arrival.requester_company_id,
+          ),
+
+        title:
+          '🚛 Camión llegó al frigorífico',
+
+        body:
+          `${arrival.plate || 'Camión sin placa'} · ${transporterName}`,
+
+        data: {
+          type:
+            'slaughterhouse_truck_arrival',
+
+          negotiation_id:
+            negotiation_id,
+
+          request_id:
+            arrival.request_id,
+
+          truck_id:
+            arrival.truck_id,
+        },
+      });
+
+    }
 
     res.json({
       success: true,

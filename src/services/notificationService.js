@@ -397,3 +397,61 @@ exports.sendCompanyAdminNotification = async ({
         );
     }
 };
+
+/// ======================================================
+/// 🚛 NOTIFICAR OPERADORES DE FRIGORÍFICO
+/// ======================================================
+
+exports.sendSlaughterhouseOperatorNotification = async ({
+    companyId,
+    title,
+    body,
+    data = {},
+}) => {
+
+    try {
+
+        const operators =
+            await pool.query(
+                `
+                SELECT DISTINCT u.id
+                FROM user_companies uc
+                JOIN users u
+                  ON u.id = uc.user_id
+                WHERE uc.company_id = $1
+                  AND uc.role = 'slaughterhouse_operator'
+                  AND uc.company_status = 'approved'
+                `,
+                [companyId],
+            );
+
+        const operatorIds =
+            operators.rows.map(
+                (r) => r.id,
+            );
+
+        console.log(
+            '🏭 SLAUGHTERHOUSE OPERATORS:',
+            operatorIds,
+        );
+
+        if (!operatorIds.length) {
+            return;
+        }
+
+        await exports.sendPushNotification({
+            userIds: operatorIds,
+            title,
+            body,
+            data,
+        });
+
+    } catch (err) {
+
+        console.log(
+            '❌ SLAUGHTERHOUSE OPERATOR NOTIFICATION ERROR',
+            err,
+        );
+
+    }
+};
