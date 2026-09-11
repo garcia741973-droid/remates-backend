@@ -194,6 +194,9 @@ const slaughterhouseAdminRoutes =
 const supportRoutes =
     require('./routes/supportRoutes');
 
+const metaWhatsAppRoutes =
+  require('./routes/metaWhatsAppRoutes');
+
 const auctionLiveAdsRoutes =
   require(
     './routes/auctionLiveAdsRoutes'
@@ -293,6 +296,11 @@ app.use(
 app.use(
   '/support',
   supportRoutes,
+);
+
+app.use(
+  '/meta-whatsapp',
+  metaWhatsAppRoutes,
 );
 
 const paymentConfigRoutes =
