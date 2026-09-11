@@ -5236,6 +5236,9 @@ const finishTrip = async (req, res) => {
             arrival.requester_company_id,
           ),
 
+        permissionCode:
+            'notifications.truck_arrival',
+
         title:
           '🚛 Camión llegó al frigorífico',
 
@@ -5255,6 +5258,10 @@ const finishTrip = async (req, res) => {
           truck_id:
             arrival.truck_id,
         },
+
+        eventKey:
+            `slaughterhouse_truck_arrival:${negotiation_id}`,
+
       });
 
     }

@@ -399,48 +399,172 @@ exports.sendCompanyAdminNotification = async ({
 };
 
 /// ======================================================
-/// 🚛 NOTIFICAR OPERADORES DE FRIGORÍFICO
+/// 🏭 NOTIFICAR USUARIOS DE FRIGORÍFICO POR PERMISO
+/// GUARDA EN BANDEJA + ENVÍA FCM
 /// ======================================================
 
 exports.sendSlaughterhouseOperatorNotification = async ({
     companyId,
+    permissionCode,
     title,
     body,
     data = {},
+    eventKey = null,
 }) => {
 
     try {
 
-        const operators =
+        if (!permissionCode) {
+
+            console.log(
+                '⚠️ SLAUGHTERHOUSE NOTIFICATION WITHOUT PERMISSION CODE',
+            );
+
+            return;
+
+        }
+
+        // =====================================================
+        // 👤 BUSCAR USUARIOS AUTORIZADOS
+        // =====================================================
+
+        const recipients =
             await pool.query(
                 `
                 SELECT DISTINCT u.id
-                FROM user_companies uc
+                FROM slaughterhouse_user_roles sur
+
+                JOIN slaughterhouse_roles sr
+                  ON sr.id = sur.role_id
+                 AND sr.company_id = sur.company_id
+                 AND sr.is_active = TRUE
+
+                JOIN slaughterhouse_role_permissions srp
+                  ON srp.role_id = sr.id
+
+                JOIN slaughterhouse_permissions sp
+                  ON sp.id = srp.permission_id
+
                 JOIN users u
-                  ON u.id = uc.user_id
-                WHERE uc.company_id = $1
-                  AND uc.role = 'slaughterhouse_operator'
-                  AND uc.company_status = 'approved'
+                  ON u.id = sur.user_id
+
+                JOIN user_companies uc
+                  ON uc.user_id = u.id
+                 AND uc.company_id = sur.company_id
+                 AND uc.company_status = 'approved'
+
+                WHERE sur.company_id = $1
+                  AND sp.code = $2
                 `,
-                [companyId],
+                [
+                    companyId,
+                    permissionCode,
+                ],
             );
 
-        const operatorIds =
-            operators.rows.map(
-                (r) => r.id,
+        const recipientIds =
+            recipients.rows.map(
+                (row) => Number(row.id),
             );
 
         console.log(
-            '🏭 SLAUGHTERHOUSE OPERATORS:',
-            operatorIds,
+            '🏭 SLAUGHTERHOUSE NOTIFICATION RECIPIENTS:',
+            recipientIds,
         );
 
-        if (!operatorIds.length) {
+        console.log(
+            '🔐 PERMISSION:',
+            permissionCode,
+        );
+
+        if (!recipientIds.length) {
+
+            console.log(
+                '⚠️ NO SLAUGHTERHOUSE RECIPIENTS FOR PERMISSION',
+                permissionCode,
+            );
+
             return;
+
         }
 
+        // =====================================================
+        // 🔔 GUARDAR NOTIFICACIÓN PERSISTENTE
+        // =====================================================
+
+        const notificationType =
+            data.type ||
+            'slaughterhouse_notification';
+
+        const insertResult =
+            await pool.query(
+                `
+                INSERT INTO user_notifications (
+                    user_id,
+                    company_id,
+                    type,
+                    title,
+                    body,
+                    data,
+                    event_key
+                )
+                SELECT
+                    recipient_id,
+                    $2,
+                    $3,
+                    $4,
+                    $5,
+                    $6::jsonb,
+                    $7
+                FROM unnest($1::int[]) AS recipient_id
+
+                ON CONFLICT (user_id, event_key)
+                WHERE event_key IS NOT NULL
+                DO NOTHING
+
+                RETURNING user_id
+                `,
+                [
+                    recipientIds,
+                    companyId,
+                    notificationType,
+                    title,
+                    body,
+                    JSON.stringify(data),
+                    eventKey,
+                ],
+            );
+
+        const insertedUserIds =
+            insertResult.rows.map(
+                (row) => Number(row.user_id),
+            );
+
+        console.log(
+            '🔔 USER NOTIFICATIONS CREATED:',
+            insertedUserIds,
+        );
+
+        // =====================================================
+        // ♻️ EVITAR PUSH DUPLICADO
+        // =====================================================
+
+        if (!insertedUserIds.length) {
+
+            console.log(
+                'ℹ️ NOTIFICACIÓN YA REGISTRADA · NO SE REPITE PUSH',
+            );
+
+            return;
+
+        }
+
+        // =====================================================
+        // 📲 PUSH FCM
+        // =====================================================
+
         await exports.sendPushNotification({
-            userIds: operatorIds,
+            userIds: insertedUserIds,
             title,
             body,
             data,
@@ -449,9 +573,10 @@ exports.sendSlaughterhouseOperatorNotification = async ({
     } catch (err) {
 
         console.log(
-            '❌ SLAUGHTERHOUSE OPERATOR NOTIFICATION ERROR',
+            '❌ SLAUGHTERHOUSE NOTIFICATION ERROR',
             err,
         );
 
     }
+
 };
