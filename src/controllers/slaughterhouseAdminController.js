@@ -33160,4 +33160,81 @@ exports.exportPreliquidationCsv =
 
     }
 
-  };  
+  };
+
+// =====================================================
+// 🔔 DESTINATARIOS DE NOTIFICACIONES DEL FRIGORÍFICO
+//
+// GET /slaughterhouse/admin/notification-recipients
+// =====================================================
+
+exports.getNotificationRecipients =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+            id,
+            recipient_name,
+            phone,
+            delivery_channel,
+            notify_truck_arrival,
+            notify_slaughter_started,
+            notify_slaughter_finished,
+            is_active,
+            created_by,
+            created_at,
+            updated_at
+
+          FROM slaughterhouse_notification_recipients
+
+          WHERE company_id = $1
+
+          ORDER BY
+            is_active DESC,
+            recipient_name ASC,
+            id ASC
+          `,
+          [
+            companyId,
+          ],
+        );
+
+
+      return res.json({
+
+        success: true,
+
+        recipients:
+          result.rows,
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'GET SLAUGHTERHOUSE NOTIFICATION RECIPIENTS ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+
+        error:
+          'Error obteniendo destinatarios de notificaciones',
+
+      });
+
+    }
+
+  };

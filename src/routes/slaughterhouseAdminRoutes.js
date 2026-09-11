@@ -190,6 +190,8 @@ const {
 
   closeAdminReception,
 
+  getNotificationRecipients,
+
 } = require(
 
   '../controllers/slaughterhouseAdminController'
@@ -1697,6 +1699,29 @@ router.post(
   closeAdminReception,
 
 );
+
+// =====================================================
+// 🔔 DESTINATARIOS DE NOTIFICACIONES
+// =====================================================
+
+router.get(
+
+  '/notification-recipients',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'reception.view'
+
+  ),
+
+  getNotificationRecipients,
+
+);
+
 
 module.exports =
   router;
