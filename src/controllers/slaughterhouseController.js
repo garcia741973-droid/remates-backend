@@ -2,6 +2,9 @@ const { pool } = require('../config/db');
 const cloudinary = require('../config/cloudinary');
 const streamifier = require('streamifier');
 
+const {
+  sendSlaughterhouseOperatorNotification,
+} = require('../services/notificationService');
 
 // =====================================================
 // 🔐 VALIDAR OPERADOR DE FRIGORÍFICO
@@ -1762,6 +1765,36 @@ exports.createSlaughterhouseReception =
         'COMMIT',
       );
 
+      await sendSlaughterhouseOperatorNotification({
+        companyId,
+
+        permissionCode:
+          'notifications.reception_completed',
+
+        title:
+          '✅ Recepción de camión completada',
+
+        body:
+          `${transport.plate || 'Camión sin placa'} · ${receivedQuantity} animales`,
+
+        data: {
+          type:
+            'slaughterhouse_reception_completed',
+          reception_id:
+            reception.id,
+          negotiation_id:
+            negotiationId,
+          request_id:
+            transport.request_id,
+          truck_id:
+            transport.truck_id,
+          received_quantity:
+            receivedQuantity,
+        },
+
+        eventKey:
+          `slaughterhouse_reception_completed:${negotiationId}`,
+      });
 
       return res.status(201).json({
 
@@ -2418,6 +2451,56 @@ exports.startSlaughterhouseSlaughter =
         'COMMIT',
       );
 
+      const slaughterStartLabel =
+        troopId === null
+          ? `Recepción ${reception.reception_number || receptionId}`
+          : `Tropa ${selectedTroop?.troop_number || troopId}`;
+
+
+      const slaughterStartQuantity =
+        troopId === null
+          ? Number(
+              summary.received_quantity_total ||
+                0,
+            )
+          : Number(
+              selectedTroop?.received_quantity ||
+                0,
+            );
+
+
+      await sendSlaughterhouseOperatorNotification({
+        companyId,
+
+        permissionCode:
+          'notifications.slaughter_started',
+
+        title:
+          '🔥 Faena iniciada',
+
+        body:
+          `${slaughterStartLabel} · ${slaughterStartQuantity} animales`,
+
+        data: {
+          type:
+            'slaughterhouse_slaughter_started',
+          reception_id:
+            receptionId,
+          troop_id:
+            troopId,
+          received_quantity:
+            slaughterStartQuantity,
+          slaughter_scope:
+            troopId === null
+              ? 'full_reception'
+              : 'troop',
+        },
+
+        eventKey:
+          troopId === null
+            ? `slaughterhouse_slaughter_started:${receptionId}:full`
+            : `slaughterhouse_slaughter_started:${receptionId}:troop:${troopId}`,
+      });
 
       return res.json({
 
@@ -5907,6 +5990,50 @@ exports.finishSlaughterhouseSlaughter =
         'COMMIT',
       );
 
+      const slaughterFinishLabel =
+        troopId === null
+          ? `Recepción ${reception.reception_number || receptionId}`
+          : `Tropa ${troop?.troop_number || troopId}`;
+
+
+      await sendSlaughterhouseOperatorNotification({
+        companyId,
+
+        permissionCode:
+          'notifications.slaughter_finished',
+
+        title:
+          '🏁 Faena finalizada',
+
+        body:
+          `${slaughterFinishLabel} · ${carcassesCount} animales · ${hookWeight.toFixed(2)} kg carcasa`,
+
+        data: {
+          type:
+            'slaughterhouse_slaughter_finished',
+          reception_id:
+            receptionId,
+          troop_id:
+            troopId,
+          received_quantity:
+            receivedQuantity,
+          carcasses_count:
+            carcassesCount,
+          hook_weight_total_kg:
+            hookWeight,
+          reception_completed:
+            receptionCompleted,
+          slaughter_scope:
+            troopId === null
+              ? 'full_reception'
+              : 'troop',
+        },
+
+        eventKey:
+          troopId === null
+            ? `slaughterhouse_slaughter_finished:${receptionId}:full`
+            : `slaughterhouse_slaughter_finished:${receptionId}:troop:${troopId}`,
+      });
 
       return res.json({
 
