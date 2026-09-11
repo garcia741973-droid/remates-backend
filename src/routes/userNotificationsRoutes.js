@@ -39,7 +39,7 @@ router.get(
 // ✅ MARCAR TODAS
 // =====================================================
 
-router.patch(
+router.put(
   '/read-all',
   requireAuth,
   markAllNotificationsRead,
@@ -49,7 +49,7 @@ router.patch(
 // ✅ MARCAR UNA
 // =====================================================
 
-router.patch(
+router.put(
   '/:id/read',
   requireAuth,
   markNotificationRead,
