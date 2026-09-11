@@ -33238,3 +33238,513 @@ exports.getNotificationRecipients =
     }
 
   };
+
+// =====================================================
+// 🔔 CREAR DESTINATARIO DE NOTIFICACIONES
+//
+// POST /slaughterhouse/admin/notification-recipients
+// =====================================================
+
+exports.createNotificationRecipient =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+
+      const recipientName =
+        req.body.recipient_name
+          ?.toString()
+          .trim() ||
+        '';
+
+      const phone =
+        req.body.phone
+          ?.toString()
+          .trim() ||
+        '';
+
+      const deliveryChannel =
+        req.body.delivery_channel
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        'whatsapp';
+
+
+      const notifyTruckArrival =
+        req.body.notify_truck_arrival !==
+          false;
+
+      const notifySlaughterStarted =
+        req.body.notify_slaughter_started ===
+          true;
+
+      const notifySlaughterFinished =
+        req.body.notify_slaughter_finished ===
+          true;
+
+
+      // =================================================
+      // VALIDACIONES
+      // =================================================
+
+      if (!recipientName) {
+
+        return res.status(400).json({
+
+          error:
+            'El nombre del destinatario es obligatorio',
+
+        });
+
+      }
+
+
+      if (!phone) {
+
+        return res.status(400).json({
+
+          error:
+            'El número de teléfono es obligatorio',
+
+        });
+
+      }
+
+
+      if (
+        ![
+          'whatsapp',
+          'sms',
+        ].includes(
+          deliveryChannel
+        )
+      ) {
+
+        return res.status(400).json({
+
+          error:
+            'Canal de entrega inválido',
+
+        });
+
+      }
+
+
+      // =================================================
+      // CREAR
+      // =================================================
+
+      const result =
+        await pool.query(
+          `
+          INSERT INTO slaughterhouse_notification_recipients (
+
+            company_id,
+
+            recipient_name,
+
+            phone,
+
+            delivery_channel,
+
+            notify_truck_arrival,
+
+            notify_slaughter_started,
+
+            notify_slaughter_finished,
+
+            is_active,
+
+            created_by,
+
+            created_at,
+
+            updated_at
+
+          )
+
+          VALUES (
+
+            $1,$2,$3,$4,
+
+            $5,$6,$7,
+
+            true,
+
+            $8,
+
+            NOW(),
+
+            NOW()
+
+          )
+
+          RETURNING *
+          `,
+          [
+
+            companyId,
+
+            recipientName,
+
+            phone,
+
+            deliveryChannel,
+
+            notifyTruckArrival,
+
+            notifySlaughterStarted,
+
+            notifySlaughterFinished,
+
+            userId,
+
+          ],
+        );
+
+
+      return res.status(201).json({
+
+        success: true,
+
+        message:
+          'Destinatario creado correctamente',
+
+        recipient:
+          result.rows[0],
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'CREATE SLAUGHTERHOUSE NOTIFICATION RECIPIENT ERROR:',
+        error
+      );
+
+
+      if (
+        error.code ===
+        '23505'
+      ) {
+
+        return res.status(409).json({
+
+          error:
+            'Este número ya está registrado para ese canal',
+
+        });
+
+      }
+
+
+      return res.status(500).json({
+
+        error:
+          'Error creando destinatario de notificaciones',
+
+      });
+
+    }
+
+  };
+
+// =====================================================
+// 🔔 ACTUALIZAR DESTINATARIO DE NOTIFICACIONES
+//
+// PUT /slaughterhouse/admin/notification-recipients/:id
+// =====================================================
+
+exports.updateNotificationRecipient =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+      const recipientId =
+        Number(
+          req.params.id
+        );
+
+
+      // =================================================
+      // VALIDAR ID
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          recipientId
+        ) ||
+        recipientId <= 0
+      ) {
+
+        return res.status(400).json({
+
+          error:
+            'Destinatario inválido',
+
+        });
+
+      }
+
+
+      // =================================================
+      // OBTENER REGISTRO ACTUAL
+      // =================================================
+
+      const existingResult =
+        await pool.query(
+          `
+          SELECT *
+          FROM slaughterhouse_notification_recipients
+          WHERE id = $1
+            AND company_id = $2
+          LIMIT 1
+          `,
+          [
+            recipientId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        existingResult.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+
+          error:
+            'Destinatario no encontrado',
+
+        });
+
+      }
+
+
+      const existing =
+        existingResult.rows[0];
+
+
+      // =================================================
+      // VALORES
+      // =================================================
+
+      const recipientName =
+        req.body.recipient_name ===
+          undefined
+          ? existing.recipient_name
+          : req.body.recipient_name
+              ?.toString()
+              .trim() ||
+            '';
+
+      const phone =
+        req.body.phone ===
+          undefined
+          ? existing.phone
+          : req.body.phone
+              ?.toString()
+              .trim() ||
+            '';
+
+      const deliveryChannel =
+        req.body.delivery_channel ===
+          undefined
+          ? existing.delivery_channel
+          : req.body.delivery_channel
+              ?.toString()
+              .trim()
+              .toLowerCase() ||
+            '';
+
+
+      const notifyTruckArrival =
+        req.body.notify_truck_arrival ===
+          undefined
+          ? existing.notify_truck_arrival
+          : req.body.notify_truck_arrival ===
+              true;
+
+
+      const notifySlaughterStarted =
+        req.body.notify_slaughter_started ===
+          undefined
+          ? existing.notify_slaughter_started
+          : req.body.notify_slaughter_started ===
+              true;
+
+
+      const notifySlaughterFinished =
+        req.body.notify_slaughter_finished ===
+          undefined
+          ? existing.notify_slaughter_finished
+          : req.body.notify_slaughter_finished ===
+              true;
+
+
+      const isActive =
+        req.body.is_active ===
+          undefined
+          ? existing.is_active
+          : req.body.is_active ===
+              true;
+
+
+      // =================================================
+      // VALIDACIONES
+      // =================================================
+
+      if (!recipientName) {
+
+        return res.status(400).json({
+
+          error:
+            'El nombre del destinatario es obligatorio',
+
+        });
+
+      }
+
+
+      if (!phone) {
+
+        return res.status(400).json({
+
+          error:
+            'El número de teléfono es obligatorio',
+
+        });
+
+      }
+
+
+      if (
+        ![
+          'whatsapp',
+          'sms',
+        ].includes(
+          deliveryChannel
+        )
+      ) {
+
+        return res.status(400).json({
+
+          error:
+            'Canal de entrega inválido',
+
+        });
+
+      }
+
+
+      // =================================================
+      // ACTUALIZAR
+      // =================================================
+
+      const result =
+        await pool.query(
+          `
+          UPDATE slaughterhouse_notification_recipients
+
+          SET
+            recipient_name = $1,
+            phone = $2,
+            delivery_channel = $3,
+            notify_truck_arrival = $4,
+            notify_slaughter_started = $5,
+            notify_slaughter_finished = $6,
+            is_active = $7,
+            updated_at = NOW()
+
+          WHERE id = $8
+            AND company_id = $9
+
+          RETURNING *
+          `,
+          [
+
+            recipientName,
+
+            phone,
+
+            deliveryChannel,
+
+            notifyTruckArrival,
+
+            notifySlaughterStarted,
+
+            notifySlaughterFinished,
+
+            isActive,
+
+            recipientId,
+
+            companyId,
+
+          ],
+        );
+
+
+      return res.json({
+
+        success: true,
+
+        message:
+          'Destinatario actualizado correctamente',
+
+        recipient:
+          result.rows[0],
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'UPDATE SLAUGHTERHOUSE NOTIFICATION RECIPIENT ERROR:',
+        error
+      );
+
+
+      if (
+        error.code ===
+        '23505'
+      ) {
+
+        return res.status(409).json({
+
+          error:
+            'Este número ya está registrado para ese canal',
+
+        });
+
+      }
+
+
+      return res.status(500).json({
+
+        error:
+          'Error actualizando destinatario de notificaciones',
+
+      });
+
+    }
+
+  };

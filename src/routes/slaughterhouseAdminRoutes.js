@@ -192,6 +192,10 @@ const {
 
   getNotificationRecipients,
 
+  createNotificationRecipient,
+
+  updateNotificationRecipient,
+
 } = require(
 
   '../controllers/slaughterhouseAdminController'
@@ -1722,6 +1726,41 @@ router.get(
 
 );
 
+router.post(
+
+  '/notification-recipients',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'reception.manage'
+
+  ),
+
+  createNotificationRecipient,
+
+);
+
+router.put(
+
+  '/notification-recipients/:id',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'reception.manage'
+
+  ),
+
+  updateNotificationRecipient,
+
+);
 
 module.exports =
   router;
