@@ -191,6 +191,9 @@ const slaughterhouseRoutes =
 const slaughterhouseAdminRoutes =
   require('./routes/slaughterhouseAdminRoutes');
 
+const userNotificationsRoutes =
+  require('./routes/userNotificationsRoutes');
+
 const supportRoutes =
     require('./routes/supportRoutes');
 
@@ -288,6 +291,11 @@ app.use(
 app.use(
   '/slaughterhouse/admin',
   slaughterhouseAdminRoutes,
+);
+
+app.use(
+  '/user-notifications',
+  userNotificationsRoutes,
 );
 
 app.use(
