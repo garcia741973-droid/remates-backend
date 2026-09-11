@@ -242,14 +242,13 @@ exports.getSlaughterhouseTrucks =
 
             tr.requester_company_id = $1
 
-AND tn.status IN (
-  'paid',
-  'loading_completed',
-  'trip_active',
-  'in_trip',
-  'delivery_pending',
-  'delivered'
-)
+          AND tn.status IN (
+            'paid',
+            'loading_completed',
+            'trip_active',
+            'in_trip',
+            'delivery_pending'
+          )
 
           ORDER BY
 
