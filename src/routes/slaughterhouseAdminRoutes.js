@@ -24,6 +24,11 @@ const {
 
   getAdminSession,
 
+  getAdminUsers,
+  createAdminUser,
+  updateAdminUserStatus,
+  updateAdminUserRoles,
+
   getAdminDashboard,
 
   getPeople,
@@ -214,6 +219,50 @@ router.get(
   getAdminSession,
 );
 
+
+// =====================================================
+// 👥 USUARIOS INTERNOS
+// =====================================================
+
+router.get(
+  '/users',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission(
+    'users.manage'
+  ),
+  getAdminUsers,
+);
+
+router.post(
+  '/users',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission(
+    'users.manage'
+  ),
+  createAdminUser,
+);
+
+router.put(
+  '/users/:userId/status',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission(
+    'users.manage'
+  ),
+  updateAdminUserStatus,
+);
+
+router.put(
+  '/users/:userId/roles',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission(
+    'users.manage'
+  ),
+  updateAdminUserRoles,
+);
 
 // =====================================================
 // 📊 DASHBOARD

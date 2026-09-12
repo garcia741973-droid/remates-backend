@@ -1,5 +1,15 @@
 const { pool } = require('../config/db');
 
+const bcrypt = require('bcrypt');
+
+const INTERNAL_USER_ROLES = [
+  'admin',
+  'operations',
+  'gate',
+  'slaughter',
+  'finance',
+  'reports',
+];
 
 // =====================================================
 // 👤 SESIÓN ADMIN FRIGORÍFICOS
@@ -74,6 +84,1071 @@ exports.getAdminSession =
 
   };
 
+
+// =====================================================
+// 👥 USUARIOS INTERNOS DEL FRIGORÍFICO
+// =====================================================
+
+
+// =====================================================
+// 📋 LISTAR USUARIOS
+//
+// GET /slaughterhouse/admin/users
+// =====================================================
+
+exports.getAdminUsers =
+  async (req, res) => {
+    try {
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+            u.id
+              AS user_id,
+            u.name,
+            u.full_name,
+            u.email,
+            u.phone,
+
+            uc.id
+              AS user_company_id,
+            uc.company_status,
+            uc.approved_at,
+
+            CASE
+              WHEN
+                u.is_active = true
+                AND u.deleted_at IS NULL
+                AND uc.company_status = 'approved'
+              THEN true
+              ELSE false
+            END
+              AS is_active,
+
+            COALESCE(
+              ARRAY_AGG(
+                DISTINCT sr.code
+              ) FILTER (
+                WHERE
+                  sr.code IS NOT NULL
+              ),
+              ARRAY[]::VARCHAR[]
+            )
+              AS roles
+
+          FROM users u
+
+          JOIN LATERAL (
+            SELECT
+              uc2.*
+            FROM user_companies uc2
+            WHERE
+              uc2.user_id = u.id
+              AND uc2.company_id = $1
+              AND uc2.role =
+                'slaughterhouse_operator'
+            ORDER BY
+              uc2.id DESC
+            LIMIT 1
+          ) uc
+            ON true
+
+          LEFT JOIN slaughterhouse_user_roles sur
+            ON sur.user_id = u.id
+            AND sur.company_id = $1
+
+          LEFT JOIN slaughterhouse_roles sr
+            ON sr.id = sur.role_id
+            AND sr.company_id = $1
+            AND sr.is_active = true
+
+          GROUP BY
+            u.id,
+            u.name,
+            u.full_name,
+            u.email,
+            u.phone,
+            u.is_active,
+            u.deleted_at,
+            uc.id,
+            uc.company_status,
+            uc.approved_at
+
+          ORDER BY
+            COALESCE(
+              u.full_name,
+              u.name,
+              u.email
+            ) ASC
+          `,
+          [
+            companyId,
+          ],
+        );
+
+      return res.json({
+        success: true,
+        users:
+          result.rows,
+      });
+
+    } catch (error) {
+      console.error(
+        'GET SLAUGHTERHOUSE ADMIN USERS ERROR:',
+        error,
+      );
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo usuarios del frigorífico',
+      });
+    }
+  };
+
+
+// =====================================================
+// ➕ CREAR / VINCULAR USUARIO
+//
+// POST /slaughterhouse/admin/users
+//
+// Si el email existe:
+// - reutiliza users.id
+// - NO cambia contraseña
+// - NO cambia datos globales
+//
+// Si no existe:
+// - crea cuenta PG
+// =====================================================
+
+exports.createAdminUser =
+  async (req, res) => {
+    const client =
+      await pool.connect();
+
+    try {
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+      const adminUserId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+      const fullName =
+        req.body.full_name
+          ?.toString()
+          .trim() || '';
+
+      const email =
+        req.body.email
+          ?.toString()
+          .trim()
+          .toLowerCase() || '';
+
+      const phone =
+        req.body.phone
+          ?.toString()
+          .trim() || null;
+
+      const password =
+        req.body.password
+          ?.toString() || '';
+
+      const roles =
+        Array.isArray(req.body.roles)
+          ? [
+              ...new Set(
+                req.body.roles
+                  .map(
+                    (value) =>
+                      value
+                        ?.toString()
+                        .trim()
+                        .toLowerCase()
+                  )
+                  .filter(Boolean)
+              ),
+            ]
+          : [];
+
+      if (!fullName) {
+        return res.status(400).json({
+          error:
+            'El nombre es obligatorio',
+        });
+      }
+
+      if (!email) {
+        return res.status(400).json({
+          error:
+            'El email es obligatorio',
+        });
+      }
+
+      if (roles.length === 0) {
+        return res.status(400).json({
+          error:
+            'Debe asignar al menos un rol',
+        });
+      }
+
+      const invalidRole =
+        roles.find(
+          (role) =>
+            !INTERNAL_USER_ROLES.includes(
+              role
+            )
+        );
+
+      if (invalidRole) {
+        return res.status(400).json({
+          error:
+            `Rol inválido: ${invalidRole}`,
+        });
+      }
+
+      await client.query(
+        'BEGIN'
+      );
+
+      // -----------------------------------------------
+      // VALIDAR ROLES DE ESTA EMPRESA
+      // -----------------------------------------------
+
+      const roleResult =
+        await client.query(
+          `
+          SELECT
+            id,
+            code,
+            name
+          FROM slaughterhouse_roles
+          WHERE
+            company_id = $1
+            AND code = ANY(
+              $2::VARCHAR[]
+            )
+            AND is_active = true
+          `,
+          [
+            companyId,
+            roles,
+          ],
+        );
+
+      if (
+        roleResult.rows.length !==
+        roles.length
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(400).json({
+          error:
+            'Uno o más roles no están disponibles para este frigorífico',
+        });
+      }
+
+      // -----------------------------------------------
+      // BUSCAR EMAIL EXISTENTE
+      // -----------------------------------------------
+
+      const existingUserResult =
+        await client.query(
+          `
+          SELECT
+            id,
+            name,
+            full_name,
+            email,
+            phone,
+            role,
+            is_active,
+            deleted_at
+          FROM users
+          WHERE
+            LOWER(TRIM(email)) = $1
+          LIMIT 1
+          FOR UPDATE
+          `,
+          [
+            email,
+          ],
+        );
+
+      let user;
+      let reusedExistingUser = false;
+
+      if (
+        existingUserResult.rows.length >
+        0
+      ) {
+        user =
+          existingUserResult.rows[0];
+
+        if (
+          user.is_active !== true ||
+          user.deleted_at != null
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'La cuenta asociada a este email no está disponible',
+          });
+        }
+
+        reusedExistingUser = true;
+
+      } else {
+        if (
+          !password ||
+          password.length < 6
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(400).json({
+            error:
+              'Para un usuario nuevo la contraseña debe tener al menos 6 caracteres',
+          });
+        }
+
+        const hashed =
+          await bcrypt.hash(
+            password,
+            10,
+          );
+
+        const userResult =
+          await client.query(
+            `
+            INSERT INTO users (
+              name,
+              full_name,
+              email,
+              phone,
+              password,
+              role,
+              kyc_status,
+              kyc_level,
+              is_active
+            )
+            VALUES (
+              $1,
+              $1,
+              $2,
+              $3,
+              $4,
+              'client',
+              'approved',
+              2,
+              true
+            )
+            RETURNING
+              id,
+              name,
+              full_name,
+              email,
+              phone,
+              role,
+              is_active
+            `,
+            [
+              fullName,
+              email,
+              phone,
+              hashed,
+            ],
+          );
+
+        user =
+          userResult.rows[0];
+      }
+
+      const userId =
+        Number(user.id);
+
+      // Evita dos altas simultáneas del mismo
+      // usuario para la misma empresa.
+      await client.query(
+        `
+        SELECT
+          pg_advisory_xact_lock(
+            $1,
+            $2
+          )
+        `,
+        [
+          companyId,
+          userId,
+        ],
+      );
+
+      // -----------------------------------------------
+      // MEMBRESÍA FRIGORÍFICO
+      // -----------------------------------------------
+
+      const membershipResult =
+        await client.query(
+          `
+          SELECT
+            id
+          FROM user_companies
+          WHERE
+            user_id = $1
+            AND company_id = $2
+          ORDER BY
+            id ASC
+          LIMIT 1
+          FOR UPDATE
+          `,
+          [
+            userId,
+            companyId,
+          ],
+        );
+
+      let membership;
+
+      if (
+        membershipResult.rows.length >
+        0
+      ) {
+        const updatedMembership =
+          await client.query(
+            `
+            UPDATE user_companies
+            SET
+              role =
+                'slaughterhouse_operator',
+              company_status =
+                'approved',
+              approved_at =
+                NOW(),
+              approved_by =
+                $1,
+              rejection_reason =
+                NULL
+            WHERE
+              id = $2
+            RETURNING *
+            `,
+            [
+              adminUserId,
+              membershipResult.rows[0].id,
+            ],
+          );
+
+        membership =
+          updatedMembership.rows[0];
+
+      } else {
+        const insertedMembership =
+          await client.query(
+            `
+            INSERT INTO user_companies (
+              user_id,
+              company_id,
+              role,
+              company_status,
+              approved_at,
+              approved_by
+            )
+            VALUES (
+              $1,
+              $2,
+              'slaughterhouse_operator',
+              'approved',
+              NOW(),
+              $3
+            )
+            RETURNING *
+            `,
+            [
+              userId,
+              companyId,
+              adminUserId,
+            ],
+          );
+
+        membership =
+          insertedMembership.rows[0];
+      }
+
+      // -----------------------------------------------
+      // ROLES INTERNOS
+      // -----------------------------------------------
+
+      await client.query(
+        `
+        DELETE FROM
+          slaughterhouse_user_roles
+        WHERE
+          company_id = $1
+          AND user_id = $2
+        `,
+        [
+          companyId,
+          userId,
+        ],
+      );
+
+      await client.query(
+        `
+        INSERT INTO
+          slaughterhouse_user_roles (
+            company_id,
+            user_id,
+            role_id,
+            assigned_by
+          )
+        SELECT
+          $1,
+          $2,
+          sr.id,
+          $3
+        FROM slaughterhouse_roles sr
+        WHERE
+          sr.company_id = $1
+          AND sr.code = ANY(
+            $4::VARCHAR[]
+          )
+          AND sr.is_active = true
+        `,
+        [
+          companyId,
+          userId,
+          adminUserId,
+          roles,
+        ],
+      );
+
+      // -----------------------------------------------
+      // AUDITORÍA
+      // -----------------------------------------------
+
+      await client.query(
+        `
+        INSERT INTO
+          slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+        VALUES (
+          $1,
+          $2,
+          'user',
+          $3,
+          'create_or_link_internal_user',
+          NULL,
+          $4::jsonb
+        )
+        `,
+        [
+          companyId,
+          adminUserId,
+          String(userId),
+          JSON.stringify({
+            roles,
+            reused_existing_user:
+              reusedExistingUser,
+          }),
+        ],
+      );
+
+      await client.query(
+        'COMMIT'
+      );
+
+      return res.status(201).json({
+        success: true,
+
+        reused_existing_user:
+          reusedExistingUser,
+
+        user: {
+          id:
+            userId,
+          name:
+            user.full_name ||
+            user.name,
+          email:
+            user.email,
+          phone:
+            user.phone,
+          company_status:
+            membership.company_status,
+          roles,
+        },
+      });
+
+    } catch (error) {
+      try {
+        await client.query(
+          'ROLLBACK'
+        );
+      } catch (_) {}
+
+      console.error(
+        'CREATE SLAUGHTERHOUSE ADMIN USER ERROR:',
+        error,
+      );
+
+      return res.status(500).json({
+        error:
+          'Error creando usuario del frigorífico',
+      });
+
+    } finally {
+      client.release();
+    }
+  };
+
+
+// =====================================================
+// 🔘 ACTIVAR / DESACTIVAR ACCESO
+//
+// PUT /slaughterhouse/admin/users/:userId/status
+// =====================================================
+
+exports.updateAdminUserStatus =
+  async (req, res) => {
+    try {
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+      const adminUserId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+      const userId =
+        Number(
+          req.params.userId
+        );
+
+      const {
+        is_active,
+      } = req.body;
+
+      if (
+        !Number.isInteger(userId) ||
+        userId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Usuario inválido',
+        });
+      }
+
+      if (
+        typeof is_active !== 'boolean'
+      ) {
+        return res.status(400).json({
+          error:
+            'Estado inválido',
+        });
+      }
+
+      if (
+        userId === adminUserId &&
+        is_active === false
+      ) {
+        return res.status(409).json({
+          error:
+            'No puedes desactivar tu propio acceso',
+        });
+      }
+
+      const result =
+        await pool.query(
+          `
+          UPDATE user_companies
+          SET
+            company_status =
+              CASE
+                WHEN $1 = true
+                  THEN 'approved'
+                ELSE 'disabled'
+              END,
+            approved_at =
+              CASE
+                WHEN $1 = true
+                  THEN NOW()
+                ELSE approved_at
+              END,
+            approved_by =
+              CASE
+                WHEN $1 = true
+                  THEN $2
+                ELSE approved_by
+              END
+          WHERE
+            company_id = $3
+            AND user_id = $4
+            AND role =
+              'slaughterhouse_operator'
+          RETURNING
+            id,
+            user_id,
+            company_id,
+            role,
+            company_status
+          `,
+          [
+            is_active,
+            adminUserId,
+            companyId,
+            userId,
+          ],
+        );
+
+      if (
+        result.rows.length === 0
+      ) {
+        return res.status(404).json({
+          error:
+            'Usuario no encontrado en este frigorífico',
+        });
+      }
+
+      return res.json({
+        success: true,
+        is_active,
+        membership:
+          result.rows[0],
+      });
+
+    } catch (error) {
+      console.error(
+        'UPDATE SLAUGHTERHOUSE ADMIN USER STATUS ERROR:',
+        error,
+      );
+
+      return res.status(500).json({
+        error:
+          'Error actualizando usuario',
+      });
+    }
+  };
+
+
+// =====================================================
+// 🔐 CAMBIAR ROLES
+//
+// PUT /slaughterhouse/admin/users/:userId/roles
+// =====================================================
+
+exports.updateAdminUserRoles =
+  async (req, res) => {
+    const client =
+      await pool.connect();
+
+    try {
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+      const adminUserId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+      const userId =
+        Number(
+          req.params.userId
+        );
+
+      const roles =
+        Array.isArray(req.body.roles)
+          ? [
+              ...new Set(
+                req.body.roles
+                  .map(
+                    (value) =>
+                      value
+                        ?.toString()
+                        .trim()
+                        .toLowerCase()
+                  )
+                  .filter(Boolean)
+              ),
+            ]
+          : [];
+
+      if (
+        !Number.isInteger(userId) ||
+        userId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Usuario inválido',
+        });
+      }
+
+      if (roles.length === 0) {
+        return res.status(400).json({
+          error:
+            'Debe asignar al menos un rol',
+        });
+      }
+
+      const invalidRole =
+        roles.find(
+          (role) =>
+            !INTERNAL_USER_ROLES.includes(
+              role
+            )
+        );
+
+      if (invalidRole) {
+        return res.status(400).json({
+          error:
+            `Rol inválido: ${invalidRole}`,
+        });
+      }
+
+      if (
+        userId === adminUserId &&
+        !roles.includes('admin')
+      ) {
+        return res.status(409).json({
+          error:
+            'No puedes quitarte tu propio rol de Administrador',
+        });
+      }
+
+      await client.query(
+        'BEGIN'
+      );
+
+      const membershipResult =
+        await client.query(
+          `
+          SELECT
+            id
+          FROM user_companies
+          WHERE
+            company_id = $1
+            AND user_id = $2
+            AND role =
+              'slaughterhouse_operator'
+            AND company_status =
+              'approved'
+          LIMIT 1
+          FOR UPDATE
+          `,
+          [
+            companyId,
+            userId,
+          ],
+        );
+
+      if (
+        membershipResult.rows.length ===
+        0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'Usuario activo no encontrado en este frigorífico',
+        });
+      }
+
+      const roleResult =
+        await client.query(
+          `
+          SELECT
+            id,
+            code
+          FROM slaughterhouse_roles
+          WHERE
+            company_id = $1
+            AND code = ANY(
+              $2::VARCHAR[]
+            )
+            AND is_active = true
+          `,
+          [
+            companyId,
+            roles,
+          ],
+        );
+
+      if (
+        roleResult.rows.length !==
+        roles.length
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(400).json({
+          error:
+            'Uno o más roles no están disponibles',
+        });
+      }
+
+      const previousRolesResult =
+        await client.query(
+          `
+          SELECT
+            sr.code
+          FROM slaughterhouse_user_roles sur
+          JOIN slaughterhouse_roles sr
+            ON sr.id = sur.role_id
+          WHERE
+            sur.company_id = $1
+            AND sur.user_id = $2
+          ORDER BY
+            sr.code
+          `,
+          [
+            companyId,
+            userId,
+          ],
+        );
+
+      const previousRoles =
+        previousRolesResult.rows.map(
+          (row) => row.code
+        );
+
+      await client.query(
+        `
+        DELETE FROM
+          slaughterhouse_user_roles
+        WHERE
+          company_id = $1
+          AND user_id = $2
+        `,
+        [
+          companyId,
+          userId,
+        ],
+      );
+
+      await client.query(
+        `
+        INSERT INTO
+          slaughterhouse_user_roles (
+            company_id,
+            user_id,
+            role_id,
+            assigned_by
+          )
+        SELECT
+          $1,
+          $2,
+          sr.id,
+          $3
+        FROM slaughterhouse_roles sr
+        WHERE
+          sr.company_id = $1
+          AND sr.code = ANY(
+            $4::VARCHAR[]
+          )
+          AND sr.is_active = true
+        `,
+        [
+          companyId,
+          userId,
+          adminUserId,
+          roles,
+        ],
+      );
+
+      await client.query(
+        `
+        INSERT INTO
+          slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+        VALUES (
+          $1,
+          $2,
+          'user',
+          $3,
+          'update_internal_user_roles',
+          $4::jsonb,
+          $5::jsonb
+        )
+        `,
+        [
+          companyId,
+          adminUserId,
+          String(userId),
+          JSON.stringify({
+            roles:
+              previousRoles,
+          }),
+          JSON.stringify({
+            roles,
+          }),
+        ],
+      );
+
+      await client.query(
+        'COMMIT'
+      );
+
+      return res.json({
+        success: true,
+        user_id:
+          userId,
+        roles,
+      });
+
+    } catch (error) {
+      try {
+        await client.query(
+          'ROLLBACK'
+        );
+      } catch (_) {}
+
+      console.error(
+        'UPDATE SLAUGHTERHOUSE ADMIN USER ROLES ERROR:',
+        error,
+      );
+
+      return res.status(500).json({
+        error:
+          'Error actualizando roles del usuario',
+      });
+
+    } finally {
+      client.release();
+    }
+  };
 
 // =====================================================
 // 📊 DASHBOARD
