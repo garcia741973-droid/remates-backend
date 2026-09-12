@@ -9,6 +9,13 @@ const {
 );
 
 const {
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission,
+} = require(
+  '../middleware/slaughterhouseAdminMiddleware'
+);
+
+const {
   getSlaughterhouseTrucks,
   getSlaughterhouseReceptionCandidates,
   getOpenSlaughterhouseReceptions,
@@ -23,14 +30,24 @@ const {
   createSlaughterhouseExportProfile,
   updateSlaughterhouseExportProfile,
   deleteSlaughterhouseExportProfile,
-
   exportSlaughterhouseReceptionCsv,
-
   exportSlaughterhouseReceptionsCsv,
-
   getSlaughterhouseReceptionHistory,
 } = require(
   '../controllers/slaughterhouseController'
+);
+
+
+// =====================================================
+// 🔐 TODAS LAS RUTAS DE ESTE MÓDULO
+// REQUIEREN:
+// - usuario autenticado
+// - contexto de frigorífico válido
+// =====================================================
+
+router.use(
+  requireAuth,
+  requireSlaughterhouseAdmin,
 );
 
 
@@ -40,7 +57,9 @@ const {
 
 router.get(
   '/trucks',
-  requireAuth,
+  requireSlaughterhousePermission(
+    'transport.view'
+  ),
   getSlaughterhouseTrucks,
 );
 
@@ -51,9 +70,12 @@ router.get(
 
 router.get(
   '/reception-candidates',
-  requireAuth,
+  requireSlaughterhousePermission(
+    'reception.view'
+  ),
   getSlaughterhouseReceptionCandidates,
 );
+
 
 // =====================================================
 // 📋 RECEPCIONES ABIERTAS
@@ -61,9 +83,12 @@ router.get(
 
 router.get(
   '/receptions/open',
-  requireAuth,
+  requireSlaughterhousePermission(
+    'reception.view'
+  ),
   getOpenSlaughterhouseReceptions,
 );
+
 
 // =====================================================
 // 🐄 RECEPCIÓN DE GANADO
@@ -71,9 +96,12 @@ router.get(
 
 router.post(
   '/receptions',
-  requireAuth,
+  requireSlaughterhousePermission(
+    'reception.manage'
+  ),
   createSlaughterhouseReception,
 );
+
 
 // =====================================================
 // 🏭 INICIAR FAENA
@@ -81,9 +109,12 @@ router.post(
 
 router.post(
   '/receptions/:id/start-slaughter',
-  requireAuth,
+  requireSlaughterhousePermission(
+    'slaughter.manage'
+  ),
   startSlaughterhouseSlaughter,
 );
+
 
 // =====================================================
 // 🏭 RECEPCIONES PARA FAENA
@@ -91,9 +122,12 @@ router.post(
 
 router.get(
   '/slaughter',
-  requireAuth,
+  requireSlaughterhousePermission(
+    'slaughter.view'
+  ),
   getSlaughterhouseSlaughterReceptions,
 );
+
 
 // =====================================================
 // 🏭 REGISTRAR CARCASA
@@ -101,9 +135,12 @@ router.get(
 
 router.post(
   '/slaughter/:id/carcasses',
-  requireAuth,
+  requireSlaughterhousePermission(
+    'slaughter.manage'
+  ),
   createSlaughterhouseCarcass,
 );
+
 
 // =====================================================
 // 🏭 CORREGIR ÚLTIMA CARCASA
@@ -111,9 +148,12 @@ router.post(
 
 router.put(
   '/slaughter/:id/carcasses/last',
-  requireAuth,
+  requireSlaughterhousePermission(
+    'slaughter.manage'
+  ),
   updateLastSlaughterhouseCarcass,
 );
+
 
 // =====================================================
 // 🏭 FINALIZAR FAENA
@@ -121,81 +161,12 @@ router.put(
 
 router.post(
   '/slaughter/:id/finish',
-  requireAuth,
+  requireSlaughterhousePermission(
+    'slaughter.manage'
+  ),
   finishSlaughterhouseSlaughter,
 );
 
-// =====================================================
-// 📄 CATÁLOGO EXPORTACIÓN CSV
-// =====================================================
-
-router.get(
-  '/export/catalog',
-  requireAuth,
-  getSlaughterhouseExportCatalog,
-);
-
-// =====================================================
-// 📄 PERFILES DE EXPORTACIÓN CSV
-// =====================================================
-
-router.get(
-  '/export/profiles',
-  requireAuth,
-  getSlaughterhouseExportProfiles,
-);
-
-router.post(
-  '/export/profiles',
-  requireAuth,
-  createSlaughterhouseExportProfile,
-);
-
-router.put(
-  '/export/profiles/:id',
-  requireAuth,
-  updateSlaughterhouseExportProfile,
-);
-
-
-router.delete(
-  '/export/profiles/:id',
-  requireAuth,
-  deleteSlaughterhouseExportProfile,
-);
-
-// =====================================================
-
-// 📄 EXPORTAR RECEPCIÓN SEGÚN PERFIL CSV
-
-// =====================================================
-
-router.get(
-
-  '/receptions/:id/export/:profileId',
-
-  requireAuth,
-
-  exportSlaughterhouseReceptionCsv,
-
-);
-
-
-// =====================================================
-
-// 📦 EXPORTAR VARIAS RECEPCIONES SEGÚN PERFIL CSV
-
-// =====================================================
-
-router.post(
-
-  '/receptions/export/:profileId',
-
-  requireAuth,
-
-  exportSlaughterhouseReceptionsCsv,
-
-);
 
 // =====================================================
 // 📋 HISTORIAL DE RECEPCIONES / FAENAS
@@ -203,8 +174,90 @@ router.post(
 
 router.get(
   '/receptions/history',
-  requireAuth,
+  requireSlaughterhousePermission(
+    'reports.view'
+  ),
   getSlaughterhouseReceptionHistory,
 );
+
+
+// =====================================================
+// 📄 CATÁLOGO EXPORTACIÓN CSV
+// =====================================================
+
+router.get(
+  '/export/catalog',
+  requireSlaughterhousePermission(
+    'reports.export'
+  ),
+  getSlaughterhouseExportCatalog,
+);
+
+
+// =====================================================
+// 📄 PERFILES DE EXPORTACIÓN CSV
+// =====================================================
+
+router.get(
+  '/export/profiles',
+  requireSlaughterhousePermission(
+    'reports.export'
+  ),
+  getSlaughterhouseExportProfiles,
+);
+
+
+router.post(
+  '/export/profiles',
+  requireSlaughterhousePermission(
+    'reports.export'
+  ),
+  createSlaughterhouseExportProfile,
+);
+
+
+router.put(
+  '/export/profiles/:id',
+  requireSlaughterhousePermission(
+    'reports.export'
+  ),
+  updateSlaughterhouseExportProfile,
+);
+
+
+router.delete(
+  '/export/profiles/:id',
+  requireSlaughterhousePermission(
+    'reports.export'
+  ),
+  deleteSlaughterhouseExportProfile,
+);
+
+
+// =====================================================
+// 📄 EXPORTAR RECEPCIÓN SEGÚN PERFIL CSV
+// =====================================================
+
+router.get(
+  '/receptions/:id/export/:profileId',
+  requireSlaughterhousePermission(
+    'reports.export'
+  ),
+  exportSlaughterhouseReceptionCsv,
+);
+
+
+// =====================================================
+// 📦 EXPORTAR VARIAS RECEPCIONES SEGÚN PERFIL CSV
+// =====================================================
+
+router.post(
+  '/receptions/export/:profileId',
+  requireSlaughterhousePermission(
+    'reports.export'
+  ),
+  exportSlaughterhouseReceptionsCsv,
+);
+
 
 module.exports = router;
