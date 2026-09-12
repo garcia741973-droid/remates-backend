@@ -26,6 +26,7 @@ const {
 
   getAdminUsers,
   createAdminUser,
+  updateAdminUser,
   updateAdminUserStatus,
   updateAdminUserRoles,
 
@@ -242,6 +243,16 @@ router.post(
     'users.manage'
   ),
   createAdminUser,
+);
+
+router.put(
+  '/users/:userId',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission(
+    'users.manage'
+  ),
+  updateAdminUser,
 );
 
 router.put(

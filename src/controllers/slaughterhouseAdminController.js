@@ -119,6 +119,7 @@ exports.getAdminUsers =
               AS user_company_id,
             uc.company_status,
             uc.approved_at,
+            uc.identity_managed_by_company,
 
             CASE
               WHEN
@@ -177,7 +178,8 @@ exports.getAdminUsers =
             u.deleted_at,
             uc.id,
             uc.company_status,
-            uc.approved_at
+            uc.approved_at,
+            uc.identity_managed_by_company
 
           ORDER BY
             COALESCE(
@@ -540,7 +542,13 @@ exports.createAdminUser =
               approved_by =
                 $1,
               rejection_reason =
-                NULL
+                NULL,
+              identity_managed_by_company =
+                CASE
+                  WHEN $3 = true
+                    THEN true
+                  ELSE identity_managed_by_company
+                END
             WHERE
               id = $2
             RETURNING *
@@ -548,6 +556,7 @@ exports.createAdminUser =
             [
               adminUserId,
               membershipResult.rows[0].id,
+              !reusedExistingUser,
             ],
           );
 
@@ -564,7 +573,8 @@ exports.createAdminUser =
               role,
               company_status,
               approved_at,
-              approved_by
+              approved_by,
+              identity_managed_by_company
             )
             VALUES (
               $1,
@@ -572,7 +582,8 @@ exports.createAdminUser =
               'slaughterhouse_operator',
               'approved',
               NOW(),
-              $3
+              $3,
+              $4
             )
             RETURNING *
             `,
@@ -580,6 +591,7 @@ exports.createAdminUser =
               userId,
               companyId,
               adminUserId,
+              !reusedExistingUser,
             ],
           );
 
@@ -721,6 +733,356 @@ exports.createAdminUser =
     }
   };
 
+
+// =====================================================
+// ✏️ EDITAR IDENTIDAD DE USUARIO INTERNO
+//
+// PUT /slaughterhouse/admin/users/:userId
+//
+// Solo puede modificar identidad si la cuenta
+// fue creada/administrada por este frigorífico.
+// =====================================================
+
+exports.updateAdminUser =
+  async (req, res) => {
+    const client =
+      await pool.connect();
+
+    try {
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+      const adminUserId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+      const userId =
+        Number(
+          req.params.userId
+        );
+
+      const fullName =
+        req.body.full_name
+          ?.toString()
+          .trim() || '';
+
+      const email =
+        req.body.email
+          ?.toString()
+          .trim()
+          .toLowerCase() || '';
+
+      const phone =
+        req.body.phone
+          ?.toString()
+          .trim() || null;
+
+      const password =
+        req.body.password
+          ?.toString() || '';
+
+      if (
+        !Number.isInteger(userId) ||
+        userId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Usuario inválido',
+        });
+      }
+
+      if (!fullName) {
+        return res.status(400).json({
+          error:
+            'El nombre es obligatorio',
+        });
+      }
+
+      if (!email) {
+        return res.status(400).json({
+          error:
+            'El email es obligatorio',
+        });
+      }
+
+      if (
+        password &&
+        password.length < 6
+      ) {
+        return res.status(400).json({
+          error:
+            'La contraseña debe tener al menos 6 caracteres',
+        });
+      }
+
+      await client.query(
+        'BEGIN'
+      );
+
+      // -----------------------------------------------
+      // VALIDAR QUE PERTENEZCA A ESTE FRIGORÍFICO
+      // Y QUE FRIGOSI ADMINISTRE SU IDENTIDAD
+      // -----------------------------------------------
+
+      const membershipResult =
+        await client.query(
+          `
+          SELECT
+            uc.id,
+            uc.identity_managed_by_company,
+            uc.company_status,
+            u.email
+          FROM user_companies uc
+          JOIN users u
+            ON u.id = uc.user_id
+          WHERE
+            uc.company_id = $1
+            AND uc.user_id = $2
+            AND uc.role =
+              'slaughterhouse_operator'
+          ORDER BY
+            uc.id DESC
+          LIMIT 1
+          FOR UPDATE OF uc
+          `,
+          [
+            companyId,
+            userId,
+          ],
+        );
+
+      if (
+        membershipResult.rows.length ===
+        0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'Usuario no encontrado en este frigorífico',
+        });
+      }
+
+      if (
+        membershipResult.rows[0]
+          .identity_managed_by_company !==
+        true
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(403).json({
+          error:
+            'La identidad de esta cuenta pertenece a Plaza Ganadera y no puede modificarse desde FRIGOSI',
+        });
+      }
+
+      // -----------------------------------------------
+      // VALIDAR EMAIL DUPLICADO
+      // -----------------------------------------------
+
+      const duplicatedEmailResult =
+        await client.query(
+          `
+          SELECT
+            id
+          FROM users
+          WHERE
+            LOWER(TRIM(email)) = $1
+            AND id <> $2
+          LIMIT 1
+          `,
+          [
+            email,
+            userId,
+          ],
+        );
+
+      if (
+        duplicatedEmailResult.rows.length >
+        0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Ya existe otro usuario con este email',
+        });
+      }
+
+      // -----------------------------------------------
+      // DATOS ACTUALES PARA AUDITORÍA
+      // -----------------------------------------------
+
+      const oldUserResult =
+        await client.query(
+          `
+          SELECT
+            name,
+            full_name,
+            email,
+            phone
+          FROM users
+          WHERE id = $1
+          LIMIT 1
+          FOR UPDATE
+          `,
+          [
+            userId,
+          ],
+        );
+
+      if (
+        oldUserResult.rows.length === 0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'Cuenta de usuario no encontrada',
+        });
+      }
+
+      let hashedPassword = null;
+
+      if (password) {
+        hashedPassword =
+          await bcrypt.hash(
+            password,
+            10,
+          );
+      }
+
+      // -----------------------------------------------
+      // ACTUALIZAR IDENTIDAD
+      // -----------------------------------------------
+
+      const updatedUserResult =
+        await client.query(
+          `
+          UPDATE users
+          SET
+            name = $1,
+            full_name = $1,
+            email = $2,
+            phone = $3,
+            password =
+              CASE
+                WHEN $4::TEXT IS NOT NULL
+                  THEN $4
+                ELSE password
+              END
+          WHERE id = $5
+          RETURNING
+            id,
+            name,
+            full_name,
+            email,
+            phone,
+            role,
+            is_active
+          `,
+          [
+            fullName,
+            email,
+            phone,
+            hashedPassword,
+            userId,
+          ],
+        );
+
+      const updatedUser =
+        updatedUserResult.rows[0];
+
+      // -----------------------------------------------
+      // AUDITORÍA
+      // -----------------------------------------------
+
+      await client.query(
+        `
+        INSERT INTO
+          slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+        VALUES (
+          $1,
+          $2,
+          'user',
+          $3,
+          'update_internal_user_identity',
+          $4::jsonb,
+          $5::jsonb
+        )
+        `,
+        [
+          companyId,
+          adminUserId,
+          String(userId),
+          JSON.stringify(
+            oldUserResult.rows[0]
+          ),
+          JSON.stringify({
+            name:
+              updatedUser.name,
+            full_name:
+              updatedUser.full_name,
+            email:
+              updatedUser.email,
+            phone:
+              updatedUser.phone,
+            password_changed:
+              Boolean(password),
+          }),
+        ],
+      );
+
+      await client.query(
+        'COMMIT'
+      );
+
+      return res.json({
+        success: true,
+        user:
+          updatedUser,
+      });
+
+    } catch (error) {
+      try {
+        await client.query(
+          'ROLLBACK'
+        );
+      } catch (_) {}
+
+      console.error(
+        'UPDATE SLAUGHTERHOUSE ADMIN USER ERROR:',
+        error,
+      );
+
+      return res.status(500).json({
+        error:
+          'Error actualizando usuario del frigorífico',
+      });
+
+    } finally {
+      client.release();
+    }
+  };
 
 // =====================================================
 // 🔘 ACTIVAR / DESACTIVAR ACCESO
