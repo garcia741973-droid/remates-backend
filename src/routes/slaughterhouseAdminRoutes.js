@@ -112,6 +112,10 @@ const {
 
   setAnimalClassificationActive,
 
+  getCaptureSheets,
+
+  getCaptureSheetById,
+
   getPurchaseLots,
 
   getPurchaseLotById,
@@ -1019,6 +1023,48 @@ router.patch(
   ),
 
   setAnimalClassificationActive,
+
+);
+
+// =====================================================
+
+// 📋 HOJAS DE CAPTACIÓN
+
+// =====================================================
+
+router.get(
+
+  '/capture-sheets',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'lots.view'
+
+  ),
+
+  getCaptureSheets,
+
+);
+
+router.get(
+
+  '/capture-sheets/:id',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'lots.view'
+
+  ),
+
+  getCaptureSheetById,
 
 );
 

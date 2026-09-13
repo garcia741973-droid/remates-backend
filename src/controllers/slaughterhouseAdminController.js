@@ -11241,6 +11241,489 @@ exports.getPurchaseLots =
   };
   
 // =====================================================
+// 📋 LISTAR HOJAS DE CAPTACIÓN
+// GET /slaughterhouse/admin/capture-sheets
+// =====================================================
+
+exports.getCaptureSheets =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const result =
+        await pool.query(
+          `
+            SELECT
+              cs.id,
+              cs.company_id,
+              cs.capture_number,
+              cs.seller_person_id,
+
+              seller.full_name
+                AS seller_name,
+
+              seller.phone
+                AS seller_phone,
+
+              cs.captador_person_id,
+
+              captador.full_name
+                AS captador_name,
+
+              captador.user_id
+                AS captador_user_id,
+
+              cs.planned_date,
+              cs.status,
+              cs.notes,
+              cs.created_by,
+              cs.created_at,
+              cs.updated_at,
+
+              COALESCE(
+                lot_summary.lot_count,
+                0
+              )::int
+                AS lot_count,
+
+              COALESCE(
+                lot_summary.total_expected_quantity,
+                0
+              )::int
+                AS total_expected_quantity,
+
+              COALESCE(
+                troop_summary.total_dispatched_quantity,
+                0
+              )::int
+                AS total_dispatched_quantity,
+
+              COALESCE(
+                troop_summary.total_received_quantity,
+                0
+              )::int
+                AS total_received_quantity
+
+            FROM slaughterhouse_capture_sheets cs
+
+            JOIN slaughterhouse_people seller
+              ON seller.id =
+                cs.seller_person_id
+              AND seller.company_id =
+                cs.company_id
+
+            LEFT JOIN slaughterhouse_people captador
+              ON captador.id =
+                cs.captador_person_id
+              AND captador.company_id =
+                cs.company_id
+
+            LEFT JOIN LATERAL (
+              SELECT
+                COUNT(*)::int
+                  AS lot_count,
+
+                COALESCE(
+                  SUM(
+                    spl.expected_quantity
+                  ),
+                  0
+                )::int
+                  AS total_expected_quantity
+
+              FROM slaughterhouse_purchase_lots spl
+
+              WHERE
+                spl.company_id =
+                  cs.company_id
+                AND spl.capture_sheet_id =
+                  cs.id
+            ) lot_summary
+              ON true
+
+            LEFT JOIN LATERAL (
+              SELECT
+                COALESCE(
+                  SUM(
+                    st.dispatched_quantity
+                  ),
+                  0
+                )::int
+                  AS total_dispatched_quantity,
+
+                COALESCE(
+                  SUM(
+                    st.received_quantity
+                  ),
+                  0
+                )::int
+                  AS total_received_quantity
+
+              FROM slaughterhouse_troops st
+
+              JOIN slaughterhouse_purchase_lots spl
+                ON spl.id =
+                  st.purchase_lot_id
+                AND spl.company_id =
+                  st.company_id
+
+              WHERE
+                spl.company_id =
+                  cs.company_id
+                AND spl.capture_sheet_id =
+                  cs.id
+                AND st.status <>
+                  'cancelled'
+            ) troop_summary
+              ON true
+
+            WHERE
+              cs.company_id = $1
+
+            ORDER BY
+              cs.created_at DESC,
+              cs.id DESC
+          `,
+          [
+            companyId,
+          ],
+        );
+
+
+      return res.json({
+        success: true,
+        capture_sheets:
+          result.rows,
+      });
+
+    } catch (error) {
+
+      console.error(
+        'GET SLAUGHTERHOUSE CAPTURE SHEETS ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo hojas de captación',
+      });
+    }
+  };
+
+
+// =====================================================
+// 📋 DETALLE DE HOJA DE CAPTACIÓN
+// GET /slaughterhouse/admin/capture-sheets/:id
+// =====================================================
+
+exports.getCaptureSheetById =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const captureSheetId =
+        Number(
+          req.params.id
+        );
+
+
+      if (
+        !Number.isInteger(
+          captureSheetId
+        ) ||
+        captureSheetId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'ID de hoja de captación inválido',
+        });
+      }
+
+
+      // =================================================
+      // CABECERA
+      // =================================================
+
+      const sheetResult =
+        await pool.query(
+          `
+            SELECT
+              cs.*,
+
+              seller.full_name
+                AS seller_name,
+              seller.phone
+                AS seller_phone,
+              seller.email
+                AS seller_email,
+
+              captador.full_name
+                AS captador_name,
+              captador.phone
+                AS captador_phone,
+              captador.email
+                AS captador_email,
+              captador.user_id
+                AS captador_user_id
+
+            FROM slaughterhouse_capture_sheets cs
+
+            JOIN slaughterhouse_people seller
+              ON seller.id =
+                cs.seller_person_id
+              AND seller.company_id =
+                cs.company_id
+
+            LEFT JOIN slaughterhouse_people captador
+              ON captador.id =
+                cs.captador_person_id
+              AND captador.company_id =
+                cs.company_id
+
+            WHERE
+              cs.id = $1
+              AND cs.company_id = $2
+
+            LIMIT 1
+          `,
+          [
+            captureSheetId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        sheetResult.rows.length === 0
+      ) {
+        return res.status(404).json({
+          error:
+            'Hoja de captación no encontrada',
+        });
+      }
+
+
+      const captureSheet =
+        sheetResult.rows[0];
+
+
+      // =================================================
+      // LOTES DE LA HOJA
+      // =================================================
+
+      const lotsResult =
+        await pool.query(
+          `
+            SELECT
+              spl.id,
+              spl.lot_number,
+              spl.external_order_number,
+              spl.seller_person_id,
+              spl.estate_id,
+              se.name
+                AS estate_name,
+              spl.captador_person_id,
+              spl.commissioner_person_id,
+              spl.classification_id,
+
+              sac.code
+                AS classification_code,
+              sac.name
+                AS classification_name,
+
+              spl.purchase_type,
+              spl.pricing_basis,
+              spl.weight_source,
+              spl.expected_quantity,
+              spl.price_per_unit,
+              spl.currency,
+              spl.shrink_percent,
+              spl.planned_date,
+              spl.status,
+              spl.notes,
+              spl.created_at,
+              spl.updated_at,
+
+              COALESCE(
+                troop_summary.troop_count,
+                0
+              )::int
+                AS troop_count,
+
+              COALESCE(
+                troop_summary.dispatched_quantity,
+                0
+              )::int
+                AS dispatched_quantity,
+
+              COALESCE(
+                troop_summary.received_quantity,
+                0
+              )::int
+                AS received_quantity
+
+            FROM slaughterhouse_purchase_lots spl
+
+            LEFT JOIN slaughterhouse_estates se
+              ON se.id =
+                spl.estate_id
+
+            LEFT JOIN slaughterhouse_animal_classifications sac
+              ON sac.id =
+                spl.classification_id
+
+            LEFT JOIN LATERAL (
+              SELECT
+                COUNT(*)::int
+                  AS troop_count,
+
+                COALESCE(
+                  SUM(
+                    st.dispatched_quantity
+                  ),
+                  0
+                )::int
+                  AS dispatched_quantity,
+
+                COALESCE(
+                  SUM(
+                    st.received_quantity
+                  ),
+                  0
+                )::int
+                  AS received_quantity
+
+              FROM slaughterhouse_troops st
+
+              WHERE
+                st.company_id =
+                  spl.company_id
+                AND st.purchase_lot_id =
+                  spl.id
+                AND st.status <>
+                  'cancelled'
+            ) troop_summary
+              ON true
+
+            WHERE
+              spl.company_id = $1
+              AND spl.capture_sheet_id = $2
+
+            ORDER BY
+              spl.id ASC
+          `,
+          [
+            companyId,
+            captureSheetId,
+          ],
+        );
+
+
+      const lots =
+        lotsResult.rows;
+
+
+      // =================================================
+      // RESUMEN
+      // =================================================
+
+      const totalExpectedQuantity =
+        lots.reduce(
+          (
+            total,
+            item
+          ) =>
+            total +
+            Number(
+              item.expected_quantity ||
+              0
+            ),
+          0
+        );
+
+
+      const totalDispatchedQuantity =
+        lots.reduce(
+          (
+            total,
+            item
+          ) =>
+            total +
+            Number(
+              item.dispatched_quantity ||
+              0
+            ),
+          0
+        );
+
+
+      const totalReceivedQuantity =
+        lots.reduce(
+          (
+            total,
+            item
+          ) =>
+            total +
+            Number(
+              item.received_quantity ||
+              0
+            ),
+          0
+        );
+
+
+      return res.json({
+        success: true,
+
+        capture_sheet:
+          captureSheet,
+
+        summary: {
+          lot_count:
+            lots.length,
+
+          total_expected_quantity:
+            totalExpectedQuantity,
+
+          total_dispatched_quantity:
+            totalDispatchedQuantity,
+
+          total_received_quantity:
+            totalReceivedQuantity,
+        },
+
+        lots,
+      });
+
+    } catch (error) {
+
+      console.error(
+        'GET SLAUGHTERHOUSE CAPTURE SHEET DETAIL ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo detalle de la hoja de captación',
+      });
+    }
+  };
+
+// =====================================================
 // ➕ CREAR LOTE DE COMPRA
 // POST /slaughterhouse/admin/purchase-lots
 //
