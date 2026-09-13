@@ -116,6 +116,10 @@ const {
 
   getCaptureSheetById,
 
+  createCaptureSheet,
+
+  addCaptureSheetLot,
+
   getPurchaseLots,
 
   getPurchaseLotById,
@@ -1065,6 +1069,42 @@ router.get(
   ),
 
   getCaptureSheetById,
+
+);
+
+router.post(
+
+  '/capture-sheets',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'lots.manage'
+
+  ),
+
+  createCaptureSheet,
+
+);
+
+router.post(
+
+  '/capture-sheets/:id/lots',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'lots.manage'
+
+  ),
+
+  addCaptureSheetLot,
 
 );
 

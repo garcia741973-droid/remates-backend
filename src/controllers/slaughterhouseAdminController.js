@@ -11241,6 +11241,424 @@ exports.getPurchaseLots =
   };
   
 // =====================================================
+// 📋 CREAR HOJA DE CAPTACIÓN
+// POST /slaughterhouse/admin/capture-sheets
+// =====================================================
+
+exports.createCaptureSheet =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+      const userId =
+        Number(
+          req.user?.user_id ??
+          req.user?.id
+        );
+
+
+      const sellerPersonId =
+        Number(
+          req.body.seller_person_id
+        );
+
+
+      const captadorPersonIdRaw =
+        req.body.captador_person_id;
+
+
+      const captadorPersonId =
+        captadorPersonIdRaw !== undefined &&
+        captadorPersonIdRaw !== null &&
+        captadorPersonIdRaw !== ''
+          ? Number(
+              captadorPersonIdRaw
+            )
+          : null;
+
+
+      const plannedDate =
+        req.body.planned_date
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const status =
+        req.body.status
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        'open';
+
+
+      const notes =
+        req.body.notes
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      // =================================================
+      // VALIDACIONES BÁSICAS
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          sellerPersonId
+        ) ||
+        sellerPersonId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'seller_person_id inválido',
+        });
+      }
+
+
+      if (
+        captadorPersonId !== null &&
+        (
+          !Number.isInteger(
+            captadorPersonId
+          ) ||
+          captadorPersonId <= 0
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'captador_person_id inválido',
+        });
+      }
+
+
+      if (
+        plannedDate !== null &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(
+          plannedDate
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'planned_date debe tener formato YYYY-MM-DD',
+        });
+      }
+
+
+      if (
+        ![
+          'draft',
+          'open',
+        ].includes(
+          status
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'El estado inicial debe ser draft u open',
+        });
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // VALIDAR VENDEDOR
+      // =================================================
+
+      const sellerResult =
+        await client.query(
+          `
+            SELECT
+              sp.id,
+              sp.full_name,
+              sp.phone
+
+            FROM slaughterhouse_people sp
+
+            WHERE
+              sp.id = $1
+              AND sp.company_id = $2
+              AND sp.is_active = true
+
+              AND EXISTS (
+                SELECT 1
+
+                FROM slaughterhouse_person_roles spr
+
+                WHERE
+                  spr.person_id = sp.id
+                  AND spr.role = 'seller'
+                  AND spr.is_active = true
+              )
+
+            LIMIT 1
+          `,
+          [
+            sellerPersonId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        sellerResult.rows.length === 0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(400).json({
+          error:
+            'El vendedor no existe, está inactivo o no tiene rol seller',
+        });
+      }
+
+
+      // =================================================
+      // VALIDAR CAPTADOR
+      //
+      // Si se asigna captador, debe tener usuario PG
+      // porque la hoja deberá sincronizarse a su app.
+      // =================================================
+
+      if (
+        captadorPersonId !== null
+      ) {
+
+        const captadorResult =
+          await client.query(
+            `
+              SELECT
+                sp.id,
+                sp.full_name,
+                sp.user_id
+
+              FROM slaughterhouse_people sp
+
+              WHERE
+                sp.id = $1
+                AND sp.company_id = $2
+                AND sp.is_active = true
+
+                AND EXISTS (
+                  SELECT 1
+
+                  FROM slaughterhouse_person_roles spr
+
+                  WHERE
+                    spr.person_id = sp.id
+                    AND spr.role = 'captador'
+                    AND spr.is_active = true
+                )
+
+              LIMIT 1
+            `,
+            [
+              captadorPersonId,
+              companyId,
+            ],
+          );
+
+
+        if (
+          captadorResult.rows.length === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(400).json({
+            error:
+              'El captador no existe, está inactivo o no tiene rol captador',
+          });
+        }
+
+
+        if (
+          captadorResult.rows[0]
+            .user_id === null
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El captador debe estar vinculado a un usuario de Plaza Ganadera para utilizar la hoja en la aplicación',
+          });
+        }
+      }
+
+
+      // =================================================
+      // GENERAR NÚMERO INTERNO
+      //
+      // Ejemplo:
+      // CAP-10-2026-000002
+      // =================================================
+
+      const sequenceResult =
+        await client.query(
+          `
+            SELECT
+              nextval(
+                'slaughterhouse_capture_sheets_id_seq'
+              )::int
+                AS next_id
+          `
+        );
+
+
+      const nextId =
+        Number(
+          sequenceResult.rows[0]
+            .next_id
+        );
+
+
+      const year =
+        new Date()
+          .getFullYear();
+
+
+      const captureNumber =
+        `CAP-${companyId}-${year}-${String(
+          nextId
+        ).padStart(6, '0')}`;
+
+
+      // =================================================
+      // CREAR HOJA
+      // =================================================
+
+      const result =
+        await client.query(
+          `
+            INSERT INTO slaughterhouse_capture_sheets (
+              id,
+              company_id,
+              capture_number,
+              seller_person_id,
+              captador_person_id,
+              planned_date,
+              status,
+              notes,
+              created_by
+            )
+
+            VALUES (
+              $1,$2,$3,$4,$5,
+              $6,$7,$8,$9
+            )
+
+            RETURNING *
+          `,
+          [
+            nextId,
+            companyId,
+            captureNumber,
+            sellerPersonId,
+            captadorPersonId,
+            plannedDate,
+            status,
+            notes,
+            userId,
+          ],
+        );
+
+
+      const captureSheet =
+        result.rows[0];
+
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'capture_sheet',
+            $3,
+            'create',
+            $4::jsonb
+          )
+        `,
+        [
+          companyId,
+          userId,
+          String(
+            captureSheet.id
+          ),
+          JSON.stringify(
+            captureSheet
+          ),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.status(201).json({
+        success: true,
+        message:
+          'Hoja de captación creada correctamente',
+        capture_sheet:
+          captureSheet,
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+
+      console.error(
+        'CREATE SLAUGHTERHOUSE CAPTURE SHEET ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error creando hoja de captación',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+  };
+
+// =====================================================
 // 📋 LISTAR HOJAS DE CAPTACIÓN
 // GET /slaughterhouse/admin/capture-sheets
 // =====================================================
@@ -11724,6 +12142,1037 @@ exports.getCaptureSheetById =
         error:
           'Error obteniendo detalle de la hoja de captación',
       });
+    }
+  };
+
+// =====================================================
+// 📋 AGREGAR LOTE A HOJA DE CAPTACIÓN
+// POST /slaughterhouse/admin/capture-sheets/:id/lots
+// =====================================================
+
+exports.addCaptureSheetLot =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+
+      const captureSheetId =
+        Number(
+          req.params.id
+        );
+
+
+      if (
+        !Number.isInteger(
+          captureSheetId
+        ) ||
+        captureSheetId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'ID de hoja de captación inválido',
+        });
+      }
+
+
+      // =================================================
+      // DATOS PROPIOS DEL LOTE
+      //
+      // seller_person_id y captador_person_id
+      // NO se toman del body.
+      // Se heredan de la hoja.
+      // =================================================
+
+      const externalOrderNumber =
+        req.body.external_order_number
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const estateIdRaw =
+        req.body.estate_id;
+
+
+      const estateId =
+        estateIdRaw !== undefined &&
+        estateIdRaw !== null &&
+        estateIdRaw !== ''
+          ? Number(
+              estateIdRaw
+            )
+          : null;
+
+
+      const commissionerPersonIdRaw =
+        req.body.commissioner_person_id;
+
+
+      const commissionerPersonId =
+        commissionerPersonIdRaw !== undefined &&
+        commissionerPersonIdRaw !== null &&
+        commissionerPersonIdRaw !== ''
+          ? Number(
+              commissionerPersonIdRaw
+            )
+          : null;
+
+
+      const classificationIdRaw =
+        req.body.classification_id;
+
+
+      const classificationId =
+        classificationIdRaw !== undefined &&
+        classificationIdRaw !== null &&
+        classificationIdRaw !== ''
+          ? Number(
+              classificationIdRaw
+            )
+          : null;
+
+
+      const purchaseType =
+        req.body.purchase_type
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const pricingBasis =
+        req.body.pricing_basis
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        null;
+
+
+      const weightSource =
+        req.body.weight_source
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        null;
+
+
+      const expectedQuantityRaw =
+        req.body.expected_quantity;
+
+
+      const expectedQuantity =
+        expectedQuantityRaw !== undefined &&
+        expectedQuantityRaw !== null &&
+        expectedQuantityRaw !== ''
+          ? Number(
+              expectedQuantityRaw
+            )
+          : null;
+
+
+      const pricePerUnitRaw =
+        req.body.price_per_unit;
+
+
+      const pricePerUnit =
+        pricePerUnitRaw !== undefined &&
+        pricePerUnitRaw !== null &&
+        pricePerUnitRaw !== ''
+          ? Number(
+              pricePerUnitRaw
+            )
+          : null;
+
+
+      const currency =
+        req.body.currency
+          ?.toString()
+          .trim()
+          .toUpperCase() ||
+        'BOB';
+
+
+      const shrinkPercentRaw =
+        req.body.shrink_percent;
+
+
+      const shrinkPercent =
+        shrinkPercentRaw !== undefined &&
+        shrinkPercentRaw !== null &&
+        shrinkPercentRaw !== ''
+          ? Number(
+              shrinkPercentRaw
+            )
+          : 0;
+
+
+      const commissionType =
+        req.body.commission_type
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        null;
+
+
+      const commissionValueRaw =
+        req.body.commission_value;
+
+
+      const commissionValue =
+        commissionValueRaw !== undefined &&
+        commissionValueRaw !== null &&
+        commissionValueRaw !== ''
+          ? Number(
+              commissionValueRaw
+            )
+          : null;
+
+
+      const plannedDate =
+        req.body.planned_date
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const requestedStatus =
+        req.body.status
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        null;
+
+
+      const notes =
+        req.body.notes
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      // =================================================
+      // VALIDACIONES BÁSICAS
+      // =================================================
+
+      const optionalIds = [
+        {
+          name:
+            'estate_id',
+          value:
+            estateId,
+        },
+        {
+          name:
+            'commissioner_person_id',
+          value:
+            commissionerPersonId,
+        },
+        {
+          name:
+            'classification_id',
+          value:
+            classificationId,
+        },
+      ];
+
+
+      for (
+        const item of optionalIds
+      ) {
+
+        if (
+          item.value !== null &&
+          (
+            !Number.isInteger(
+              item.value
+            ) ||
+            item.value <= 0
+          )
+        ) {
+          return res.status(400).json({
+            error:
+              `${item.name} inválido`,
+          });
+        }
+      }
+
+
+      if (
+        expectedQuantity !== null &&
+        (
+          !Number.isInteger(
+            expectedQuantity
+          ) ||
+          expectedQuantity < 0
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'expected_quantity debe ser un entero mayor o igual a 0',
+        });
+      }
+
+
+      if (
+        pricePerUnit !== null &&
+        (
+          !Number.isFinite(
+            pricePerUnit
+          ) ||
+          pricePerUnit < 0
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'price_per_unit inválido',
+        });
+      }
+
+
+      const allowedPricingBasis = [
+        'live_kg',
+        'hook_kg',
+        'per_head',
+      ];
+
+
+      const allowedWeightSources = [
+        'origin',
+        'plant',
+        'not_applicable',
+      ];
+
+
+      if (
+        pricingBasis !== null &&
+        !allowedPricingBasis.includes(
+          pricingBasis
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'pricing_basis inválido',
+        });
+      }
+
+
+      if (
+        weightSource !== null &&
+        !allowedWeightSources.includes(
+          weightSource
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'weight_source inválido',
+        });
+      }
+
+
+      if (
+        (
+          pricingBasis === null &&
+          weightSource !== null
+        ) ||
+        (
+          pricingBasis !== null &&
+          weightSource === null
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'pricing_basis y weight_source deben definirse juntos',
+        });
+      }
+
+
+      if (
+        pricingBasis === 'live_kg' &&
+        ![
+          'origin',
+          'plant',
+        ].includes(
+          weightSource
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'Una compra por kilo vivo debe pesarse en origen o en planta',
+        });
+      }
+
+
+      if (
+        pricingBasis === 'hook_kg' &&
+        weightSource !== 'plant'
+      ) {
+        return res.status(400).json({
+          error:
+            'Una compra por kilo gancho debe determinarse en planta',
+        });
+      }
+
+
+      if (
+        pricingBasis === 'per_head' &&
+        weightSource !==
+          'not_applicable'
+      ) {
+        return res.status(400).json({
+          error:
+            'Una compra por cabeza debe configurarse como compra a bulto',
+        });
+      }
+
+
+      if (
+        pricingBasis !== null &&
+        (
+          pricePerUnit === null ||
+          !Number.isFinite(
+            pricePerUnit
+          ) ||
+          pricePerUnit <= 0
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'Debe indicar un precio mayor a 0 para la modalidad de compra seleccionada',
+        });
+      }
+
+
+      if (
+        !Number.isFinite(
+          shrinkPercent
+        ) ||
+        shrinkPercent < 0 ||
+        shrinkPercent > 100
+      ) {
+        return res.status(400).json({
+          error:
+            'shrink_percent debe estar entre 0 y 100',
+        });
+      }
+
+
+      const allowedCommissionTypes = [
+        'per_head',
+        'percent',
+        'fixed',
+      ];
+
+
+      if (
+        commissionType !== null &&
+        !allowedCommissionTypes.includes(
+          commissionType
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'commission_type inválido',
+        });
+      }
+
+
+      if (
+        commissionValue !== null &&
+        (
+          !Number.isFinite(
+            commissionValue
+          ) ||
+          commissionValue < 0
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'commission_value inválido',
+        });
+      }
+
+
+      if (
+        commissionType === 'percent' &&
+        commissionValue !== null &&
+        commissionValue > 100
+      ) {
+        return res.status(400).json({
+          error:
+            'La comisión porcentual no puede superar 100',
+        });
+      }
+
+
+      if (
+        commissionType === null &&
+        commissionValue !== null
+      ) {
+        return res.status(400).json({
+          error:
+            'Debe indicar commission_type si existe commission_value',
+        });
+      }
+
+
+      if (
+        commissionType !== null &&
+        commissionValue === null
+      ) {
+        return res.status(400).json({
+          error:
+            'Debe indicar commission_value',
+        });
+      }
+
+
+      if (
+        requestedStatus !== null &&
+        ![
+          'draft',
+          'open',
+        ].includes(
+          requestedStatus
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'Al crear un lote el estado debe ser draft u open',
+        });
+      }
+
+
+      if (
+        plannedDate !== null &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(
+          plannedDate
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'planned_date debe tener formato YYYY-MM-DD',
+        });
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // BLOQUEAR HOJA
+      // =================================================
+
+      const sheetResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              capture_number,
+              seller_person_id,
+              captador_person_id,
+              planned_date,
+              status
+            FROM slaughterhouse_capture_sheets
+            WHERE
+              id = $1
+              AND company_id = $2
+            FOR UPDATE
+          `,
+          [
+            captureSheetId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        sheetResult.rows.length === 0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'Hoja de captación no encontrada',
+        });
+      }
+
+
+      const captureSheet =
+        sheetResult.rows[0];
+
+
+      if (
+        ![
+          'draft',
+          'open',
+        ].includes(
+          captureSheet.status
+        )
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            `La hoja está en estado ${captureSheet.status} y ya no admite nuevos lotes`,
+        });
+      }
+
+
+      const sellerPersonId =
+        Number(
+          captureSheet.seller_person_id
+        );
+
+
+      const captadorPersonId =
+        captureSheet.captador_person_id !== null
+          ? Number(
+              captureSheet.captador_person_id
+            )
+          : null;
+
+
+      // =================================================
+      // EVITAR QUE EL CLIENTE INTENTE CAMBIAR VENDEDOR
+      // =================================================
+
+      if (
+        req.body.seller_person_id !== undefined &&
+        req.body.seller_person_id !== null &&
+        req.body.seller_person_id !== '' &&
+        Number(
+          req.body.seller_person_id
+        ) !== sellerPersonId
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El vendedor del lote debe ser el mismo vendedor de la hoja de captación',
+        });
+      }
+
+
+      // =================================================
+      // EVITAR QUE EL CLIENTE INTENTE CAMBIAR CAPTADOR
+      // =================================================
+
+      if (
+        req.body.captador_person_id !== undefined
+      ) {
+
+        const requestedCaptadorId =
+          req.body.captador_person_id !== null &&
+          req.body.captador_person_id !== ''
+            ? Number(
+                req.body.captador_person_id
+              )
+            : null;
+
+
+        if (
+          requestedCaptadorId !==
+          captadorPersonId
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El captador del lote debe ser el mismo captador de la hoja de captación',
+          });
+        }
+      }
+
+
+      // =================================================
+      // VALIDAR ESTANCIA
+      // =================================================
+
+      if (
+        estateId !== null
+      ) {
+
+        const estateResult =
+          await client.query(
+            `
+              SELECT id
+              FROM slaughterhouse_estates
+              WHERE
+                id = $1
+                AND company_id = $2
+                AND seller_person_id = $3
+                AND is_active = true
+              LIMIT 1
+            `,
+            [
+              estateId,
+              companyId,
+              sellerPersonId,
+            ],
+          );
+
+
+        if (
+          estateResult.rows.length === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(400).json({
+            error:
+              'La estancia no existe, está inactiva o no pertenece al vendedor de la hoja',
+          });
+        }
+      }
+
+
+      // =================================================
+      // VALIDAR COMISIONISTA
+      // =================================================
+
+      if (
+        commissionerPersonId !== null
+      ) {
+
+        const commissionerResult =
+          await client.query(
+            `
+              SELECT sp.id
+              FROM slaughterhouse_people sp
+              WHERE
+                sp.id = $1
+                AND sp.company_id = $2
+                AND sp.is_active = true
+                AND EXISTS (
+                  SELECT 1
+                  FROM slaughterhouse_person_roles spr
+                  WHERE
+                    spr.person_id = sp.id
+                    AND spr.role = 'commissioner'
+                    AND spr.is_active = true
+                )
+              LIMIT 1
+            `,
+            [
+              commissionerPersonId,
+              companyId,
+            ],
+          );
+
+
+        if (
+          commissionerResult.rows.length === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(400).json({
+            error:
+              'El comisionista no existe, está inactivo o no tiene rol commissioner',
+          });
+        }
+      }
+
+
+      // =================================================
+      // VALIDAR CLASIFICACIÓN
+      // =================================================
+
+      if (
+        classificationId !== null
+      ) {
+
+        const classificationResult =
+          await client.query(
+            `
+              SELECT id
+              FROM slaughterhouse_animal_classifications
+              WHERE
+                id = $1
+                AND company_id = $2
+                AND is_active = true
+              LIMIT 1
+            `,
+            [
+              classificationId,
+              companyId,
+            ],
+          );
+
+
+        if (
+          classificationResult.rows.length === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(400).json({
+            error:
+              'Clasificación animal no encontrada o inactiva',
+          });
+        }
+      }
+
+
+      // =================================================
+      // FECHA Y ESTADO EFECTIVOS
+      //
+      // Si no vienen en el lote,
+      // se heredan de la hoja.
+      // =================================================
+
+      const effectivePlannedDate =
+        plannedDate ||
+        captureSheet.planned_date ||
+        null;
+
+
+      const lotStatus =
+        requestedStatus ||
+        (
+          captureSheet.status === 'draft'
+            ? 'draft'
+            : 'open'
+        );
+
+
+      // =================================================
+      // GENERAR NÚMERO DEL LOTE
+      // =================================================
+
+      const sequenceResult =
+        await client.query(
+          `
+            SELECT
+              nextval(
+                'slaughterhouse_purchase_lots_id_seq'
+              )::int
+                AS next_id
+          `
+        );
+
+
+      const nextId =
+        Number(
+          sequenceResult.rows[0]
+            .next_id
+        );
+
+
+      const year =
+        new Date()
+          .getFullYear();
+
+
+      const lotNumber =
+        `LOT-${companyId}-${year}-${String(
+          nextId
+        ).padStart(6, '0')}`;
+
+
+      // =================================================
+      // CREAR LOTE VINCULADO A LA HOJA
+      // =================================================
+
+      const result =
+        await client.query(
+          `
+            INSERT INTO slaughterhouse_purchase_lots (
+              id,
+              company_id,
+              capture_sheet_id,
+              lot_number,
+              external_order_number,
+              seller_person_id,
+              estate_id,
+              captador_person_id,
+              commissioner_person_id,
+              classification_id,
+              purchase_type,
+              pricing_basis,
+              weight_source,
+              expected_quantity,
+              price_per_unit,
+              currency,
+              shrink_percent,
+              commission_type,
+              commission_value,
+              planned_date,
+              status,
+              notes,
+              created_by
+            )
+
+            VALUES (
+              $1,$2,$3,$4,$5,
+              $6,$7,$8,$9,$10,
+              $11,$12,$13,$14,$15,
+              $16,$17,$18,$19,$20,
+              $21,$22,$23
+            )
+
+            RETURNING *
+          `,
+          [
+            nextId,
+            companyId,
+            captureSheetId,
+            lotNumber,
+            externalOrderNumber,
+            sellerPersonId,
+            estateId,
+            captadorPersonId,
+            commissionerPersonId,
+            classificationId,
+            purchaseType,
+            pricingBasis,
+            weightSource,
+            expectedQuantity,
+            pricePerUnit,
+            currency,
+            shrinkPercent,
+            commissionType,
+            commissionValue,
+            effectivePlannedDate,
+            lotStatus,
+            notes,
+            userId,
+          ],
+        );
+
+
+      const purchaseLot =
+        result.rows[0];
+
+
+      // =================================================
+      // ACTUALIZAR FECHA DE LA HOJA
+      // =================================================
+
+      await client.query(
+        `
+          UPDATE slaughterhouse_capture_sheets
+          SET updated_at = NOW()
+          WHERE
+            id = $1
+            AND company_id = $2
+        `,
+        [
+          captureSheetId,
+          companyId,
+        ],
+      );
+
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'purchase_lot',
+            $3,
+            'create',
+            $4::jsonb
+          )
+        `,
+        [
+          companyId,
+          userId,
+          String(
+            purchaseLot.id
+          ),
+          JSON.stringify(
+            purchaseLot
+          ),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.status(201).json({
+        success: true,
+
+        message:
+          'Lote agregado a la hoja de captación correctamente',
+
+        capture_sheet: {
+          id:
+            captureSheet.id,
+
+          capture_number:
+            captureSheet.capture_number,
+        },
+
+        purchase_lot:
+          purchaseLot,
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+
+      console.error(
+        'ADD CAPTURE SHEET LOT ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error agregando lote a la hoja de captación',
+      });
+
+    } finally {
+
+      client.release();
+
     }
   };
 
