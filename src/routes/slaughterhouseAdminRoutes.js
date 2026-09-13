@@ -33,7 +33,7 @@ const {
   getAdminDashboard,
 
   getPeople,
-
+  searchPlazaGanaderaUser,
   getPersonById,
 
   createPerson,
@@ -312,6 +312,20 @@ router.get(
     'people.view'
   ),
   getPeople,
+);
+
+router.get(
+  '/people/user-search',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'people.manage'
+  ),
+
+  searchPlazaGanaderaUser,
 );
 
 router.get(

@@ -1812,6 +1812,209 @@ exports.getPeople =
 
   };
 
+// =====================================================
+// 🔎 BUSCAR USUARIO PLAZA GANADERA PARA VINCULAR
+// GET /slaughterhouse/admin/people/user-search?q=...
+//
+// Busca por:
+// - email exacto
+// - teléfono exacto normalizado
+//
+// No permite búsqueda general por nombre.
+// =====================================================
+
+exports.searchPlazaGanaderaUser =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const q =
+        req.query.q
+          ?.toString()
+          .trim() || '';
+
+
+      if (!q) {
+        return res.status(400).json({
+          error:
+            'Debe indicar un email o teléfono',
+        });
+      }
+
+
+      const searchByEmail =
+        q.includes('@');
+
+
+      const normalizedPhone =
+        searchByEmail
+          ? ''
+          : q.replace(
+              /[^0-9]/g,
+              ''
+            );
+
+
+      const result =
+        await pool.query(
+          `
+            SELECT
+              u.id,
+              COALESCE(
+                NULLIF(
+                  TRIM(u.full_name),
+                  ''
+                ),
+                NULLIF(
+                  TRIM(u.name),
+                  ''
+                ),
+                u.email
+              )
+                AS name,
+              u.email,
+              u.phone,
+
+              sp.id
+                AS linked_person_id,
+              sp.full_name
+                AS linked_person_name
+
+            FROM users u
+
+            LEFT JOIN slaughterhouse_people sp
+              ON sp.company_id = $1
+              AND sp.user_id = u.id
+
+            WHERE
+              u.is_active = true
+              AND u.deleted_at IS NULL
+              AND (
+                (
+                  $4 = true
+
+                  AND LOWER(
+                    TRIM(
+                      COALESCE(
+                        u.email,
+                        ''
+                      )
+                    )
+                  ) =
+                  LOWER(
+                    TRIM($2)
+                  )
+                )
+
+                OR (
+
+                  $4 = false
+
+                  AND $3 <> ''
+
+                  AND regexp_replace(
+                    COALESCE(
+                      u.phone,
+                      ''
+                    ),
+                    '[^0-9]',
+                    '',
+                    'g'
+                  ) = $3
+
+                )
+              )
+
+              ORDER BY
+                u.id ASC
+
+              LIMIT 2
+          `,
+            [
+              companyId,
+              q,
+              normalizedPhone,
+              searchByEmail,
+            ],
+        );
+
+      if (
+        !searchByEmail &&
+        result.rows.length > 1
+      ) {
+        return res.status(409).json({
+          error:
+            'Hay más de una cuenta de Plaza Ganadera con ese teléfono. Busque por email para identificar al usuario correctamente.',
+        });
+      }
+
+      if (
+        result.rows.length === 0
+      ) {
+        return res.status(404).json({
+          error:
+            'No se encontró un usuario activo de Plaza Ganadera con ese email o teléfono',
+        });
+      }
+
+
+      const user =
+        result.rows[0];
+
+
+      return res.json({
+        success: true,
+
+        user: {
+          id:
+            Number(user.id),
+
+          name:
+            user.name,
+
+          email:
+            user.email,
+
+          phone:
+            user.phone,
+
+          already_linked:
+            user.linked_person_id != null,
+
+          person_id:
+            user.linked_person_id != null
+              ? Number(
+                  user.linked_person_id
+                )
+              : null,
+
+          person_name:
+            user.linked_person_name,
+        },
+      });
+
+    } catch (error) {
+
+      console.error(
+        'SEARCH PLAZA GANADERA USER ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error buscando usuario de Plaza Ganadera',
+      });
+
+    }
+
+  };
 
 // =====================================================
 // ➕ CREAR PERSONA / ENTIDAD
