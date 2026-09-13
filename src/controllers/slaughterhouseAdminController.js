@@ -1914,6 +1914,20 @@ exports.createPerson =
         req.body.export_enabled === true;
 
 
+      const linkedUserIdRaw =
+        req.body.user_id;
+
+
+      const linkedUserId =
+        linkedUserIdRaw !== undefined &&
+        linkedUserIdRaw !== null &&
+        linkedUserIdRaw !== ''
+          ? Number(
+              linkedUserIdRaw
+            )
+          : null;
+
+
       const roles =
         Array.isArray(
           req.body.roles
@@ -1964,6 +1978,20 @@ exports.createPerson =
 
       }
 
+      if (
+        linkedUserId !== null &&
+        (
+          !Number.isInteger(
+            linkedUserId
+          ) ||
+          linkedUserId <= 0
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'user_id inválido',
+        });
+      }
 
       const allowedRoles =
         [
@@ -1993,11 +2021,108 @@ exports.createPerson =
 
       }
 
+      // =================================================
+      // CAPTADOR / COMPRADOR
+      //
+      // Para trabajar en la app móvil debe estar
+      // vinculado a un usuario de Plaza Ganadera.
+      // =================================================
+
+      if (
+        roles.includes(
+          'captador'
+        ) &&
+        linkedUserId === null
+      ) {
+        return res.status(400).json({
+          error:
+            'Un captador/comprador debe estar vinculado a un usuario de Plaza Ganadera',
+        });
+      }
 
       await client.query(
         'BEGIN'
       );
 
+      // =================================================
+      // VALIDAR USUARIO PLAZA GANADERA
+      // =================================================
+
+      if (
+        linkedUserId !== null
+      ) {
+        const linkedUserResult =
+          await client.query(
+            `
+              SELECT
+                id,
+                name,
+                full_name,
+                email,
+                phone
+              FROM users
+              WHERE
+                id = $1
+                AND is_active = true
+              LIMIT 1
+            `,
+            [
+              linkedUserId,
+            ],
+          );
+
+
+        if (
+          linkedUserResult.rows.length === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(400).json({
+            error:
+              'El usuario de Plaza Ganadera no existe o está inactivo',
+          });
+        }
+
+
+        const duplicatedLinkResult =
+          await client.query(
+            `
+              SELECT
+                id,
+                full_name
+              FROM slaughterhouse_people
+              WHERE
+                company_id = $1
+                AND user_id = $2
+              LIMIT 1
+            `,
+            [
+              companyId,
+              linkedUserId,
+            ],
+          );
+
+
+        if (
+          duplicatedLinkResult.rows.length > 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'Ese usuario de Plaza Ganadera ya está vinculado a otra persona de este frigorífico',
+            person_id:
+              duplicatedLinkResult.rows[0].id,
+            person_name:
+              duplicatedLinkResult.rows[0]
+                .full_name,
+          });
+        }
+      }
 
       // =================================================
       // PERSONA
@@ -2006,26 +2131,30 @@ exports.createPerson =
       const personResult =
         await client.query(
           `
-            INSERT INTO slaughterhouse_people (
-              company_id,
-              person_type,
-              full_name,
-              document_type,
-              document_number,
-              phone,
-              email,
-              export_enabled,
-              notes,
-              created_by
-            )
-            VALUES (
-              $1,$2,$3,$4,$5,
-              $6,$7,$8,$9,$10
-            )
+          INSERT INTO slaughterhouse_people (
+            company_id,
+            user_id,
+            person_type,
+            full_name,
+            document_type,
+            document_number,
+            phone,
+            email,
+            export_enabled,
+            notes,
+            created_by
+          )
+
+          VALUES (
+            $1,$2,$3,$4,$5,
+            $6,$7,$8,$9,$10,
+            $11
+          )
             RETURNING *
           `,
           [
             companyId,
+            linkedUserId,
             personType,
             fullName,
             documentType,
@@ -2147,6 +2276,17 @@ exports.createPerson =
         error.code ===
         '23505'
       ) {
+
+        if (
+          error.constraint ===
+          'uq_slaughterhouse_people_company_user'
+        ) {
+          return res.status(409).json({
+            error:
+              'Ese usuario de Plaza Ganadera ya está vinculado a otra persona de este frigorífico',
+          });
+        }
+
 
         return res.status(409).json({
           error:
@@ -11239,7 +11379,519 @@ exports.getPurchaseLots =
     }
 
   };
-  
+
+// =====================================================
+// 📋 ACTUALIZAR HOJA DE CAPTACIÓN
+// PUT /slaughterhouse/admin/capture-sheets/:id
+//
+// - vendedor NO se modifica aquí
+// - captador se propaga a todos los lotes
+// =====================================================
+
+exports.updateCaptureSheet =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+
+      const captureSheetId =
+        Number(
+          req.params.id
+        );
+
+
+      if (
+        !Number.isInteger(
+          captureSheetId
+        ) ||
+        captureSheetId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'ID de hoja de captación inválido',
+        });
+      }
+
+
+      // =================================================
+      // CAMPOS OPCIONALES
+      // =================================================
+
+      const hasCaptador =
+        Object.prototype.hasOwnProperty.call(
+          req.body,
+          'captador_person_id'
+        );
+
+
+      const captadorPersonId =
+        hasCaptador &&
+        req.body.captador_person_id !== null &&
+        req.body.captador_person_id !== ''
+          ? Number(
+              req.body.captador_person_id
+            )
+          : null;
+
+
+      if (
+        hasCaptador &&
+        captadorPersonId !== null &&
+        (
+          !Number.isInteger(
+            captadorPersonId
+          ) ||
+          captadorPersonId <= 0
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'captador_person_id inválido',
+        });
+      }
+
+
+      const hasPlannedDate =
+        Object.prototype.hasOwnProperty.call(
+          req.body,
+          'planned_date'
+        );
+
+
+      const plannedDate =
+        hasPlannedDate &&
+        req.body.planned_date !== null &&
+        req.body.planned_date !== ''
+          ? req.body.planned_date
+              .toString()
+              .trim()
+          : null;
+
+
+      if (
+        plannedDate !== null &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(
+          plannedDate
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'planned_date debe tener formato YYYY-MM-DD',
+        });
+      }
+
+
+      const hasNotes =
+        Object.prototype.hasOwnProperty.call(
+          req.body,
+          'notes'
+        );
+
+
+      const notes =
+        hasNotes &&
+        req.body.notes !== null &&
+        req.body.notes !== ''
+          ? req.body.notes
+              .toString()
+              .trim()
+          : null;
+
+
+      const hasStatus =
+        Object.prototype.hasOwnProperty.call(
+          req.body,
+          'status'
+        );
+
+
+      const status =
+        hasStatus
+          ? req.body.status
+              ?.toString()
+              .trim()
+              .toLowerCase() ||
+            null
+          : null;
+
+
+      if (
+        hasStatus &&
+        ![
+          'draft',
+          'open',
+        ].includes(
+          status
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'Desde esta edición la hoja solo puede estar en draft u open',
+        });
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // BLOQUEAR HOJA ACTUAL
+      // =================================================
+
+      const previousResult =
+        await client.query(
+          `
+            SELECT *
+            FROM slaughterhouse_capture_sheets
+            WHERE
+              id = $1
+              AND company_id = $2
+            FOR UPDATE
+          `,
+          [
+            captureSheetId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        previousResult.rows.length === 0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'Hoja de captación no encontrada',
+        });
+      }
+
+
+      const previous =
+        previousResult.rows[0];
+
+
+      // =================================================
+      // SOLO EDITABLE EN DRAFT / OPEN
+      // =================================================
+
+      if (
+        ![
+          'draft',
+          'open',
+        ].includes(
+          previous.status
+        )
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            `La hoja está en estado ${previous.status} y ya no puede modificarse`,
+        });
+      }
+
+
+      // =================================================
+      // NO PERMITIR CAMBIAR VENDEDOR DESDE AQUÍ
+      // =================================================
+
+      if (
+        req.body.seller_person_id !== undefined &&
+        Number(
+          req.body.seller_person_id
+        ) !==
+        Number(
+          previous.seller_person_id
+        )
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El vendedor de una hoja de captación no puede modificarse desde esta operación',
+        });
+      }
+
+
+      // =================================================
+      // VALIDAR CAPTADOR
+      //
+      // Debe:
+      // - pertenecer a la empresa
+      // - tener rol captador
+      // - tener user_id para usar la app
+      // =================================================
+
+      if (
+        hasCaptador &&
+        captadorPersonId !== null
+      ) {
+
+        const captadorResult =
+          await client.query(
+            `
+              SELECT
+                sp.id,
+                sp.full_name,
+                sp.user_id
+
+              FROM slaughterhouse_people sp
+
+              WHERE
+                sp.id = $1
+                AND sp.company_id = $2
+                AND sp.is_active = true
+
+                AND EXISTS (
+                  SELECT 1
+                  FROM slaughterhouse_person_roles spr
+                  WHERE
+                    spr.person_id = sp.id
+                    AND spr.role = 'captador'
+                    AND spr.is_active = true
+                )
+
+              LIMIT 1
+            `,
+            [
+              captadorPersonId,
+              companyId,
+            ],
+          );
+
+
+        if (
+          captadorResult.rows.length === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(400).json({
+            error:
+              'El captador no existe, está inactivo o no tiene rol captador',
+          });
+        }
+
+
+        if (
+          captadorResult.rows[0]
+            .user_id === null
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El captador debe estar vinculado a un usuario de Plaza Ganadera',
+          });
+        }
+      }
+
+
+      // =================================================
+      // VALORES EFECTIVOS
+      // =================================================
+
+      const effectiveCaptadorPersonId =
+        hasCaptador
+          ? captadorPersonId
+          : previous.captador_person_id;
+
+
+      const effectivePlannedDate =
+        hasPlannedDate
+          ? plannedDate
+          : previous.planned_date;
+
+
+      const effectiveNotes =
+        hasNotes
+          ? notes
+          : previous.notes;
+
+
+      const effectiveStatus =
+        hasStatus
+          ? status
+          : previous.status;
+
+
+      // =================================================
+      // ACTUALIZAR HOJA
+      // =================================================
+
+      const result =
+        await client.query(
+          `
+            UPDATE slaughterhouse_capture_sheets
+
+            SET
+              captador_person_id = $1,
+              planned_date = $2,
+              status = $3,
+              notes = $4,
+              updated_at = NOW()
+
+            WHERE
+              id = $5
+              AND company_id = $6
+
+            RETURNING *
+          `,
+          [
+            effectiveCaptadorPersonId,
+            effectivePlannedDate,
+            effectiveStatus,
+            effectiveNotes,
+            captureSheetId,
+            companyId,
+          ],
+        );
+
+
+      const captureSheet =
+        result.rows[0];
+
+
+      // =================================================
+      // PROPAGAR CAPTADOR A TODOS LOS LOTES
+      // =================================================
+
+      if (
+        hasCaptador
+      ) {
+        await client.query(
+          `
+            UPDATE slaughterhouse_purchase_lots
+
+            SET
+              captador_person_id = $1,
+              updated_at = NOW()
+
+            WHERE
+              capture_sheet_id = $2
+              AND company_id = $3
+          `,
+          [
+            effectiveCaptadorPersonId,
+            captureSheetId,
+            companyId,
+          ],
+        );
+      }
+
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'capture_sheet',
+            $3,
+            'update',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+          userId,
+          String(
+            captureSheetId
+          ),
+          JSON.stringify(
+            previous
+          ),
+          JSON.stringify(
+            captureSheet
+          ),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.json({
+        success: true,
+
+        message:
+          'Hoja de captación actualizada correctamente',
+
+        capture_sheet:
+          captureSheet,
+
+        lots_updated:
+          hasCaptador,
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+
+      console.error(
+        'UPDATE SLAUGHTERHOUSE CAPTURE SHEET ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error actualizando hoja de captación',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+  };
+
 // =====================================================
 // 📋 CREAR HOJA DE CAPTACIÓN
 // POST /slaughterhouse/admin/capture-sheets
