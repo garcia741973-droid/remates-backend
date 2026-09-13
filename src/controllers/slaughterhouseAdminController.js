@@ -11365,6 +11365,20 @@ exports.createPurchaseLot =
           .trim() ||
         null;
 
+      const pricingBasis =
+        req.body.pricing_basis
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        null;
+
+
+      const weightSource =
+        req.body.weight_source
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        null;
 
       const expectedQuantityRaw =
         req.body.expected_quantity;
@@ -11567,6 +11581,125 @@ exports.createPurchaseLot =
 
       }
 
+      const allowedPricingBasis = [
+        'live_kg',
+        'hook_kg',
+        'per_head',
+      ];
+
+
+      const allowedWeightSources = [
+        'origin',
+        'plant',
+        'not_applicable',
+      ];
+
+
+      if (
+        pricingBasis !== null &&
+        !allowedPricingBasis.includes(
+          pricingBasis
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'pricing_basis inválido',
+        });
+      }
+
+
+      if (
+        weightSource !== null &&
+        !allowedWeightSources.includes(
+          weightSource
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'weight_source inválido',
+        });
+      }
+
+
+      // Si se informa uno, debe informarse el otro.
+      if (
+        (
+          pricingBasis === null &&
+          weightSource !== null
+        ) ||
+        (
+          pricingBasis !== null &&
+          weightSource === null
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'pricing_basis y weight_source deben definirse juntos',
+        });
+      }
+
+
+      // KILO VIVO
+      // Puede pesarse en origen o en planta.
+      if (
+        pricingBasis === 'live_kg' &&
+        ![
+          'origin',
+          'plant',
+        ].includes(
+          weightSource
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'Una compra por kilo vivo debe pesarse en origen o en planta',
+        });
+      }
+
+
+      // KILO GANCHO
+      // Se determina necesariamente en planta.
+      if (
+        pricingBasis === 'hook_kg' &&
+        weightSource !== 'plant'
+      ) {
+        return res.status(400).json({
+          error:
+            'Una compra por kilo gancho debe determinarse en planta',
+        });
+      }
+
+
+      // POR CABEZA / A BULTO
+      if (
+        pricingBasis === 'per_head' &&
+        weightSource !==
+          'not_applicable'
+      ) {
+        return res.status(400).json({
+          error:
+            'Una compra por cabeza debe configurarse como compra a bulto',
+        });
+      }
+
+
+      // Si ya se definió la modalidad comercial,
+      // debe existir precio acordado.
+      if (
+        pricingBasis !== null &&
+        (
+          pricePerUnit === null ||
+          !Number.isFinite(
+            pricePerUnit
+          ) ||
+          pricePerUnit <= 0
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'Debe indicar un precio mayor a 0 para la modalidad de compra seleccionada',
+        });
+      }
 
       if (
         !Number.isFinite(
@@ -12032,6 +12165,8 @@ exports.createPurchaseLot =
               commissioner_person_id,
               classification_id,
               purchase_type,
+              pricing_basis,
+              weight_source,
               expected_quantity,
               price_per_unit,
               currency,
@@ -12043,14 +12178,13 @@ exports.createPurchaseLot =
               notes,
               created_by
             )
-
             VALUES (
               $1,$2,$3,$4,$5,
               $6,$7,$8,$9,$10,
               $11,$12,$13,$14,$15,
-              $16,$17,$18,$19,$20
+              $16,$17,$18,$19,$20,
+              $21,$22
             )
-
             RETURNING *
           `,
           [
@@ -12064,6 +12198,8 @@ exports.createPurchaseLot =
             commissionerPersonId,
             classificationId,
             purchaseType,
+            pricingBasis,
+            weightSource,
             expectedQuantity,
             pricePerUnit,
             currency,
@@ -12926,6 +13062,20 @@ exports.updatePurchaseLot =
           .trim() ||
         null;
 
+      const pricingBasis =
+        req.body.pricing_basis
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        null;
+
+
+      const weightSource =
+        req.body.weight_source
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        null;
 
       const expectedQuantityRaw =
         req.body.expected_quantity;
@@ -13120,6 +13270,117 @@ exports.updatePurchaseLot =
 
       }
 
+      const allowedPricingBasis = [
+        'live_kg',
+        'hook_kg',
+        'per_head',
+      ];
+
+
+      const allowedWeightSources = [
+        'origin',
+        'plant',
+        'not_applicable',
+      ];
+
+
+      if (
+        pricingBasis !== null &&
+        !allowedPricingBasis.includes(
+          pricingBasis
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'pricing_basis inválido',
+        });
+      }
+
+
+      if (
+        weightSource !== null &&
+        !allowedWeightSources.includes(
+          weightSource
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'weight_source inválido',
+        });
+      }
+
+
+      if (
+        (
+          pricingBasis === null &&
+          weightSource !== null
+        ) ||
+        (
+          pricingBasis !== null &&
+          weightSource === null
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'pricing_basis y weight_source deben definirse juntos',
+        });
+      }
+
+
+      if (
+        pricingBasis === 'live_kg' &&
+        ![
+          'origin',
+          'plant',
+        ].includes(
+          weightSource
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'Una compra por kilo vivo debe pesarse en origen o en planta',
+        });
+      }
+
+
+      if (
+        pricingBasis === 'hook_kg' &&
+        weightSource !== 'plant'
+      ) {
+        return res.status(400).json({
+          error:
+            'Una compra por kilo gancho debe determinarse en planta',
+        });
+      }
+
+
+      if (
+        pricingBasis === 'per_head' &&
+        weightSource !==
+          'not_applicable'
+      ) {
+        return res.status(400).json({
+          error:
+            'Una compra por cabeza debe configurarse como compra a bulto',
+        });
+      }
+
+
+      if (
+        pricingBasis !== null &&
+        (
+          pricePerUnit === null ||
+          !Number.isFinite(
+            pricePerUnit
+          ) ||
+          pricePerUnit <= 0
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'Debe indicar un precio mayor a 0 para la modalidad de compra seleccionada',
+        });
+      }
 
       if (
         !Number.isFinite(
@@ -13325,6 +13586,93 @@ exports.updatePurchaseLot =
 
       }
 
+      // =================================================
+      // CONSISTENCIA CON HOJA DE CAPTACIÓN
+      //
+      // Si el lote pertenece a una hoja,
+      // vendedor y captador se administran desde la hoja.
+      // =================================================
+
+      if (
+        previous.capture_sheet_id !== null
+      ) {
+        const captureResult =
+          await client.query(
+            `
+              SELECT
+                id,
+                seller_person_id,
+                captador_person_id
+              FROM slaughterhouse_capture_sheets
+              WHERE
+                id = $1
+                AND company_id = $2
+              LIMIT 1
+            `,
+            [
+              previous.capture_sheet_id,
+              companyId,
+            ],
+          );
+
+
+        if (
+          captureResult.rows.length === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'La hoja de captación vinculada al lote no existe',
+          });
+        }
+
+
+        const captureSheet =
+          captureResult.rows[0];
+
+
+        if (
+          Number(
+            captureSheet.seller_person_id
+          ) !==
+          sellerPersonId
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El vendedor de un lote vinculado a una hoja de captación debe modificarse desde la hoja',
+          });
+        }
+
+
+        const sheetCaptadorId =
+          captureSheet.captador_person_id !== null
+            ? Number(
+                captureSheet.captador_person_id
+              )
+            : null;
+
+
+        if (
+          sheetCaptadorId !==
+          captadorPersonId
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El captador de un lote vinculado a una hoja de captación debe modificarse desde la hoja',
+          });
+        }
+      }
 
       // =================================================
       // VALIDAR VENDEDOR
@@ -13606,7 +13954,6 @@ exports.updatePurchaseLot =
         await client.query(
           `
             UPDATE slaughterhouse_purchase_lots
-
             SET
               external_order_number = $1,
               seller_person_id = $2,
@@ -13615,20 +13962,22 @@ exports.updatePurchaseLot =
               commissioner_person_id = $5,
               classification_id = $6,
               purchase_type = $7,
-              expected_quantity = $8,
-              price_per_unit = $9,
-              currency = $10,
-              shrink_percent = $11,
-              commission_type = $12,
-              commission_value = $13,
-              planned_date = $14,
-              status = $15,
-              notes = $16,
+              pricing_basis = $8,
+              weight_source = $9,
+              expected_quantity = $10,
+              price_per_unit = $11,
+              currency = $12,
+              shrink_percent = $13,
+              commission_type = $14,
+              commission_value = $15,
+              planned_date = $16,
+              status = $17,
+              notes = $18,
               updated_at = NOW()
 
             WHERE
-              id = $17
-              AND company_id = $18
+              id = $19
+              AND company_id = $20
 
             RETURNING *
           `,
@@ -13640,6 +13989,8 @@ exports.updatePurchaseLot =
             commissionerPersonId,
             classificationId,
             purchaseType,
+            pricingBasis,
+            weightSource,
             expectedQuantity,
             pricePerUnit,
             currency,
@@ -30580,7 +30931,14 @@ exports.generatePreliquidationDraft =
           `
             SELECT
               id,
-              status
+              status,
+              purchase_type,
+              expected_quantity,
+              pricing_basis,
+              weight_source,
+              price_per_unit,
+              shrink_percent,
+              capture_sheet_id
             FROM slaughterhouse_purchase_lots
             WHERE
               id = $1
@@ -30630,6 +30988,157 @@ exports.generatePreliquidationDraft =
 
       }
 
+
+      // =================================================
+      // VALIDAR CONFIGURACIÓN COMERCIAL DEL LOTE
+      // =================================================
+
+      const pricingBasis =
+        lot.pricing_basis
+          ?.toString()
+          .trim() ||
+        null;
+
+      const weightSource =
+        lot.weight_source
+          ?.toString()
+          .trim() ||
+        null;
+
+      const unitPrice =
+        lot.price_per_unit !== null &&
+        lot.price_per_unit !== undefined
+          ? Number(
+              lot.price_per_unit
+            )
+          : null;
+
+      const allowedPricingBasis = [
+        'live_kg',
+        'hook_kg',
+        'per_head',
+      ];
+
+      const allowedWeightSources = [
+        'origin',
+        'plant',
+        'not_applicable',
+      ];
+
+      if (
+        pricingBasis === null ||
+        !allowedPricingBasis.includes(
+          pricingBasis
+        )
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El lote no tiene una base de precio válida para preliquidar',
+          pricing_basis:
+            pricingBasis,
+        });
+      }
+
+      if (
+        weightSource === null ||
+        !allowedWeightSources.includes(
+          weightSource
+        )
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El lote no tiene una modalidad de peso válida para preliquidar',
+          weight_source:
+            weightSource,
+        });
+      }
+
+      if (
+        unitPrice === null ||
+        !Number.isFinite(
+          unitPrice
+        ) ||
+        unitPrice < 0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El lote no tiene un precio válido para preliquidar',
+        });
+      }
+
+      // =================================================
+      // VALIDAR COMBINACIONES COMERCIALES
+      //
+      // KG VIVO:
+      // - pesado en origen
+      // - pesado en planta
+      //
+      // KG GANCHO:
+      // - determinado en planta
+      //
+      // POR CABEZA:
+      // - compra a bulto / sin peso requerido
+      // =================================================
+
+      if (
+        pricingBasis === 'live_kg' &&
+        ![
+          'origin',
+          'plant',
+        ].includes(
+          weightSource
+        )
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Una compra por kilo vivo debe pesarse en origen o en planta',
+        });
+      }
+
+      if (
+        pricingBasis === 'hook_kg' &&
+        weightSource !== 'plant'
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Una compra por kilo gancho debe determinarse en planta',
+        });
+      }
+
+      if (
+        pricingBasis === 'per_head' &&
+        weightSource !==
+          'not_applicable'
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Una compra por cabeza debe configurarse como compra a bulto',
+        });
+      }
 
       // =================================================
       // 2. VALIDAR QUE NO QUEDE FAENA PENDIENTE
@@ -30756,178 +31265,808 @@ exports.generatePreliquidationDraft =
 
 
       // =================================================
-      // 4. TOMAR SOLO PESAJES CERTIFICADOS VIGENTES
+      // 4. OBTENER FUENTE SEGÚN MODALIDAD DE COMPRA
       //
-      // Un pesaje rectificado ya no tiene status certified,
-      // por lo que no participa nuevamente.
+      // live_kg + origin
+      //   => pesaje certificado en origen
+      //
+      // live_kg + plant
+      //   => peso vivo registrado en recepción FRIGOSI
+      //
+      // hook_kg + plant
+      //   => suma de peso gancho de medias reses
+      //
+      // per_head + not_applicable
+      //   => cantidad realmente recibida
       // =================================================
 
-      const sourceResult =
-        await client.query(
-          `
-            SELECT
+      let sourceType =
+        null;
 
-              COUNT(*)::int
-                AS weighings_count,
+      let source = {
+        animals_count: 0,
+        distinct_prices: 1,
+      };
 
-              COALESCE(
-                SUM(quantity),
-                0
-              )::int
-                AS animals_count,
+      let weighingsCount =
+        0;
 
-              COALESCE(
-                SUM(gross_weight_kg),
-                0
-              )::numeric
-                AS gross_weight_kg,
+      let quantity =
+        0;
 
-              COALESCE(
-                SUM(shrink_weight_kg),
-                0
-              )::numeric
-                AS shrink_weight_kg,
+      let grossWeightKg =
+        0;
 
-              COALESCE(
-                SUM(net_weight_kg),
-                0
-              )::numeric
-                AS net_weight_kg,
+      let shrinkWeightKg =
+        0;
 
-              COALESCE(
-                SUM(total_amount),
-                0
-              )::numeric
-                AS base_amount,
+      let netWeightKg =
+        0;
 
-              COUNT(
-                DISTINCT price_per_kg
-              ) FILTER (
-                WHERE
-                  price_per_kg IS NOT NULL
-              )::int
-                AS distinct_prices,
+      let liveWeightKg =
+        null;
 
-              MIN(price_per_kg)
-                AS single_price_per_kg,
+      let hookWeightKg =
+        null;
 
-              COUNT(*) FILTER (
-                WHERE
-                  gross_weight_kg IS NULL
-                  OR shrink_weight_kg IS NULL
-                  OR net_weight_kg IS NULL
-                  OR price_per_kg IS NULL
-                  OR total_amount IS NULL
-              )::int
-                AS incomplete_weighings
+      let baseAmount =
+        0;
 
-            FROM slaughterhouse_live_weighings
-            WHERE
-              company_id = $1
-              AND purchase_lot_id = $2
-              AND status = 'certified'
-          `,
-          [
-            companyId,
-            purchaseLotId,
-          ],
-        );
-
-
-      const source =
-        sourceResult.rows[0];
-
-
-      const weighingsCount =
+      let shrinkPercent =
         Number(
-          source.weighings_count || 0
+          lot.shrink_percent || 0
         );
 
+      let pricePerKg =
+        null;
+
+
+      // =================================================
+      // A. KILO VIVO + PESO EN ORIGEN
+      // =================================================
 
       if (
-        weighingsCount === 0
+        pricingBasis ===
+          'live_kg' &&
+        weightSource ===
+          'origin'
       ) {
+        sourceType =
+          'certified_origin_weighings';
 
-        await client.query(
-          'ROLLBACK'
-        );
 
-        return res.status(409).json({
-          error:
-            'El lote no tiene pesajes certificados para preliquidar',
-        });
+        const sourceResult =
+          await client.query(
+            `
+              SELECT
+                COUNT(*)::int
+                  AS weighings_count,
 
+                COALESCE(
+                  SUM(quantity),
+                  0
+                )::int
+                  AS animals_count,
+
+                COALESCE(
+                  SUM(gross_weight_kg),
+                  0
+                )::numeric
+                  AS gross_weight_kg,
+
+                COALESCE(
+                  SUM(shrink_weight_kg),
+                  0
+                )::numeric
+                  AS shrink_weight_kg,
+
+                COALESCE(
+                  SUM(net_weight_kg),
+                  0
+                )::numeric
+                  AS net_weight_kg,
+
+                COUNT(*) FILTER (
+                  WHERE
+                    quantity IS NULL
+                    OR gross_weight_kg IS NULL
+                    OR shrink_weight_kg IS NULL
+                    OR net_weight_kg IS NULL
+                )::int
+                  AS incomplete_weighings
+
+              FROM slaughterhouse_live_weighings
+
+              WHERE
+                company_id = $1
+                AND purchase_lot_id = $2
+                AND status = 'certified'
+            `,
+            [
+              companyId,
+              purchaseLotId,
+            ],
+          );
+
+
+        const originSource =
+          sourceResult.rows[0];
+
+
+        weighingsCount =
+          Number(
+            originSource
+              .weighings_count || 0
+          );
+
+
+        if (
+          weighingsCount === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El lote no tiene pesajes de origen certificados para preliquidar',
+          });
+        }
+
+
+        if (
+          Number(
+            originSource
+              .incomplete_weighings || 0
+          ) > 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'Existen pesajes de origen certificados con información incompleta',
+          });
+        }
+
+
+        quantity =
+          Number(
+            originSource
+              .animals_count || 0
+          );
+
+
+        grossWeightKg =
+          Number(
+            originSource
+              .gross_weight_kg || 0
+          );
+
+
+        shrinkWeightKg =
+          Number(
+            originSource
+              .shrink_weight_kg || 0
+          );
+
+
+        netWeightKg =
+          Number(
+            originSource
+              .net_weight_kg || 0
+          );
+
+
+        liveWeightKg =
+          grossWeightKg;
+
+
+        shrinkPercent =
+          grossWeightKg > 0
+            ? (
+                shrinkWeightKg /
+                grossWeightKg
+              ) * 100
+            : 0;
+
+
+        baseAmount =
+          netWeightKg *
+          unitPrice;
+
+
+        pricePerKg =
+          unitPrice;
+
+
+        source = {
+          animals_count:
+            quantity,
+
+          distinct_prices:
+            1,
+
+          weighings_count:
+            weighingsCount,
+
+          gross_weight_kg:
+            grossWeightKg,
+
+          shrink_weight_kg:
+            shrinkWeightKg,
+
+          net_weight_kg:
+            netWeightKg,
+        };
       }
 
 
+      // =================================================
+      // B. KILO VIVO + PESO EN PLANTA
+      // =================================================
+
       if (
-        Number(
-          source.incomplete_weighings || 0
-        ) > 0
+        pricingBasis ===
+          'live_kg' &&
+        weightSource ===
+          'plant'
       ) {
+        sourceType =
+          'plant_live_weight';
 
-        await client.query(
-          'ROLLBACK'
-        );
 
-        return res.status(409).json({
-          error:
-            'Existen pesajes certificados con información financiera incompleta',
-          incomplete_weighings:
+        const troopsSourceResult =
+          await client.query(
+            `
+              SELECT
+                COUNT(*)::int
+                  AS troops_count,
+
+                COALESCE(
+                  SUM(received_quantity),
+                  0
+                )::int
+                  AS animals_count,
+
+                COUNT(*) FILTER (
+                  WHERE
+                    reception_truck_id
+                      IS NULL
+                )::int
+                  AS missing_receptions
+
+              FROM slaughterhouse_troops
+
+              WHERE
+                company_id = $1
+                AND purchase_lot_id = $2
+                AND status <> 'cancelled'
+            `,
+            [
+              companyId,
+              purchaseLotId,
+            ],
+          );
+
+
+        const troopsSource =
+          troopsSourceResult.rows[0];
+
+
+        const troopsCount =
+          Number(
+            troopsSource
+              .troops_count || 0
+          );
+
+
+        if (
+          troopsCount === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El lote no tiene tropas para obtener el peso vivo de planta',
+          });
+        }
+
+
+        if (
+          Number(
+            troopsSource
+              .missing_receptions || 0
+          ) > 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'Existen tropas del lote sin recepción registrada',
+          });
+        }
+
+
+        const plantWeightResult =
+          await client.query(
+            `
+              SELECT
+                COUNT(*)::int
+                  AS receptions_count,
+
+                COUNT(*) FILTER (
+                  WHERE
+                    srt.live_weight_kg
+                      IS NULL
+                )::int
+                  AS missing_weights,
+
+                COALESCE(
+                  SUM(
+                    srt.live_weight_kg
+                  ),
+                  0
+                )::numeric
+                  AS live_weight_kg
+
+              FROM slaughterhouse_reception_trucks srt
+
+              WHERE
+                srt.id IN (
+                  SELECT DISTINCT
+                    st.reception_truck_id
+
+                  FROM slaughterhouse_troops st
+
+                  WHERE
+                    st.company_id = $1
+                    AND st.purchase_lot_id = $2
+                    AND st.status <> 'cancelled'
+                    AND st.reception_truck_id
+                      IS NOT NULL
+                )
+            `,
+            [
+              companyId,
+              purchaseLotId,
+            ],
+          );
+
+
+        const plantSource =
+          plantWeightResult.rows[0];
+
+
+        if (
+          Number(
+            plantSource
+              .receptions_count || 0
+          ) === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'No existe peso vivo registrado en planta para este lote',
+          });
+        }
+
+
+        if (
+          Number(
+            plantSource
+              .missing_weights || 0
+          ) > 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'Existen recepciones del lote sin peso vivo registrado',
+          });
+        }
+
+
+        quantity =
+          Number(
+            troopsSource
+              .animals_count || 0
+          );
+
+
+        grossWeightKg =
+          Number(
+            plantSource
+              .live_weight_kg || 0
+          );
+
+
+        liveWeightKg =
+          grossWeightKg;
+
+
+        shrinkWeightKg =
+          grossWeightKg *
+          (
+            shrinkPercent /
+            100
+          );
+
+
+        netWeightKg =
+          grossWeightKg -
+          shrinkWeightKg;
+
+
+        baseAmount =
+          netWeightKg *
+          unitPrice;
+
+
+        pricePerKg =
+          unitPrice;
+
+
+        source = {
+          animals_count:
+            quantity,
+
+          distinct_prices:
+            1,
+
+          troops_count:
+            troopsCount,
+
+          gross_weight_kg:
+            grossWeightKg,
+
+          shrink_weight_kg:
+            shrinkWeightKg,
+
+          net_weight_kg:
+            netWeightKg,
+        };
+      }
+
+
+      // =================================================
+      // C. KILO GANCHO
+      // =================================================
+
+      if (
+        pricingBasis ===
+          'hook_kg' &&
+        weightSource ===
+          'plant'
+      ) {
+        sourceType =
+          'plant_hook_weight';
+
+
+        const quantityResult =
+          await client.query(
+            `
+              SELECT
+                COALESCE(
+                  SUM(received_quantity),
+                  0
+                )::int
+                  AS animals_count
+
+              FROM slaughterhouse_troops
+
+              WHERE
+                company_id = $1
+                AND purchase_lot_id = $2
+                AND status <> 'cancelled'
+            `,
+            [
+              companyId,
+              purchaseLotId,
+            ],
+          );
+
+
+        quantity =
+          Number(
+            quantityResult.rows[0]
+              .animals_count || 0
+          );
+
+
+        const hookResult =
+          await client.query(
+            `
+              SELECT
+                COUNT(sc.id)::int
+                  AS carcass_halves_count,
+
+                COALESCE(
+                  SUM(
+                    sc.hook_weight_kg
+                  ),
+                  0
+                )::numeric
+                  AS hook_weight_kg
+
+              FROM slaughterhouse_carcasses sc
+
+              JOIN slaughterhouse_troops st
+                ON st.id =
+                  sc.troop_id
+
+              WHERE
+                st.company_id = $1
+                AND st.purchase_lot_id = $2
+                AND st.status <> 'cancelled'
+            `,
+            [
+              companyId,
+              purchaseLotId,
+            ],
+          );
+
+
+        const hookSource =
+          hookResult.rows[0];
+
+
+        if (
+          Number(
+            hookSource
+              .carcass_halves_count || 0
+          ) === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El lote no tiene pesos gancho registrados para preliquidar',
+          });
+        }
+
+
+        hookWeightKg =
+          Number(
+            hookSource
+              .hook_weight_kg || 0
+          );
+
+
+        baseAmount =
+          hookWeightKg *
+          unitPrice;
+
+
+        pricePerKg =
+          unitPrice;
+
+
+        grossWeightKg =
+          0;
+
+        shrinkWeightKg =
+          0;
+
+        netWeightKg =
+          0;
+
+        shrinkPercent =
+          0;
+
+
+        source = {
+          animals_count:
+            quantity,
+
+          distinct_prices:
+            1,
+
+          carcass_halves_count:
             Number(
-              source.incomplete_weighings
+              hookSource
+                .carcass_halves_count || 0
             ),
-        });
 
+          hook_weight_kg:
+            hookWeightKg,
+        };
       }
 
 
-      const grossWeightKg =
-        Number(
-          source.gross_weight_kg
+      // =================================================
+      // D. COMPRA POR CABEZA / A BULTO
+      // =================================================
+
+      if (
+        pricingBasis ===
+          'per_head' &&
+        weightSource ===
+          'not_applicable'
+      ) {
+        sourceType =
+          'received_animals';
+
+
+        const quantityResult =
+          await client.query(
+            `
+              SELECT
+                COUNT(*)::int
+                  AS troops_count,
+
+                COALESCE(
+                  SUM(received_quantity),
+                  0
+                )::int
+                  AS animals_count
+
+              FROM slaughterhouse_troops
+
+              WHERE
+                company_id = $1
+                AND purchase_lot_id = $2
+                AND status <> 'cancelled'
+            `,
+            [
+              companyId,
+              purchaseLotId,
+            ],
+          );
+
+
+        const quantitySource =
+          quantityResult.rows[0];
+
+
+        if (
+          Number(
+            quantitySource
+              .troops_count || 0
+          ) === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El lote no tiene tropas para determinar la cantidad recibida',
+          });
+        }
+
+
+        quantity =
+          Number(
+            quantitySource
+              .animals_count || 0
+          );
+
+
+        if (
+          quantity <= 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El lote no tiene animales recibidos para preliquidar por cabeza',
+          });
+        }
+
+
+        baseAmount =
+          quantity *
+          unitPrice;
+
+
+        grossWeightKg =
+          0;
+
+        shrinkWeightKg =
+          0;
+
+        netWeightKg =
+          0;
+
+        shrinkPercent =
+          0;
+
+        pricePerKg =
+          null;
+
+
+        source = {
+          animals_count:
+            quantity,
+
+          distinct_prices:
+            1,
+
+          troops_count:
+            Number(
+              quantitySource
+                .troops_count || 0
+            ),
+        };
+      }
+
+
+      // =================================================
+      // SEGURIDAD FINAL
+      // =================================================
+
+      if (
+        sourceType === null
+      ) {
+        await client.query(
+          'ROLLBACK'
         );
 
-      const shrinkWeightKg =
-        Number(
-          source.shrink_weight_kg
-        );
-
-      const netWeightKg =
-        Number(
-          source.net_weight_kg
-        );
-
-      const baseAmount =
-        Number(
-          source.base_amount
-        );
+        return res.status(409).json({
+          error:
+            'La modalidad comercial del lote todavía no está soportada para preliquidación',
+          pricing_basis:
+            pricingBasis,
+          weight_source:
+            weightSource,
+        });
+      }
 
 
-      const shrinkPercent =
-        grossWeightKg > 0
-          ? (
-              shrinkWeightKg /
-              grossWeightKg
-            ) * 100
-          : 0;
+      const sourceSnapshot = {
+        source_type:
+          sourceType,
 
+        pricing_basis:
+          pricingBasis,
 
-      // Si todo el lote tiene el mismo precio,
-      // lo conservamos en price_per_kg.
-      //
-      // Si existen diferentes precios certificados,
-      // price_per_kg queda NULL y base_amount sigue siendo
-      // la suma exacta de los documentos certificados.
+        weight_source:
+          weightSource,
 
-      const pricePerKg =
-        Number(
-          source.distinct_prices
-        ) === 1
-          ? Number(
-              source.single_price_per_kg
-            )
-          : null;
+        quantity,
 
+        unit_price:
+          unitPrice,
+
+        live_weight_kg:
+          liveWeightKg,
+
+        hook_weight_kg:
+          hookWeightKg,
+
+        gross_weight_kg:
+          grossWeightKg,
+
+        shrink_percent:
+          shrinkPercent,
+
+        shrink_weight_kg:
+          shrinkWeightKg,
+
+        net_weight_kg:
+          netWeightKg,
+
+        base_amount:
+          baseAmount,
+
+        details:
+          source,
+      };
 
       // =================================================
       // 5. NUEVA VERSIÓN
@@ -30970,23 +32109,57 @@ exports.generatePreliquidationDraft =
               company_id,
               purchase_lot_id,
               version,
+
               gross_weight_kg,
               shrink_percent,
               shrink_weight_kg,
               net_weight_kg,
               price_per_kg,
+
               base_amount,
               discounts_total,
               additions_total,
               total_payable,
+
               status,
               generated_by,
-              generated_at
+              generated_at,
+
+              pricing_basis,
+              weight_source,
+              quantity,
+              unit_price,
+              live_weight_kg,
+              hook_weight_kg,
+              source_snapshot
             )
             VALUES (
-              $1,$2,$3,$4,$5,
-              $6,$7,$8,$9,0,
-              0,$9,'draft',$10,NOW()
+              $1,
+              $2,
+              $3,
+
+              $4,
+              $5,
+              $6,
+              $7,
+              $8,
+
+              $9,
+              0,
+              0,
+              $9,
+
+              'draft',
+              $10,
+              NOW(),
+
+              $11,
+              $12,
+              $13,
+              $14,
+              $15,
+              $16,
+              $17::jsonb
             )
             RETURNING *
           `,
@@ -30994,13 +32167,25 @@ exports.generatePreliquidationDraft =
             companyId,
             purchaseLotId,
             version,
+
             grossWeightKg,
             shrinkPercent,
             shrinkWeightKg,
             netWeightKg,
             pricePerKg,
+
             baseAmount,
             userId,
+
+            pricingBasis,
+            weightSource,
+            quantity,
+            unitPrice,
+            liveWeightKg,
+            hookWeightKg,
+            JSON.stringify(
+              sourceSnapshot
+            ),
           ],
         );
 
@@ -31040,19 +32225,49 @@ exports.generatePreliquidationDraft =
           ),
           JSON.stringify({
             preliquidation,
+
             source: {
               purchase_lot_id:
                 purchaseLotId,
-              weighings_count:
-                weighingsCount,
-              animals_count:
-                Number(
-                  source.animals_count || 0
-                ),
-              distinct_prices:
-                Number(
-                  source.distinct_prices || 0
-                ),
+
+              source_type:
+                sourceType,
+
+              pricing_basis:
+                pricingBasis,
+
+              weight_source:
+                weightSource,
+
+              quantity:
+                quantity,
+
+              unit_price:
+                unitPrice,
+
+              live_weight_kg:
+                liveWeightKg,
+
+              hook_weight_kg:
+                hookWeightKg,
+
+              gross_weight_kg:
+                grossWeightKg,
+
+              shrink_percent:
+                shrinkPercent,
+
+              shrink_weight_kg:
+                shrinkWeightKg,
+
+              net_weight_kg:
+                netWeightKg,
+
+              base_amount:
+                baseAmount,
+
+              details:
+                source,
             },
           }),
         ],
@@ -31073,16 +32288,32 @@ exports.generatePreliquidationDraft =
         preliquidation,
 
         source_summary: {
-          certified_weighings:
-            weighingsCount,
+          source_type:
+            sourceType,
 
-          animals_count:
-            Number(
-              source.animals_count || 0
-            ),
+          pricing_basis:
+            pricingBasis,
+
+          weight_source:
+            weightSource,
+
+          quantity:
+            quantity,
+
+          unit_price:
+            unitPrice,
+
+          live_weight_kg:
+            liveWeightKg,
+
+          hook_weight_kg:
+            hookWeightKg,
 
           gross_weight_kg:
             grossWeightKg,
+
+          shrink_percent:
+            shrinkPercent,
 
           shrink_weight_kg:
             shrinkWeightKg,
@@ -31090,15 +32321,11 @@ exports.generatePreliquidationDraft =
           net_weight_kg:
             netWeightKg,
 
-          distinct_prices:
-            Number(
-              source.distinct_prices || 0
-            ),
+          base_amount:
+            baseAmount,
 
-          mixed_prices:
-            Number(
-              source.distinct_prices || 0
-            ) > 1,
+          details:
+            source,
         },
       });
 
