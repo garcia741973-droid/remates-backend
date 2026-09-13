@@ -11539,9 +11539,9 @@ exports.getCaptureSheetById =
               spl.commissioner_person_id,
               spl.classification_id,
 
-              sac.code
+              sac.generated_code
                 AS classification_code,
-              sac.name
+              sac.display_name
                 AS classification_name,
 
               spl.purchase_type,
@@ -11580,10 +11580,14 @@ exports.getCaptureSheetById =
             LEFT JOIN slaughterhouse_estates se
               ON se.id =
                 spl.estate_id
+              AND se.company_id =
+                spl.company_id
 
             LEFT JOIN slaughterhouse_animal_classifications sac
               ON sac.id =
                 spl.classification_id
+              AND sac.company_id =
+                spl.company_id
 
             LEFT JOIN LATERAL (
               SELECT
