@@ -2547,6 +2547,27 @@ exports.updatePerson =
         req.body.export_enabled === true;
 
 
+      const hasLinkedUserId =
+        Object.prototype.hasOwnProperty.call(
+          req.body,
+          'user_id'
+        );
+
+
+      const linkedUserIdRaw =
+        req.body.user_id;
+
+
+      const linkedUserId =
+        hasLinkedUserId &&
+        linkedUserIdRaw !== null &&
+        linkedUserIdRaw !== ''
+          ? Number(
+              linkedUserIdRaw
+            )
+          : null;
+
+
       const roles =
         Array.isArray(
           req.body.roles
@@ -2597,6 +2618,21 @@ exports.updatePerson =
 
       }
 
+      if (
+        hasLinkedUserId &&
+        linkedUserId !== null &&
+        (
+          !Number.isInteger(
+            linkedUserId
+          ) ||
+          linkedUserId <= 0
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'user_id inválido',
+        });
+      }
 
       const allowedRoles =
         [
@@ -2693,6 +2729,117 @@ exports.updatePerson =
       const previous =
         previousResult.rows[0];
 
+      const effectiveLinkedUserId =
+        hasLinkedUserId
+          ? linkedUserId
+          : (
+              previous.user_id !== null &&
+              previous.user_id !== undefined
+                ? Number(
+                    previous.user_id
+                  )
+                : null
+            );
+
+
+      // =================================================
+      // CAPTADOR / COMPRADOR
+      // =================================================
+
+      if (
+        roles.includes(
+          'captador'
+        ) &&
+        effectiveLinkedUserId === null
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(400).json({
+          error:
+            'Un captador/comprador debe estar vinculado a un usuario de Plaza Ganadera',
+        });
+      }
+
+
+      // =================================================
+      // VALIDAR USUARIO PLAZA GANADERA
+      // =================================================
+
+      if (
+        effectiveLinkedUserId !== null
+      ) {
+        const linkedUserResult =
+          await client.query(
+            `
+              SELECT
+                id
+              FROM users
+              WHERE
+                id = $1
+                AND is_active = true
+              LIMIT 1
+            `,
+            [
+              effectiveLinkedUserId,
+            ],
+          );
+
+
+        if (
+          linkedUserResult.rows.length === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(400).json({
+            error:
+              'El usuario de Plaza Ganadera no existe o está inactivo',
+          });
+        }
+
+
+        const duplicatedLinkResult =
+          await client.query(
+            `
+              SELECT
+                id,
+                full_name
+              FROM slaughterhouse_people
+              WHERE
+                company_id = $1
+                AND user_id = $2
+                AND id <> $3
+              LIMIT 1
+            `,
+            [
+              companyId,
+              effectiveLinkedUserId,
+              personId,
+            ],
+          );
+
+
+        if (
+          duplicatedLinkResult.rows.length > 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'Ese usuario de Plaza Ganadera ya está vinculado a otra persona de este frigorífico',
+            person_id:
+              duplicatedLinkResult.rows[0].id,
+            person_name:
+              duplicatedLinkResult.rows[0]
+                .full_name,
+          });
+        }
+      }
 
       // =================================================
       // ACTUALIZAR PERSONA
@@ -2704,23 +2851,25 @@ exports.updatePerson =
             UPDATE slaughterhouse_people
 
             SET
-              person_type = $1,
-              full_name = $2,
-              document_type = $3,
-              document_number = $4,
-              phone = $5,
-              email = $6,
-              export_enabled = $7,
-              notes = $8,
+              user_id = $1,
+              person_type = $2,
+              full_name = $3,
+              document_type = $4,
+              document_number = $5,
+              phone = $6,
+              email = $7,
+              export_enabled = $8,
+              notes = $9,
               updated_at = NOW()
 
             WHERE
-              id = $9
-              AND company_id = $10
+              id = $10
+              AND company_id = $11
 
             RETURNING *
           `,
           [
+            effectiveLinkedUserId,
             personType,
             fullName,
             documentType,
