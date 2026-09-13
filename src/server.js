@@ -191,6 +191,9 @@ const slaughterhouseRoutes =
 const slaughterhouseAdminRoutes =
   require('./routes/slaughterhouseAdminRoutes');
 
+const slaughterhouseFieldRoutes =
+  require('./routes/slaughterhouseFieldRoutes');
+
 const userNotificationsRoutes =
   require('./routes/userNotificationsRoutes');
 
@@ -284,13 +287,18 @@ app.use('/auctions', auctionsRoutes);
 app.use('/transport', transportRoutes);
 
 app.use(
-  '/slaughterhouse',
-  slaughterhouseRoutes,
+  '/slaughterhouse/field',
+  slaughterhouseFieldRoutes,
 );
 
 app.use(
   '/slaughterhouse/admin',
   slaughterhouseAdminRoutes,
+);
+
+app.use(
+  '/slaughterhouse',
+  slaughterhouseRoutes,
 );
 
 app.use(
