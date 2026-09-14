@@ -15,6 +15,7 @@ const {
 const {
   getAssignedCaptureSheets,
   getAssignedCaptureSheetById,
+  syncFieldLotCapture,
 } = require(
   '../controllers/slaughterhouseFieldController'
 );
@@ -44,6 +45,15 @@ router.get(
 router.get(
   '/capture-sheets/:id',
   getAssignedCaptureSheetById,
+);
+
+// =====================================================
+// 📤 SINCRONIZAR CAPTURA DE UN LOTE / CAMIÓN
+// =====================================================
+
+router.post(
+  '/capture-sheets/:captureSheetId/lots/:purchaseLotId/sync-capture',
+  syncFieldLotCapture,
 );
 
 module.exports = router;

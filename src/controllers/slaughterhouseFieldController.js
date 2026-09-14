@@ -648,3 +648,580 @@ exports.getAssignedCaptureSheetById =
     }
 
   };
+
+// =====================================================
+// 📤 SINCRONIZAR CAPTURA DE CAMPO DE UN LOTE / CAMIÓN
+//
+// POST
+// /slaughterhouse/field/capture-sheets/:captureSheetId/lots/:purchaseLotId/sync-capture
+//
+// Esta etapa:
+// - NO certifica.
+// - NO despacha.
+// - NO modifica expected_quantity.
+// - Guarda la cantidad realmente capturada en campo.
+// - Es idempotente por lote/camión.
+// =====================================================
+exports.syncFieldLotCapture =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      const userId =
+        Number(
+          req.user?.user_id ??
+          req.user?.id
+        );
+
+      const companyId =
+        Number(
+          req.user?.company_id
+        );
+
+      const captureSheetId =
+        Number(
+          req.params.captureSheetId
+        );
+
+      const purchaseLotId =
+        Number(
+          req.params.purchaseLotId
+        );
+
+      const captureStatus =
+        req.body?.status
+          ?.toString()
+          .trim();
+
+      const quantityRaw =
+        req.body?.quantity;
+
+      const quantity =
+        quantityRaw !== undefined &&
+        quantityRaw !== null &&
+        quantityRaw !== ''
+          ? Number(quantityRaw)
+          : null;
+
+      // =================================================
+      // VALIDACIONES BÁSICAS
+      // =================================================
+
+      if (
+        !Number.isInteger(userId) ||
+        userId <= 0
+      ) {
+        return res.status(401).json({
+          error:
+            'Usuario autenticado inválido',
+        });
+      }
+
+      if (
+        !Number.isInteger(companyId) ||
+        companyId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Contexto de empresa inválido',
+        });
+      }
+
+      if (
+        !Number.isInteger(
+          captureSheetId
+        ) ||
+        captureSheetId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'captureSheetId inválido',
+        });
+      }
+
+      if (
+        !Number.isInteger(
+          purchaseLotId
+        ) ||
+        purchaseLotId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'purchaseLotId inválido',
+        });
+      }
+
+      if (
+        ![
+          'in_progress',
+          'captured',
+        ].includes(captureStatus)
+      ) {
+        return res.status(400).json({
+          error:
+            'status debe ser in_progress o captured',
+        });
+      }
+
+      if (
+        !Number.isInteger(quantity) ||
+        quantity < 0
+      ) {
+        return res.status(400).json({
+          error:
+            'quantity debe ser un entero mayor o igual a 0',
+        });
+      }
+
+      if (
+        captureStatus === 'captured' &&
+        quantity <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Una carga finalizada debe tener al menos un animal',
+        });
+      }
+
+      await client.query(
+        'BEGIN'
+      );
+
+      // =================================================
+      // IDENTIFICAR CAPTADOR AUTENTICADO
+      // =================================================
+
+      const captadorResult =
+        await client.query(
+          `
+            SELECT
+              sp.id,
+              sp.full_name
+            FROM slaughterhouse_people sp
+
+            JOIN slaughterhouse_person_roles spr
+              ON spr.person_id = sp.id
+              AND spr.role = 'captador'
+              AND spr.is_active = true
+
+            WHERE
+              sp.company_id = $1
+              AND sp.user_id = $2
+              AND sp.is_active = true
+
+            LIMIT 1
+          `,
+          [
+            companyId,
+            userId,
+          ],
+        );
+
+      if (
+        captadorResult.rows.length === 0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(403).json({
+          error:
+            'El usuario no está habilitado como captador/comprador en este frigorífico',
+        });
+      }
+
+      const captador =
+        captadorResult.rows[0];
+
+      // =================================================
+      // VALIDAR HOJA + LOTE + ASIGNACIÓN
+      //
+      // Bloqueamos el lote para evitar que dos reintentos
+      // creen dos tropas al mismo tiempo.
+      // =================================================
+
+      const lotResult =
+        await client.query(
+          `
+            SELECT
+              spl.id,
+              spl.lot_number,
+              spl.capture_sheet_id,
+              spl.expected_quantity,
+              spl.pricing_basis,
+              spl.weight_source,
+              spl.status
+                AS lot_status,
+
+              scs.status
+                AS capture_sheet_status,
+              scs.captador_person_id
+
+            FROM slaughterhouse_purchase_lots spl
+
+            JOIN slaughterhouse_capture_sheets scs
+              ON scs.id =
+                spl.capture_sheet_id
+              AND scs.company_id =
+                spl.company_id
+
+            WHERE
+              spl.id = $1
+              AND spl.company_id = $2
+              AND scs.id = $3
+              AND scs.captador_person_id = $4
+
+            FOR UPDATE OF spl
+          `,
+          [
+            purchaseLotId,
+            companyId,
+            captureSheetId,
+            captador.id,
+          ],
+        );
+
+      if (
+        lotResult.rows.length === 0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'Lote no encontrado o no asignado a este captador',
+        });
+      }
+
+      const lot =
+        lotResult.rows[0];
+
+      if (
+        ![
+          'open',
+          'in_transport',
+        ].includes(
+          lot.lot_status
+        )
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            `El lote no admite captura de campo en estado ${lot.lot_status}`,
+        });
+      }
+
+      // =================================================
+      // KG VIVO / ORIGEN
+      //
+      // Ese caso debe sincronizar además los pesos
+      // individuales. Lo construiremos en el siguiente
+      // paso para el Lote 4.
+      // =================================================
+
+      if (
+        lot.pricing_basis ===
+          'live_kg' &&
+        lot.weight_source ===
+          'origin'
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Este lote requiere sincronización de pesos individuales',
+        });
+      }
+
+      // =================================================
+      // ID ESTABLE DEL CAMIÓN/CARGA
+      //
+      // En nuestro modelo actual:
+      // 1 lote = 1 camión/carga.
+      //
+      // No dependemos de que el teléfono genere otro UUID
+      // después de una pérdida de conexión.
+      // =================================================
+
+      const fieldSyncId =
+        `field:${companyId}:lot:${purchaseLotId}`;
+
+      // =================================================
+      // BUSCAR TROPA EXISTENTE DEL LOTE
+      // =================================================
+
+      const existingTroopsResult =
+        await client.query(
+          `
+            SELECT *
+            FROM slaughterhouse_troops
+
+            WHERE
+              company_id = $1
+              AND purchase_lot_id = $2
+              AND status <> 'cancelled'
+
+            ORDER BY id ASC
+
+            FOR UPDATE
+          `,
+          [
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+      if (
+        existingTroopsResult.rows.length > 1
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El lote tiene más de una tropa activa y requiere revisión administrativa',
+        });
+      }
+
+      let troop;
+      let created = false;
+      let oldData = null;
+
+      // =================================================
+      // REUTILIZAR TROPA EXISTENTE
+      // =================================================
+
+      if (
+        existingTroopsResult.rows.length === 1
+      ) {
+
+        const existingTroop =
+          existingTroopsResult.rows[0];
+
+        oldData =
+          existingTroop;
+
+        if (
+          existingTroop
+            .field_capture_status ===
+          'certified'
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'La captura de este camión ya fue certificada y no puede modificarse',
+          });
+        }
+
+        if (
+          [
+            'dispatched',
+            'in_transit',
+            'received',
+            'in_slaughter',
+            'completed',
+          ].includes(
+            existingTroop.status
+          )
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              `La tropa ya se encuentra en estado ${existingTroop.status}`,
+          });
+        }
+
+        const updateResult =
+          await client.query(
+            `
+              UPDATE slaughterhouse_troops
+
+              SET
+                field_sync_id = $1,
+                field_capture_status = $2,
+                field_captured_quantity = $3,
+                field_captured_at =
+                  CASE
+                    WHEN $2 = 'captured'
+                      THEN COALESCE(
+                        field_captured_at,
+                        NOW()
+                      )
+                    ELSE NULL
+                  END,
+                updated_at = NOW()
+
+              WHERE
+                id = $4
+                AND company_id = $5
+
+              RETURNING *
+            `,
+            [
+              fieldSyncId,
+              captureStatus,
+              quantity,
+              existingTroop.id,
+              companyId,
+            ],
+          );
+
+        troop =
+          updateResult.rows[0];
+
+      } else {
+
+        // =================================================
+        // CREAR TROPA DE CAMPO
+        // =================================================
+
+        const insertResult =
+          await client.query(
+            `
+              INSERT INTO slaughterhouse_troops (
+                company_id,
+                purchase_lot_id,
+                expected_quantity,
+                status,
+                created_by,
+                field_sync_id,
+                field_capture_status,
+                field_captured_quantity,
+                field_captured_at
+              )
+
+              VALUES (
+                $1,
+                $2,
+                $3,
+                'planned',
+                $4,
+                $5,
+                $6,
+                $7,
+                CASE
+                  WHEN $6 = 'captured'
+                    THEN NOW()
+                  ELSE NULL
+                END
+              )
+
+              RETURNING *
+            `,
+            [
+              companyId,
+              purchaseLotId,
+              lot.expected_quantity,
+              userId,
+              fieldSyncId,
+              captureStatus,
+              quantity,
+            ],
+          );
+
+        troop =
+          insertResult.rows[0];
+
+        created = true;
+      }
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'troop',
+            $3,
+            'field_capture_sync',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+          userId,
+          String(troop.id),
+          oldData
+            ? JSON.stringify(oldData)
+            : null,
+          JSON.stringify(troop),
+        ],
+      );
+
+      await client.query(
+        'COMMIT'
+      );
+
+      return res.json({
+        success: true,
+        created,
+        capture_sheet_id:
+          captureSheetId,
+        purchase_lot_id:
+          purchaseLotId,
+        lot_number:
+          lot.lot_number,
+        expected_quantity:
+          lot.expected_quantity,
+        field_captured_quantity:
+          troop.field_captured_quantity,
+        field_capture_status:
+          troop.field_capture_status,
+        troop,
+      });
+
+    } catch (error) {
+
+      try {
+        await client.query(
+          'ROLLBACK'
+        );
+      } catch (_) {}
+
+      console.error(
+        'SYNC FIELD LOT CAPTURE ERROR:',
+        error
+      );
+
+      return res.status(500).json({
+        error:
+          'Error sincronizando captura de campo',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
