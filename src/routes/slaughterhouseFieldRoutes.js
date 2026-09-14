@@ -14,6 +14,7 @@ const {
 
 const {
   getAssignedCaptureSheets,
+  getAssignedCaptureSheetById,
 } = require(
   '../controllers/slaughterhouseFieldController'
 );
@@ -40,5 +41,9 @@ router.get(
   getAssignedCaptureSheets,
 );
 
+router.get(
+  '/capture-sheets/:id',
+  getAssignedCaptureSheetById,
+);
 
 module.exports = router;
