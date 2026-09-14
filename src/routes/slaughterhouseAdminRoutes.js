@@ -1612,22 +1612,6 @@ router.post(
 
 );
 
-router.post(
-
-  '/purchase-lots/:id/weighing-authorizations',
-
-  requireAuth,
-
-  requireSlaughterhouseAdmin,
-
-  requireSlaughterhousePermission(
-    'weighing.issue_qr'
-  ),
-
-  issueWeighingAuthorization,
-
-);
-
 router.get(
 
   '/purchase-lots/:id/weighing-authorizations',
