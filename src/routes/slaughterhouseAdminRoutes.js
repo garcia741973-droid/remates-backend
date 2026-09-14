@@ -218,6 +218,11 @@ const {
 
 );
 
+const {
+  issueFieldAuthorization,
+} = require(
+  '../controllers/slaughterhouseFieldAuthorizationController'
+);
 
 // =====================================================
 // 👤 SESIÓN
@@ -1594,6 +1599,16 @@ router.post(
 
   markTroopTransportPaymentPaid,
 
+);
+
+router.post(
+  '/purchase-lots/:id/field-authorizations',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission(
+    'weighing.issue_qr'
+  ),
+  issueFieldAuthorization,
 );
 
 router.post(
