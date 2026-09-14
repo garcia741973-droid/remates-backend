@@ -129,8 +129,137 @@ function createSignedFieldQrPayload({
   };
 }
 
+function verifySignedFieldQrPayload(
+  qrPayload
+) {
+  let outer;
+
+  try {
+    outer =
+      JSON.parse(
+        qrPayload
+      );
+  } catch {
+    throw new Error(
+      'El QR no contiene un JSON válido'
+    );
+  }
+
+  if (
+    outer?.version !==
+      QR_VERSION ||
+    outer?.type !==
+      QR_TYPE
+  ) {
+    throw new Error(
+      'Tipo o versión de QR inválidos'
+    );
+  }
+
+  const keyId =
+    getKeyId();
+
+  if (
+    outer?.key_id !==
+      keyId
+  ) {
+    throw new Error(
+      'La clave firmante del QR no es válida'
+    );
+  }
+
+  if (
+    typeof outer.payload_b64 !==
+      'string' ||
+    !outer.payload_b64 ||
+    typeof outer.signature !==
+      'string' ||
+    !outer.signature
+  ) {
+    throw new Error(
+      'El QR firmado está incompleto'
+    );
+  }
+
+  const privateKey =
+    getPrivateKey();
+
+  const publicKey =
+    crypto.createPublicKey(
+      privateKey
+    );
+
+  const signatureValid =
+    crypto.verify(
+      null,
+      Buffer.from(
+        outer.payload_b64,
+        'utf8'
+      ),
+      publicKey,
+      Buffer.from(
+        outer.signature,
+        'base64url'
+      )
+    );
+
+  if (!signatureValid) {
+    throw new Error(
+      'La firma digital del QR no es válida'
+    );
+  }
+
+  let signedData;
+
+  try {
+    signedData =
+      JSON.parse(
+        Buffer.from(
+          outer.payload_b64,
+          'base64url'
+        ).toString('utf8')
+      );
+  } catch {
+    throw new Error(
+      'El contenido firmado del QR no es válido'
+    );
+  }
+
+  if (
+    signedData?.version !==
+      QR_VERSION ||
+    signedData?.type !==
+      QR_TYPE ||
+    signedData?.key_id !==
+      keyId
+  ) {
+    throw new Error(
+      'El contenido firmado del QR no coincide'
+    );
+  }
+
+  if (
+    signedData.version !==
+      outer.version ||
+    signedData.type !==
+      outer.type ||
+    signedData.key_id !==
+      outer.key_id
+  ) {
+    throw new Error(
+      'El encabezado del QR fue alterado'
+    );
+  }
+
+  return {
+    outer,
+    signedData,
+  };
+}
+
 module.exports = {
   QR_VERSION,
   QR_TYPE,
   createSignedFieldQrPayload,
+  verifySignedFieldQrPayload,
 };

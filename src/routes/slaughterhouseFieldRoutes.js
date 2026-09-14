@@ -21,6 +21,11 @@ const {
   '../controllers/slaughterhouseFieldController'
 );
 
+const {
+  certifyFieldLot,
+} = require(
+  '../controllers/slaughterhouseFieldCertificationController'
+);
 
 // =====================================================
 // 📱 CAMPO FRIGORÍFICO
@@ -64,6 +69,15 @@ router.post(
 router.post(
   '/capture-sheets/:captureSheetId/lots/:purchaseLotId/sync-weighing',
   syncFieldLiveWeighing,
+);
+
+// =====================================================
+// 🔐 CERTIFICAR CARGA DE CAMPO CON QR
+// =====================================================
+
+router.post(
+  '/capture-sheets/:captureSheetId/lots/:purchaseLotId/certify',
+  certifyFieldLot,
 );
 
 module.exports = router;
