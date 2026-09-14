@@ -1054,11 +1054,11 @@ exports.syncFieldLotCapture =
 
               SET
                 field_sync_id = $1,
-                field_capture_status = $2,
+                field_capture_status = $2::varchar,
                 field_captured_quantity = $3,
                 field_captured_at =
                   CASE
-                    WHEN $2 = 'captured'
+                    WHEN $2::varchar = 'captured'
                       THEN COALESCE(
                         field_captured_at,
                         NOW()
@@ -1113,10 +1113,10 @@ exports.syncFieldLotCapture =
                 'planned',
                 $4,
                 $5,
-                $6,
+                $6::varchar,
                 $7,
                 CASE
-                  WHEN $6 = 'captured'
+                  WHEN $6::varchar = 'captured'
                     THEN NOW()
                   ELSE NULL
                 END
