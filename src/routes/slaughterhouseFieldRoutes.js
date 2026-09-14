@@ -16,6 +16,7 @@ const {
   getAssignedCaptureSheets,
   getAssignedCaptureSheetById,
   syncFieldLotCapture,
+  syncFieldLiveWeighing,
 } = require(
   '../controllers/slaughterhouseFieldController'
 );
@@ -54,6 +55,15 @@ router.get(
 router.post(
   '/capture-sheets/:captureSheetId/lots/:purchaseLotId/sync-capture',
   syncFieldLotCapture,
+);
+
+// =====================================================
+// ⚖️ SINCRONIZAR PESAJE DE CAMPO / PESO EN ORIGEN
+// =====================================================
+
+router.post(
+  '/capture-sheets/:captureSheetId/lots/:purchaseLotId/sync-weighing',
+  syncFieldLiveWeighing,
 );
 
 module.exports = router;

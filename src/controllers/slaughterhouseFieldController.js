@@ -1225,3 +1225,1026 @@ exports.syncFieldLotCapture =
     }
 
   };
+
+// =====================================================
+// ⚖️ SINCRONIZAR PESAJE DE CAMPO / PESO EN ORIGEN
+//
+// POST
+// /slaughterhouse/field/capture-sheets/:captureSheetId/
+// lots/:purchaseLotId/sync-weighing
+//
+// Reglas:
+// - Solo captador asignado.
+// - Solo live_kg + origin.
+// - 1 lote = 1 camión/carga en este flujo.
+// - Crea o reutiliza la tropa.
+// - Crea o reutiliza el MISMO weighing draft.
+// - Reemplaza items dentro de la misma transacción.
+// - Backend recalcula todos los totales.
+// - NO certifica.
+// - NO despacha.
+// =====================================================
+exports.syncFieldLiveWeighing =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      const userId =
+        Number(
+          req.user?.user_id ??
+          req.user?.id
+        );
+
+      const companyId =
+        Number(
+          req.user?.company_id
+        );
+
+      const captureSheetId =
+        Number(
+          req.params.captureSheetId
+        );
+
+      const purchaseLotId =
+        Number(
+          req.params.purchaseLotId
+        );
+
+      const items =
+        Array.isArray(req.body?.items)
+          ? req.body.items
+          : [];
+
+      // =================================================
+      // VALIDACIONES BÁSICAS
+      // =================================================
+
+      if (
+        !Number.isInteger(userId) ||
+        userId <= 0
+      ) {
+        return res.status(401).json({
+          error:
+            'Usuario autenticado inválido',
+        });
+      }
+
+      if (
+        !Number.isInteger(companyId) ||
+        companyId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Contexto de empresa inválido',
+        });
+      }
+
+      if (
+        !Number.isInteger(captureSheetId) ||
+        captureSheetId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'captureSheetId inválido',
+        });
+      }
+
+      if (
+        !Number.isInteger(purchaseLotId) ||
+        purchaseLotId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'purchaseLotId inválido',
+        });
+      }
+
+      if (items.length === 0) {
+        return res.status(400).json({
+          error:
+            'Debe registrar al menos un peso',
+        });
+      }
+
+      // =================================================
+      // NORMALIZAR PESOS
+      // =================================================
+
+      const normalizedItems = [];
+
+      for (
+        let index = 0;
+        index < items.length;
+        index++
+      ) {
+
+        const weightKg =
+          Number(
+            items[index]
+              ?.weight_kg
+          );
+
+        if (
+          !Number.isFinite(weightKg) ||
+          weightKg <= 0
+        ) {
+          return res.status(400).json({
+            error:
+              `Peso inválido en el animal ${index + 1}`,
+          });
+        }
+
+        const notes =
+          items[index]
+            ?.notes
+            ?.toString()
+            .trim() ||
+          null;
+
+        normalizedItems.push({
+          sequence_number:
+            index + 1,
+          weight_kg:
+            Number(
+              weightKg.toFixed(3)
+            ),
+          notes,
+        });
+      }
+
+      await client.query(
+        'BEGIN'
+      );
+
+      // =================================================
+      // CAPTADOR AUTENTICADO
+      // =================================================
+
+      const captadorResult =
+        await client.query(
+          `
+            SELECT
+              sp.id,
+              sp.full_name
+
+            FROM slaughterhouse_people sp
+
+            JOIN slaughterhouse_person_roles spr
+              ON spr.person_id = sp.id
+              AND spr.role = 'captador'
+              AND spr.is_active = true
+
+            WHERE
+              sp.company_id = $1
+              AND sp.user_id = $2
+              AND sp.is_active = true
+
+            LIMIT 1
+          `,
+          [
+            companyId,
+            userId,
+          ],
+        );
+
+      if (
+        captadorResult.rows.length === 0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(403).json({
+          error:
+            'El usuario no está habilitado como captador/comprador en este frigorífico',
+        });
+      }
+
+      const captador =
+        captadorResult.rows[0];
+
+      // =================================================
+      // VALIDAR Y BLOQUEAR LOTE
+      // =================================================
+
+      const lotResult =
+        await client.query(
+          `
+            SELECT
+              spl.id,
+              spl.lot_number,
+              spl.capture_sheet_id,
+              spl.seller_person_id,
+              spl.captador_person_id,
+              spl.classification_id,
+              spl.expected_quantity,
+              spl.pricing_basis,
+              spl.weight_source,
+              spl.shrink_percent,
+              spl.price_per_unit,
+              spl.currency,
+              spl.status
+                AS lot_status,
+
+              scs.status
+                AS capture_sheet_status
+
+            FROM slaughterhouse_purchase_lots spl
+
+            JOIN slaughterhouse_capture_sheets scs
+              ON scs.id =
+                spl.capture_sheet_id
+              AND scs.company_id =
+                spl.company_id
+
+            WHERE
+              spl.id = $1
+              AND spl.company_id = $2
+              AND scs.id = $3
+              AND scs.captador_person_id = $4
+
+            FOR UPDATE OF spl
+          `,
+          [
+            purchaseLotId,
+            companyId,
+            captureSheetId,
+            captador.id,
+          ],
+        );
+
+      if (
+        lotResult.rows.length === 0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'Lote no encontrado o no asignado a este captador',
+        });
+      }
+
+      const lot =
+        lotResult.rows[0];
+
+      if (
+        ![
+          'open',
+          'in_transport',
+        ].includes(
+          lot.lot_status
+        )
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            `El lote no admite captura de campo en estado ${lot.lot_status}`,
+        });
+      }
+
+      // =================================================
+      // ESTE ENDPOINT ES SOLO KG VIVO / ORIGEN
+      // =================================================
+
+      if (
+        lot.pricing_basis !==
+          'live_kg' ||
+        lot.weight_source !==
+          'origin'
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Este lote no corresponde a pesaje de kg vivo en origen',
+        });
+      }
+
+      // =================================================
+      // CALCULAR TODO EN BACKEND
+      // =================================================
+
+      const quantity =
+        normalizedItems.length;
+
+      const grossWeightKg =
+        normalizedItems.reduce(
+          (
+            total,
+            item
+          ) =>
+            total +
+            Number(
+              item.weight_kg
+            ),
+          0
+        );
+
+      const roundedGrossWeightKg =
+        Number(
+          grossWeightKg.toFixed(
+            3
+          )
+        );
+
+      const shrinkPercent =
+        Number(
+          lot.shrink_percent ||
+          0
+        );
+
+      if (
+        !Number.isFinite(
+          shrinkPercent
+        ) ||
+        shrinkPercent < 0 ||
+        shrinkPercent > 100
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(400).json({
+          error:
+            'La merma del lote es inválida',
+        });
+      }
+
+      const shrinkWeightKg =
+        Number(
+          (
+            roundedGrossWeightKg *
+            shrinkPercent /
+            100
+          ).toFixed(3)
+        );
+
+      const netWeightKg =
+        Number(
+          (
+            roundedGrossWeightKg -
+            shrinkWeightKg
+          ).toFixed(3)
+        );
+
+      // =================================================
+      // COMO pricing_basis = live_kg,
+      // price_per_unit SÍ ES precio/kg.
+      // =================================================
+
+      const pricePerKg =
+        lot.price_per_unit !== null &&
+        lot.price_per_unit !== undefined
+          ? Number(
+              lot.price_per_unit
+            )
+          : null;
+
+      if (
+        pricePerKg !== null &&
+        (
+          !Number.isFinite(
+            pricePerKg
+          ) ||
+          pricePerKg < 0
+        )
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(400).json({
+          error:
+            'El precio por kg del lote es inválido',
+        });
+      }
+
+      const totalAmount =
+        pricePerKg !== null
+          ? Number(
+              (
+                netWeightKg *
+                pricePerKg
+              ).toFixed(2)
+            )
+          : null;
+
+      // =================================================
+      // IDENTIDAD ESTABLE DE CAMPO
+      // =================================================
+
+      const troopFieldSyncId =
+        `field:${companyId}:lot:${purchaseLotId}`;
+
+      const weighingFieldSyncId =
+        `field:${companyId}:lot:${purchaseLotId}:weighing`;
+
+      // =================================================
+      // CREAR / REUTILIZAR TROPA
+      // =================================================
+
+      const troopsResult =
+        await client.query(
+          `
+            SELECT *
+            FROM slaughterhouse_troops
+
+            WHERE
+              company_id = $1
+              AND purchase_lot_id = $2
+              AND status <> 'cancelled'
+
+            ORDER BY id ASC
+
+            FOR UPDATE
+          `,
+          [
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+      if (
+        troopsResult.rows.length > 1
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El lote tiene más de una tropa activa y requiere revisión administrativa',
+        });
+      }
+
+      let troop;
+      let troopCreated = false;
+
+      if (
+        troopsResult.rows.length === 1
+      ) {
+
+        const existingTroop =
+          troopsResult.rows[0];
+
+        if (
+          existingTroop
+            .field_capture_status ===
+          'certified'
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'La carga ya fue certificada y no puede modificarse',
+          });
+        }
+
+        if (
+          [
+            'dispatched',
+            'in_transit',
+            'received',
+            'in_slaughter',
+            'completed',
+          ].includes(
+            existingTroop.status
+          )
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              `La tropa ya se encuentra en estado ${existingTroop.status}`,
+          });
+        }
+
+        const updateTroopResult =
+          await client.query(
+            `
+              UPDATE slaughterhouse_troops
+
+              SET
+                field_sync_id = $1,
+                field_capture_status = 'captured',
+                field_captured_quantity = $2,
+                field_captured_at =
+                  COALESCE(
+                    field_captured_at,
+                    NOW()
+                  ),
+                updated_at = NOW()
+
+              WHERE
+                id = $3
+                AND company_id = $4
+
+              RETURNING *
+            `,
+            [
+              troopFieldSyncId,
+              quantity,
+              existingTroop.id,
+              companyId,
+            ],
+          );
+
+        troop =
+          updateTroopResult.rows[0];
+
+      } else {
+
+        const insertTroopResult =
+          await client.query(
+            `
+              INSERT INTO slaughterhouse_troops (
+                company_id,
+                purchase_lot_id,
+                expected_quantity,
+                status,
+                created_by,
+                field_sync_id,
+                field_capture_status,
+                field_captured_quantity,
+                field_captured_at
+              )
+
+              VALUES (
+                $1,
+                $2,
+                $3,
+                'planned',
+                $4,
+                $5,
+                'captured',
+                $6,
+                NOW()
+              )
+
+              RETURNING *
+            `,
+            [
+              companyId,
+              purchaseLotId,
+              lot.expected_quantity,
+              userId,
+              troopFieldSyncId,
+              quantity,
+            ],
+          );
+
+        troop =
+          insertTroopResult.rows[0];
+
+        troopCreated =
+          true;
+      }
+
+      // =================================================
+      // BUSCAR PESAJE DE CAMPO EXISTENTE
+      // =================================================
+
+      const existingWeighingResult =
+        await client.query(
+          `
+            SELECT *
+            FROM slaughterhouse_live_weighings
+
+            WHERE
+              company_id = $1
+              AND field_sync_id = $2
+
+            LIMIT 1
+
+            FOR UPDATE
+          `,
+          [
+            companyId,
+            weighingFieldSyncId,
+          ],
+        );
+
+      let weighing;
+      let weighingCreated = false;
+
+      // =================================================
+      // ACTUALIZAR EL MISMO DRAFT
+      // =================================================
+
+      if (
+        existingWeighingResult.rows.length === 1
+      ) {
+
+        const existingWeighing =
+          existingWeighingResult.rows[0];
+
+        if (
+          existingWeighing.status !==
+          'draft'
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              `El pesaje ya se encuentra en estado ${existingWeighing.status}`,
+          });
+        }
+
+        if (
+          Number(
+            existingWeighing
+              .purchase_lot_id
+          ) !== purchaseLotId
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El pesaje de campo pertenece a otro lote',
+          });
+        }
+
+        const updateWeighingResult =
+          await client.query(
+            `
+              UPDATE slaughterhouse_live_weighings
+
+              SET
+                troop_id = $1,
+                seller_person_id = $2,
+                captador_person_id = $3,
+                classification_id = $4,
+                quantity = $5,
+                gross_weight_kg = $6,
+                shrink_percent = $7,
+                shrink_weight_kg = $8,
+                net_weight_kg = $9,
+                price_per_kg = $10,
+                total_amount = $11,
+                updated_at = NOW()
+
+              WHERE
+                id = $12
+                AND company_id = $13
+
+              RETURNING *
+            `,
+            [
+              troop.id,
+              lot.seller_person_id,
+              captador.id,
+              lot.classification_id,
+              quantity,
+              roundedGrossWeightKg,
+              shrinkPercent,
+              shrinkWeightKg,
+              netWeightKg,
+              pricePerKg,
+              totalAmount,
+              existingWeighing.id,
+              companyId,
+            ],
+          );
+
+        weighing =
+          updateWeighingResult.rows[0];
+
+        // ===============================================
+        // REINTENTO:
+        // borrar items anteriores y volver a insertar
+        // exactamente la captura recibida.
+        // ===============================================
+
+        await client.query(
+          `
+            DELETE FROM slaughterhouse_live_weighing_items
+            WHERE weighing_id = $1
+          `,
+          [
+            weighing.id,
+          ],
+        );
+
+      } else {
+
+        // =================================================
+        // NUEVO NÚMERO DE PESAJE
+        //
+        // El lote está bloqueado FOR UPDATE, por lo que
+        // esta secuencia queda serializada para este lote.
+        // =================================================
+
+        const numberResult =
+          await client.query(
+            `
+              SELECT
+                COALESCE(
+                  MAX(
+                    weighing_number
+                  ),
+                  0
+                ) + 1
+                  AS next_number
+
+              FROM slaughterhouse_live_weighings
+
+              WHERE
+                purchase_lot_id = $1
+            `,
+            [
+              purchaseLotId,
+            ],
+          );
+
+        const weighingNumber =
+          Number(
+            numberResult.rows[0]
+              .next_number
+          );
+
+        const insertWeighingResult =
+          await client.query(
+            `
+              INSERT INTO slaughterhouse_live_weighings (
+                company_id,
+                purchase_lot_id,
+                troop_id,
+                weighing_number,
+                seller_person_id,
+                captador_person_id,
+                classification_id,
+                quantity,
+                gross_weight_kg,
+                shrink_percent,
+                shrink_weight_kg,
+                net_weight_kg,
+                price_per_kg,
+                total_amount,
+                certified_offline,
+                status,
+                created_by,
+                field_sync_id
+              )
+
+              VALUES (
+                $1,
+                $2,
+                $3,
+                $4,
+                $5,
+                $6,
+                $7,
+                $8,
+                $9,
+                $10,
+                $11,
+                $12,
+                $13,
+                $14,
+                false,
+                'draft',
+                $15,
+                $16
+              )
+
+              RETURNING *
+            `,
+            [
+              companyId,
+              purchaseLotId,
+              troop.id,
+              weighingNumber,
+              lot.seller_person_id,
+              captador.id,
+              lot.classification_id,
+              quantity,
+              roundedGrossWeightKg,
+              shrinkPercent,
+              shrinkWeightKg,
+              netWeightKg,
+              pricePerKg,
+              totalAmount,
+              userId,
+              weighingFieldSyncId,
+            ],
+          );
+
+        weighing =
+          insertWeighingResult.rows[0];
+
+        weighingCreated =
+          true;
+      }
+
+      // =================================================
+      // INSERTAR EXACTAMENTE LOS ITEMS RECIBIDOS
+      // =================================================
+
+      const insertedItems = [];
+
+      for (
+        const item of normalizedItems
+      ) {
+
+        const itemResult =
+          await client.query(
+            `
+              INSERT INTO slaughterhouse_live_weighing_items (
+                weighing_id,
+                sequence_number,
+                weight_kg,
+                notes
+              )
+
+              VALUES (
+                $1,
+                $2,
+                $3,
+                $4
+              )
+
+              RETURNING *
+            `,
+            [
+              weighing.id,
+              item.sequence_number,
+              item.weight_kg,
+              item.notes,
+            ],
+          );
+
+        insertedItems.push(
+          itemResult.rows[0]
+        );
+      }
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'live_weighing',
+            $3,
+            'field_weighing_sync',
+            $4::jsonb
+          )
+        `,
+        [
+          companyId,
+          userId,
+          String(
+            weighing.id
+          ),
+          JSON.stringify({
+            troop_id:
+              troop.id,
+            purchase_lot_id:
+              purchaseLotId,
+            field_sync_id:
+              weighingFieldSyncId,
+            quantity,
+            gross_weight_kg:
+              roundedGrossWeightKg,
+            shrink_percent:
+              shrinkPercent,
+            shrink_weight_kg:
+              shrinkWeightKg,
+            net_weight_kg:
+              netWeightKg,
+            price_per_kg:
+              pricePerKg,
+            total_amount:
+              totalAmount,
+            items:
+              insertedItems,
+          }),
+        ],
+      );
+
+      await client.query(
+        'COMMIT'
+      );
+
+      return res.json({
+        success: true,
+
+        troop_created:
+          troopCreated,
+
+        weighing_created:
+          weighingCreated,
+
+        capture_sheet_id:
+          captureSheetId,
+
+        purchase_lot_id:
+          purchaseLotId,
+
+        lot_number:
+          lot.lot_number,
+
+        expected_quantity:
+          lot.expected_quantity,
+
+        field_captured_quantity:
+          quantity,
+
+        field_capture_status:
+          troop.field_capture_status,
+
+        troop,
+
+        weighing,
+
+        items:
+          insertedItems,
+
+        calculated: {
+          quantity,
+
+          gross_weight_kg:
+            roundedGrossWeightKg,
+
+          shrink_percent:
+            shrinkPercent,
+
+          shrink_weight_kg:
+            shrinkWeightKg,
+
+          net_weight_kg:
+            netWeightKg,
+
+          price_per_kg:
+            pricePerKg,
+
+          total_amount:
+            totalAmount,
+        },
+      });
+
+    } catch (error) {
+
+      try {
+        await client.query(
+          'ROLLBACK'
+        );
+      } catch (_) {}
+
+      console.error(
+        'SYNC FIELD LIVE WEIGHING ERROR:',
+        error
+      );
+
+      if (
+        error.code ===
+        '23505'
+      ) {
+        return res.status(409).json({
+          error:
+            'Conflicto sincronizando el pesaje de campo. Intente nuevamente',
+        });
+      }
+
+      return res.status(500).json({
+        error:
+          'Error sincronizando pesaje de campo',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
