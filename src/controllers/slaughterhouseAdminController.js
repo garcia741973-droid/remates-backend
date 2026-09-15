@@ -29361,8 +29361,10 @@ exports.createLiveWeighingRectification =
 // - La tropa debe estar transport_assigned.
 // - Debe tener solicitud y negociación seleccionada.
 // - Debe tener camión y transportista vinculados.
-// - Debe existir al menos un pesaje CERTIFIED.
-// - dispatched_quantity se calcula desde PostgreSQL.
+// - La carga debe estar certificada con QR en campo.
+// - dispatched_quantity se toma de field_captured_quantity.
+// - El pesaje certificado solo es obligatorio cuando
+//   la modalidad comercial realmente lo requiere.
 // - NO modificamos Plaza Transporte aquí.
 // - La guía puede vincularse posteriormente.
 // =====================================================
@@ -29613,72 +29615,30 @@ exports.dispatchTroop =
 
 
       // =================================================
-      // OBTENER PESAJE CERTIFICADO REAL
+      // VALIDAR CERTIFICACIÓN DE CAMPO
       //
-      // Solo status = certified.
+      // La certificación QR es la fuente de verdad
+      // para cerrar la carga en origen.
       //
-      // Los originales reemplazados quedan rectified
-      // y por tanto NO entran en esta suma.
+      // Aplica a:
+      // - per_head
+      // - live_kg / origin
+      // - live_kg / plant
+      // - hook_kg
+      //
+      // Cuando corresponde pesaje en origen,
+      // éste ya fue certificado dentro de la misma
+      // operación de certificación QR.
       // =================================================
 
-      const weighingSummaryResult =
-        await client.query(
-          `
-            SELECT
-
-              COUNT(*)::int
-                AS weighings_count,
-
-              COALESCE(
-                SUM(quantity),
-                0
-              )::int
-                AS quantity,
-
-              COALESCE(
-                SUM(gross_weight_kg),
-                0
-              )::numeric(14,3)
-                AS gross_weight_kg,
-
-              COALESCE(
-                SUM(net_weight_kg),
-                0
-              )::numeric(14,3)
-                AS net_weight_kg
-
-            FROM slaughterhouse_live_weighings
-
-            WHERE
-              troop_id = $1
-              AND company_id = $2
-              AND status = 'certified'
-          `,
-          [
-            troopId,
-            companyId,
-          ],
-        );
-
-
-      const weighingSummary =
-        weighingSummaryResult.rows[0];
-
-
-      const certifiedWeighingsCount =
-        Number(
-          weighingSummary.weighings_count
-        );
-
-
-      const dispatchedQuantity =
-        Number(
-          weighingSummary.quantity
-        );
-
-
       if (
-        certifiedWeighingsCount <= 0
+        previous.field_capture_status !==
+          'certified' ||
+        previous.field_authorization_id ===
+          null ||
+        !previous.field_document_hash ||
+        previous.field_certified_at ===
+          null
       ) {
 
         await client.query(
@@ -29688,10 +29648,20 @@ exports.dispatchTroop =
 
         return res.status(409).json({
           error:
-            'La tropa debe tener al menos un pesaje certificado antes del despacho',
+            'La carga debe estar certificada con el QR del vendedor antes del despacho',
         });
 
       }
+
+
+      // =================================================
+      // CANTIDAD REAL CERTIFICADA EN CAMPO
+      // =================================================
+
+      const dispatchedQuantity =
+        Number(
+          previous.field_captured_quantity
+        );
 
 
       if (
@@ -29708,11 +29678,10 @@ exports.dispatchTroop =
 
         return res.status(409).json({
           error:
-            'La cantidad certificada de la tropa es inválida',
+            'La cantidad certificada de la carga es inválida',
         });
 
       }
-
 
       // =================================================
       // DESPACHAR TROPA
