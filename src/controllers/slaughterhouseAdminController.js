@@ -29684,6 +29684,65 @@ exports.dispatchTroop =
       }
 
       // =================================================
+      // RESUMEN DE PESAJE CERTIFICADO
+      //
+      // Es informativo.
+      //
+      // NO es requisito para despachar porque existen
+      // modalidades válidas sin pesaje en origen:
+      //
+      // - per_head
+      // - live_kg / plant
+      // - hook_kg
+      //
+      // En live_kg / origin conservará peso bruto/neto
+      // para auditoría y respuesta.
+      // =================================================
+
+      const weighingSummaryResult =
+        await client.query(
+          `
+            SELECT
+
+              COUNT(*)::int
+                AS weighings_count,
+
+              COALESCE(
+                SUM(gross_weight_kg),
+                0
+              )::numeric(14,3)
+                AS gross_weight_kg,
+
+              COALESCE(
+                SUM(net_weight_kg),
+                0
+              )::numeric(14,3)
+                AS net_weight_kg
+
+            FROM slaughterhouse_live_weighings
+
+            WHERE
+              troop_id = $1
+              AND company_id = $2
+              AND status = 'certified'
+          `,
+          [
+            troopId,
+            companyId,
+          ],
+        );
+
+
+      const weighingSummary =
+        weighingSummaryResult.rows[0];
+
+
+      const certifiedWeighingsCount =
+        Number(
+          weighingSummary.weighings_count
+        );
+
+      // =================================================
       // DESPACHAR TROPA
       // =================================================
 
