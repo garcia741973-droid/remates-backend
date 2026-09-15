@@ -417,8 +417,23 @@ exports.getSlaughterhouseReceptionCandidates =
             tg.guide_image_url,
 
             tg.driver_name,
-
             tg.driver_ci,
+            tg.official_guide_number,
+
+            sga.id
+              AS gate_arrival_id,
+            sga.arrived_at
+              AS gate_arrived_at,
+            sga.plate_photo_url
+              AS gate_plate_photo_url,
+            sga.official_guide_number
+              AS gate_official_guide_number,
+            sga.official_guide_photo_url
+              AS gate_official_guide_photo_url,
+            sga.driver_license_photo_url
+              AS gate_driver_license_photo_url,
+            sga.notes
+              AS gate_notes,
 
             COALESCE(
               tg.male_0_12,
@@ -571,6 +586,11 @@ exports.getSlaughterhouseReceptionCandidates =
 
           ) tg
             ON true
+
+          LEFT JOIN slaughterhouse_gate_arrivals sga
+            ON sga.company_id = $1
+            AND sga.transport_negotiation_id =
+              tn.id
 
           LEFT JOIN
             slaughterhouse_reception_trucks srt
