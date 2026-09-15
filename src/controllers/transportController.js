@@ -3856,6 +3856,67 @@ const acceptTransportNegotiation = async (req, res) => {
         'COMMIT'
       );
 
+      // ===================================================
+      // MENSAJE DE CONFIRMACIÓN EN CHAT
+      //
+      // Se guarda en SQL para la web del frigorífico
+      // y en Firestore para el chat móvil en tiempo real.
+      // ===================================================
+
+      const corporateConfirmationMessage =
+        `✅ Transporte confirmado
+
+El frigorífico aceptó tu propuesta de transporte.
+
+Ya puedes continuar en:
+Mis viajes → Preparar viaje.`;
+
+      try {
+
+        // SQL: historial/auditoría del chat web
+        await pool.query(
+          `
+            INSERT INTO transport_negotiation_messages (
+              negotiation_id,
+              sender_id,
+              message,
+              photo_url
+            )
+            VALUES ($1,$2,$3,NULL)
+          `,
+          [
+            negotiation.id,
+            userId,
+            corporateConfirmationMessage,
+          ],
+        );
+
+        // Firestore: chat móvil en tiempo real
+        await admin
+          .firestore()
+          .collection('transport_negotiations')
+          .doc(
+            negotiation.id.toString()
+          )
+          .collection('messages')
+          .add({
+            sender_id: userId,
+            system: true,
+            message:
+              corporateConfirmationMessage,
+            photo_url: null,
+            created_at:
+              admin.firestore.FieldValue
+                .serverTimestamp(),
+          });
+
+      } catch (chatConfirmationError) {
+
+        console.error(
+          'CORPORATE TRANSPORT CONFIRMATION CHAT ERROR:',
+          chatConfirmationError
+        );
+      }
 
       // ===================================================
       // NOTIFICACIÓN
@@ -4741,8 +4802,16 @@ const createTransportPayment =
   };
 
 const createDispatch = async (req, res) => {
+
+  const client =
+    await pool.connect();
+
+  let committed = false;
+
   try {
-    const userId = req.user.user_id;
+
+    const userId =
+      req.user.user_id;
 
     const {
       negotiation_id,
@@ -4757,16 +4826,28 @@ const createDispatch = async (req, res) => {
 
     const localTimeFormatted =
       new Date(
-        event_local_time || new Date()
-      ).toLocaleString('es-BO');
+        event_local_time ||
+          new Date()
+      ).toLocaleString(
+        'es-BO'
+      );
+
+    await client.query(
+      'BEGIN'
+    );
+
+    // =====================================================
+    // NEGOCIACIÓN
+    // =====================================================
 
     const negotiationRes =
-      await pool.query(
+      await client.query(
         `
-        SELECT *
-        FROM transport_negotiations
-        WHERE id = $1
-        LIMIT 1
+          SELECT *
+          FROM transport_negotiations
+          WHERE id = $1
+          LIMIT 1
+          FOR UPDATE
         `,
         [negotiation_id]
       );
@@ -4774,8 +4855,14 @@ const createDispatch = async (req, res) => {
     if (
       negotiationRes.rows.length === 0
     ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
       return res.status(404).json({
-        error: 'Negociación no encontrada',
+        error:
+          'Negociación no encontrada',
       });
     }
 
@@ -4783,127 +4870,450 @@ const createDispatch = async (req, res) => {
       negotiationRes.rows[0];
 
     if (
-      negotiation.transporter_id !== userId
+      negotiation.transporter_id !==
+      userId
     ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
       return res.status(403).json({
-        error: 'Solo el camionero puede despachar',
+        error:
+          'Solo el camionero puede despachar',
       });
     }
 
-    const eventRes =
-      await pool.query(
+    // =====================================================
+    // VER SI ESTE TRANSPORTE PERTENECE A UNA TROPA
+    // DE FRIGORÍFICO
+    //
+    // Para transporte normal Plaza Ganadera:
+    // puede no existir ninguna tropa.
+    // =====================================================
+
+    const troopRes =
+      await client.query(
         `
-        INSERT INTO transport_trip_events (
-          negotiation_id,
-          event_type,
-          photo_url,
-          signature_url,
-          event_lat,
-          event_lng,
-          notes,
-          created_by,
-          event_local_time,
-          signed_by
-        )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-        RETURNING *
+          SELECT
+            id,
+            company_id,
+            purchase_lot_id,
+            status,
+            field_capture_status,
+            field_captured_quantity,
+            dispatched_quantity,
+            field_authorization_id,
+            field_document_hash,
+            field_certified_at,
+            transport_negotiation_id
+          FROM slaughterhouse_troops
+          WHERE transport_negotiation_id = $1
+          LIMIT 1
+          FOR UPDATE
         `,
-        [
-          negotiation_id,
-          'dispatch',
-          photo_url,
-          signature_url,
-          pickup_lat,
-          pickup_lng,
-          notes,
-          userId,
-          event_local_time,
-          signed_by,
-        ]
+        [negotiation_id]
       );
 
-      await pool.query(
-        `
-        INSERT INTO transport_negotiation_messages (
-          negotiation_id,
-          sender_id,
-          message,
-          photo_url,
-          signature_url
+    const slaughterhouseTroop =
+      troopRes.rows.length > 0
+        ? troopRes.rows[0]
+        : null;
+
+    let certifiedDispatchQuantity =
+      null;
+
+    // =====================================================
+    // SI ES FRIGORÍFICO:
+    // EL CAMIONERO SOLO PUEDE CERRAR CARGA
+    // SI EL VENDEDOR YA CERTIFICÓ EL LOTE
+    // =====================================================
+
+    if (slaughterhouseTroop) {
+
+      if (
+        ![
+          'transport_assigned',
+          'dispatched',
+        ].includes(
+          slaughterhouseTroop.status
         )
-        VALUES ($1, $2, $3, $4, $5)
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            `La tropa está en estado ${slaughterhouseTroop.status} y no puede despacharse`,
+        });
+      }
+
+      if (
+        slaughterhouseTroop
+          .field_capture_status !==
+          'certified' ||
+        slaughterhouseTroop
+          .field_authorization_id ===
+          null ||
+        !slaughterhouseTroop
+          .field_document_hash ||
+        slaughterhouseTroop
+          .field_certified_at ===
+          null
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'La carga todavía no está certificada por el vendedor',
+        });
+      }
+
+      certifiedDispatchQuantity =
+        Number(
+          slaughterhouseTroop
+            .field_captured_quantity
+        );
+
+      if (
+        !Number.isInteger(
+          certifiedDispatchQuantity
+        ) ||
+        certifiedDispatchQuantity <= 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'La cantidad certificada de la carga es inválida',
+        });
+      }
+
+      if (
+        slaughterhouseTroop.status ===
+          'dispatched' &&
+        slaughterhouseTroop
+          .dispatched_quantity !==
+          null &&
+        Number(
+          slaughterhouseTroop
+            .dispatched_quantity
+        ) !==
+          certifiedDispatchQuantity
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'La cantidad despachada no coincide con la cantidad certificada',
+        });
+      }
+    }
+
+    // =====================================================
+    // IDEMPOTENCIA
+    //
+    // Si el teléfono reenvía el despacho después de
+    // recuperar Internet, no creamos otro evento.
+    // =====================================================
+
+    const existingDispatchRes =
+      await client.query(
+        `
+          SELECT *
+          FROM transport_trip_events
+          WHERE
+            negotiation_id = $1
+            AND event_type = 'dispatch'
+          ORDER BY id DESC
+          LIMIT 1
+        `,
+        [negotiation_id]
+      );
+
+    let dispatchEvent = null;
+
+    let createdNewDispatch = false;
+
+    if (
+      existingDispatchRes.rows.length >
+      0
+    ) {
+
+      dispatchEvent =
+        existingDispatchRes.rows[0];
+
+    } else {
+
+      const eventRes =
+        await client.query(
+          `
+            INSERT INTO transport_trip_events (
+              negotiation_id,
+              event_type,
+              photo_url,
+              signature_url,
+              event_lat,
+              event_lng,
+              notes,
+              created_by,
+              event_local_time,
+              signed_by
+            )
+            VALUES (
+              $1,$2,$3,$4,$5,
+              $6,$7,$8,$9,$10
+            )
+            RETURNING *
+          `,
+          [
+            negotiation_id,
+            'dispatch',
+            photo_url,
+            signature_url,
+            pickup_lat,
+            pickup_lng,
+            notes,
+            userId,
+            event_local_time,
+            signed_by,
+          ]
+        );
+
+      dispatchEvent =
+        eventRes.rows[0];
+
+      createdNewDispatch = true;
+
+      // ===================================================
+      // MENSAJE SQL
+      // ===================================================
+
+      await client.query(
+        `
+          INSERT INTO transport_negotiation_messages (
+            negotiation_id,
+            sender_id,
+            message,
+            photo_url,
+            signature_url
+          )
+          VALUES ($1,$2,$3,$4,$5)
         `,
         [
           negotiation_id,
           userId,
           `🚛 Carga despachada correctamente.
 
-      📍 Punto de carga registrado.
-      ✍️ Firma registrada por: ${signed_by}
-      🕒 Hora: ${localTimeFormatted}
+📍 Punto de carga registrado.
+✍️ Firma registrada por: ${signed_by}
+🕒 Hora: ${localTimeFormatted}
 
-      📦 Datos registrados para continuar con la generación de la guía SENASAG.`,
+📦 Datos registrados para continuar con la generación de la guía SENASAG.`,
           photo_url || null,
           signature_url || null,
         ]
       );
+    }
 
-    await pool.query(
+    // =====================================================
+    // FRIGORÍFICO:
+    // LA ACCIÓN DEL CAMIONERO DESPACHA LA TROPA
+    //
+    // IMPORTANTE:
+    // NO usa transport_requests.quantity.
+    // Usa la cantidad real certificada en campo.
+    // =====================================================
+
+    if (slaughterhouseTroop) {
+
+      await client.query(
+        `
+          UPDATE slaughterhouse_troops
+          SET
+            status = 'dispatched',
+            dispatched_quantity = $2
+          WHERE
+            id = $1
+            AND transport_negotiation_id = $3
+        `,
+        [
+          slaughterhouseTroop.id,
+          certifiedDispatchQuantity,
+          negotiation_id,
+        ]
+      );
+    }
+
+    // =====================================================
+    // PLAZA TRANSPORTE
+    // =====================================================
+
+    await client.query(
       `
-      UPDATE transport_negotiations
-      SET status = 'delivery_pending'
-      WHERE id = $1
+        UPDATE transport_negotiations
+        SET status = 'delivery_pending'
+        WHERE id = $1
       `,
       [negotiation_id]
     );
 
-    await admin
-      .firestore()
-      .collection('transport_negotiations')
-      .doc(negotiation_id.toString())
-      .collection('messages')
-      .add({
-        sender_id: 0,
-        system: true,
-        message:
-        `🚛 Carga despachada correctamente.
-
-        📍 Punto de carga registrado.
-        ✍️ Firma registrada por: ${signed_by}
-        🕒 Hora: ${localTimeFormatted}
-
-        📦 El ganadero debe tramitar y adjuntar la guía oficial para continuar.`,
-        photo_url,
-        signature_url,
-        lat: pickup_lat,
-        lng: pickup_lng,
-        created_at:
-          admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-    await sendUserNotification({
-      userId:
-        negotiation.requester_id,
-      title:
-        'Carga despachada',
-      body:
-        'El camionero registró la carga. Revisa el informe y genera la guía oficial.',
-      data: {
-        type: 'transport_dispatch',
-        negotiation_id,
-      },
-    });
-
-    res.json(
-      eventRes.rows[0]
+    await client.query(
+      'COMMIT'
     );
 
-  } catch (error) {
-    console.error(error);
+    committed = true;
 
-    res.status(500).json({
-      error: 'Error creando despacho',
+    // =====================================================
+    // FIRESTORE
+    //
+    // Solo cuando fue un despacho nuevo.
+    // Si fue un retry offline no duplicamos el mensaje.
+    // =====================================================
+
+    if (createdNewDispatch) {
+
+      try {
+
+        await admin
+          .firestore()
+          .collection(
+            'transport_negotiations'
+          )
+          .doc(
+            negotiation_id.toString()
+          )
+          .collection('messages')
+          .add({
+            sender_id: 0,
+            system: true,
+            message:
+              `🚛 Carga despachada correctamente.
+
+📍 Punto de carga registrado.
+✍️ Firma registrada por: ${signed_by}
+🕒 Hora: ${localTimeFormatted}
+
+📦 Datos registrados para continuar con la generación de la guía SENASAG.`,
+            photo_url:
+              photo_url || null,
+            signature_url:
+              signature_url || null,
+            lat:
+              pickup_lat || null,
+            lng:
+              pickup_lng || null,
+            created_at:
+              admin.firestore
+                .FieldValue
+                .serverTimestamp(),
+          });
+
+      } catch (
+        firestoreError
+      ) {
+
+        console.error(
+          'TRANSPORT DISPATCH FIRESTORE ERROR:',
+          firestoreError
+        );
+      }
+
+      // ===================================================
+      // PUSH
+      // ===================================================
+
+      try {
+
+        await sendUserNotification({
+          userId:
+            negotiation.requester_id,
+          title:
+            'Carga despachada',
+          body:
+            'El camionero registró la carga. Revisa el informe y continúa con la guía SENASAG.',
+          data: {
+            type:
+              'transport_dispatch',
+            negotiation_id,
+          },
+        });
+
+      } catch (
+        notificationError
+      ) {
+
+        console.error(
+          'TRANSPORT DISPATCH NOTIFICATION ERROR:',
+          notificationError
+        );
+      }
+    }
+
+    return res.json({
+      ...dispatchEvent,
+
+      slaughterhouse:
+        slaughterhouseTroop
+          ? {
+              troop_id:
+                slaughterhouseTroop.id,
+              status:
+                'dispatched',
+              dispatched_quantity:
+                certifiedDispatchQuantity,
+            }
+          : null,
+
+      already_registered:
+        !createdNewDispatch,
     });
+
+  } catch (error) {
+
+    if (!committed) {
+
+      try {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+      } catch (
+        rollbackError
+      ) {
+
+        console.error(
+          'CREATE DISPATCH ROLLBACK ERROR:',
+          rollbackError
+        );
+      }
+    }
+
+    console.error(
+      'CREATE DISPATCH ERROR:',
+      error
+    );
+
+    return res.status(500).json({
+      error:
+        'Error creando despacho',
+    });
+
+  } finally {
+
+    client.release();
   }
 };
 
