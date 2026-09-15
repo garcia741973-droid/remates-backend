@@ -1444,22 +1444,22 @@ exports.createSlaughterhouseReception =
           ?.toString()
           .trim() || null;
 
-      const platePhotoUrl =
+      const requestPlatePhotoUrl =
         req.body.plate_photo_url
           ?.toString()
           .trim() || null;
 
-      const officialGuideNumber =
+      const requestOfficialGuideNumber =
         req.body.official_guide_number
           ?.toString()
           .trim() || null;
 
-      const officialGuidePhotoUrl =
+      const requestOfficialGuidePhotoUrl =
         req.body.official_guide_photo_url
           ?.toString()
           .trim() || null;
 
-      const driverLicensePhotoUrl =
+      const requestDriverLicensePhotoUrl =
         req.body.driver_license_photo_url
           ?.toString()
           .trim() || null;
@@ -1528,34 +1528,6 @@ exports.createSlaughterhouseReception =
             'Recepción inválida',
         });
       }
-
-
-      if (!officialGuideNumber) {
-
-        return res.status(400).json({
-          error:
-            'El número de guía SENASAG es obligatorio',
-        });
-      }
-
-
-      if (!officialGuidePhotoUrl) {
-
-        return res.status(400).json({
-          error:
-            'La foto de la guía SENASAG es obligatoria',
-        });
-      }
-
-
-      if (!driverLicensePhotoUrl) {
-
-        return res.status(400).json({
-          error:
-            'La foto de la licencia de conducir es obligatoria',
-        });
-      }
-
 
       await client.query(
         'BEGIN',
@@ -1650,7 +1622,37 @@ exports.createSlaughterhouseReception =
               tg.female_36_plus,
               0
             )::int
-              AS female_36_plus
+              AS female_36_plus,
+
+            sga.id
+              AS gate_arrival_id,
+
+            sga.arrived_at
+              AS gate_arrived_at,
+
+            sga.plate_photo_url
+              AS gate_plate_photo_url,
+
+            sga.official_guide_number
+              AS gate_official_guide_number,
+
+            sga.official_guide_photo_url
+              AS gate_official_guide_photo_url,
+
+            sga.driver_license_photo_url
+              AS gate_driver_license_photo_url,
+
+            sga.driver_name_snapshot
+              AS gate_driver_name,
+
+            sga.driver_ci_snapshot
+              AS gate_driver_ci,
+
+            sga.truck_brand_snapshot
+              AS gate_truck_brand,
+
+            sga.truck_model_snapshot
+              AS gate_truck_model
 
           FROM transport_negotiations tn
 
@@ -1661,6 +1663,12 @@ exports.createSlaughterhouseReception =
           JOIN transporter_trucks tt
             ON tt.id =
               tn.truck_id
+
+          LEFT JOIN slaughterhouse_gate_arrivals sga
+            ON sga.company_id =
+              tr.requester_company_id
+            AND sga.transport_negotiation_id =
+              tn.id
 
           LEFT JOIN LATERAL (
 
@@ -1717,6 +1725,69 @@ exports.createSlaughterhouseReception =
       const transport =
         transportResult.rows[0];
 
+      const platePhotoUrl =
+        transport.gate_plate_photo_url ||
+        requestPlatePhotoUrl ||
+        null;
+
+      const officialGuideNumber =
+        transport.gate_official_guide_number ||
+        requestOfficialGuideNumber ||
+        null;
+
+      const officialGuidePhotoUrl =
+        transport.gate_official_guide_photo_url ||
+        requestOfficialGuidePhotoUrl ||
+        null;
+
+      const driverLicensePhotoUrl =
+        transport.gate_driver_license_photo_url ||
+        requestDriverLicensePhotoUrl ||
+        null;
+
+      if (!platePhotoUrl) {
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(400).json({
+          error:
+            'No existe foto de placa registrada en Portería',
+        });
+      }
+
+      if (!officialGuideNumber) {
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(400).json({
+          error:
+            'No existe número de guía SENASAG registrado en Portería',
+        });
+      }
+
+      if (!officialGuidePhotoUrl) {
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(400).json({
+          error:
+            'No existe foto de guía SENASAG registrada en Portería',
+        });
+      }
+
+      if (!driverLicensePhotoUrl) {
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(400).json({
+          error:
+            'No existe foto de licencia registrada en Portería',
+        });
+      }        
 
       // =================================================
       // EL CAMIÓN DEBE HABER FINALIZADO SU RUTA
@@ -2037,8 +2108,6 @@ exports.createSlaughterhouseReception =
             $17,$18,$19,$20,
 
             $21,$22,$23,
-
-            NOW(),
 
             NOW(),
 
