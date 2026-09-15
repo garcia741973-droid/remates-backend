@@ -889,11 +889,13 @@ exports.uploadSlaughterhouseReceptionPhoto =
 
       }
 
-      const allowedMimeTypes =
-        [
-          'image/jpeg',
-          'image/png',
-        ];
+    const allowedMimeTypes =
+      [
+        'image/jpeg',
+        'image/png',
+        'image/heic',
+        'image/heif',
+      ];
 
       if (
         !allowedMimeTypes.includes(
@@ -903,7 +905,7 @@ exports.uploadSlaughterhouseReceptionPhoto =
 
         return res.status(400).json({
           error:
-            'Formato no permitido. Usa JPG, JPEG o PNG.',
+            'Formato no permitido. Usa JPG, JPEG, PNG, HEIC o HEIF.',
         });
 
       }
