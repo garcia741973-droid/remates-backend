@@ -856,48 +856,101 @@ const createGuide = async (req, res) => {
       ]
     );
 
-await admin
-  .firestore()
-  .collection('transport_negotiations')
-  .doc(negotiation_id.toString())
-  .collection('messages')
-  .add({
-    sender_id: 0,
-    system: true,
-    message:
+    const guideMessage =
 `📄 Manifiesto de transporte generado.
 
 🚛 Placa: ${truck.plate}
+
 👤 Conductor: ${driver_name}
+
 🪪 CI: ${driver_ci}
 
 📍 Origen: ${origin}
+
 📍 Destino: ${destination}
 
 🐂 MACHOS
+
 0-12: ${male_0_12}
+
 13-24: ${male_13_24}
+
 25-36: ${male_25_36}
+
 +36: ${male_36_plus}
 
 🐄 HEMBRAS
+
 0-12: ${female_0_12}
+
 13-24: ${female_13_24}
+
 25-36: ${female_25_36}
+
 +36: ${female_36_plus}
 
 CON ESTOS DATOS PUEDE GENERAR LA GUIA
+
 PUEDE ADJUNTAR EN ESTE CHAT ARRIBA
+
 CON EL BOTON 📄 SERA ENVIADO AL CAMIONERO
+
 CUANDO ESTE TENGA SEÑAL
 
 🔗 Ver manifiesto:
-${process.env.APP_URL}/transport/shared-guide/${shareToken}`,
-    guide_url:
-      `${process.env.APP_URL}/transport/shared-guide/${shareToken}`,
-    created_at:
-      admin.firestore.FieldValue.serverTimestamp(),
-  });
+
+${process.env.APP_URL}/transport/shared-guide/${shareToken}`;
+
+    // ===================================================
+    // CHAT SQL: historial visible en web
+    // ===================================================
+
+    try {
+
+      await pool.query(
+        `
+        INSERT INTO transport_negotiation_messages (
+          negotiation_id,
+          sender_id,
+          message,
+          photo_url
+        )
+        VALUES ($1,$2,$3,NULL)
+        `,
+        [
+          negotiation_id,
+          userId,
+          guideMessage,
+        ]
+      );
+
+    } catch (chatSqlError) {
+
+      console.error(
+        'CREATE GUIDE SQL CHAT ERROR:',
+        chatSqlError
+      );
+
+    }
+
+    // ===================================================
+    // FIRESTORE: chat móvil en tiempo real
+    // ===================================================
+
+    await admin
+      .firestore()
+      .collection('transport_negotiations')
+      .doc(negotiation_id.toString())
+      .collection('messages')
+      .add({
+        sender_id: userId,
+        system: true,
+        message: guideMessage,
+        guide_url:
+          `${process.env.APP_URL}/transport/shared-guide/${shareToken}`,
+        created_at:
+          admin.firestore.FieldValue.serverTimestamp(),
+      });
 
     res.json(result.rows[0]);
 
