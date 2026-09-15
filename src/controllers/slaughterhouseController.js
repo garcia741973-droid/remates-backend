@@ -1303,10 +1303,61 @@ exports.createSlaughterhouseGateArrival =
           ],
         );
 
+      // =================================================
+      // 🔔 ALARMA: CAMIÓN REGISTRADO EN PORTERÍA
+      // =================================================
+
+      const gateArrival =
+        arrivalResult.rows[0];
+
+      await sendSlaughterhouseOperatorNotification({
+
+        companyId:
+          companyId,
+
+        permissionCode:
+          'notifications.truck_arrival',
+
+        title:
+          '🚛 Camión llegó a portería',
+
+        body:
+          `${transport.plate || 'Camión sin placa'} · llegada registrada`,
+
+        data: {
+
+          type:
+            'slaughterhouse_gate_arrival',
+
+          negotiation_id:
+            transport.negotiation_id,
+
+          request_id:
+            transport.request_id,
+
+          truck_id:
+            transport.truck_id,
+
+          gate_arrival_id:
+            gateArrival.id,
+
+          arrived_at:
+            gateArrival.arrived_at,
+
+        },
+
+        eventKey:
+          `slaughterhouse_gate_arrival:${transport.negotiation_id}`,
+
+      });
+
       return res.json({
+
         success: true,
+
         arrival:
-          arrivalResult.rows[0],
+          gateArrival,
+
       });
 
     } catch (error) {
