@@ -1001,6 +1001,308 @@ exports.uploadSlaughterhouseReceptionPhoto =
 
   };
 
+// =====================================================
+// 🚪 REGISTRAR LLEGADA A PORTERÍA
+//
+// POST /slaughterhouse/gate-arrivals
+//
+// NO:
+// - marca delivered_at
+// - crea recepción
+// - cambia estado de tropa
+//
+// La llegada pertenece al viaje/camión.
+// =====================================================
+
+exports.createSlaughterhouseGateArrival =
+  async (req, res) => {
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+      if (!operator) {
+
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+
+      }
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+      const userId =
+        Number(
+          operator.user_id,
+        );
+
+      const negotiationId =
+        Number(
+          req.body.negotiation_id,
+        );
+
+      if (
+        !Number.isInteger(
+          negotiationId,
+        ) ||
+        negotiationId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'negotiation_id inválido',
+        });
+
+      }
+
+      const platePhotoUrl =
+        req.body.plate_photo_url
+          ?.toString()
+          .trim() ||
+        null;
+
+      const officialGuideNumber =
+        req.body.official_guide_number
+          ?.toString()
+          .trim() ||
+        null;
+
+      const officialGuidePhotoUrl =
+        req.body.official_guide_photo_url
+          ?.toString()
+          .trim() ||
+        null;
+
+      const driverLicensePhotoUrl =
+        req.body.driver_license_photo_url
+          ?.toString()
+          .trim() ||
+        null;
+
+      const notes =
+        req.body.notes
+          ?.toString()
+          .trim() ||
+        null;
+
+      // =================================================
+      // VALIDAR QUE EL VIAJE PERTENECE AL FRIGORÍFICO
+      // =================================================
+
+      const transportResult =
+        await pool.query(
+          `
+          SELECT
+            tn.id
+              AS negotiation_id,
+
+            tn.request_id,
+            tn.truck_id,
+
+            tr.requester_company_id,
+
+            tt.plate,
+            tt.brand,
+            tt.model,
+
+            tg.driver_name,
+            tg.driver_ci,
+            tg.official_guide_number
+
+          FROM transport_negotiations tn
+
+          JOIN transport_requests tr
+            ON tr.id =
+              tn.request_id
+
+          JOIN transporter_trucks tt
+            ON tt.id =
+              tn.truck_id
+
+          LEFT JOIN LATERAL (
+            SELECT
+              tg2.*
+            FROM transport_guides tg2
+            WHERE
+              tg2.negotiation_id =
+                tn.id
+            ORDER BY
+              tg2.created_at DESC,
+              tg2.id DESC
+            LIMIT 1
+          ) tg
+            ON true
+
+          WHERE
+            tn.id = $1
+            AND tr.requester_company_id = $2
+
+          LIMIT 1
+          `,
+          [
+            negotiationId,
+            companyId,
+          ],
+        );
+
+      if (
+        transportResult.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+          error:
+            'Transporte no encontrado para este frigorífico',
+        });
+
+      }
+
+      const transport =
+        transportResult.rows[0];
+
+      // =================================================
+      // REGISTRAR LLEGADA
+      //
+      // IDEMPOTENTE:
+      // si ya existe, conserva arrived_at original
+      // y permite completar evidencia faltante.
+      // =================================================
+
+      const arrivalResult =
+        await pool.query(
+          `
+          INSERT INTO slaughterhouse_gate_arrivals (
+            company_id,
+            transport_negotiation_id,
+            transport_request_id,
+            truck_id,
+            registered_by,
+
+            plate_snapshot,
+            truck_brand_snapshot,
+            truck_model_snapshot,
+
+            plate_photo_url,
+
+            official_guide_number,
+            official_guide_photo_url,
+
+            driver_name_snapshot,
+            driver_ci_snapshot,
+            driver_license_photo_url,
+
+            notes
+          )
+          VALUES (
+            $1,$2,$3,$4,$5,
+            $6,$7,$8,
+            $9,
+            $10,$11,
+            $12,$13,$14,
+            $15
+          )
+
+          ON CONFLICT (
+            company_id,
+            transport_negotiation_id
+          )
+
+          DO UPDATE SET
+
+            plate_photo_url =
+              COALESCE(
+                EXCLUDED.plate_photo_url,
+                slaughterhouse_gate_arrivals.plate_photo_url
+              ),
+
+            official_guide_number =
+              COALESCE(
+                EXCLUDED.official_guide_number,
+                slaughterhouse_gate_arrivals.official_guide_number
+              ),
+
+            official_guide_photo_url =
+              COALESCE(
+                EXCLUDED.official_guide_photo_url,
+                slaughterhouse_gate_arrivals.official_guide_photo_url
+              ),
+
+            driver_license_photo_url =
+              COALESCE(
+                EXCLUDED.driver_license_photo_url,
+                slaughterhouse_gate_arrivals.driver_license_photo_url
+              ),
+
+            notes =
+              COALESCE(
+                EXCLUDED.notes,
+                slaughterhouse_gate_arrivals.notes
+              ),
+
+            updated_at =
+              NOW()
+
+          RETURNING *
+          `,
+          [
+            companyId,
+            transport.negotiation_id,
+            transport.request_id,
+            transport.truck_id,
+            userId,
+
+            transport.plate,
+            transport.brand,
+            transport.model,
+
+            platePhotoUrl,
+
+            officialGuideNumber ||
+              transport.official_guide_number ||
+              null,
+
+            officialGuidePhotoUrl,
+
+            transport.driver_name ||
+              null,
+
+            transport.driver_ci ||
+              null,
+
+            driverLicensePhotoUrl,
+
+            notes,
+          ],
+        );
+
+      return res.json({
+        success: true,
+        arrival:
+          arrivalResult.rows[0],
+      });
+
+    } catch (error) {
+
+      console.error(
+        'CREATE SLAUGHTERHOUSE GATE ARRIVAL ERROR:',
+        error,
+      );
+
+      return res.status(500).json({
+        error:
+          'Error registrando llegada a portería',
+      });
+
+    }
+
+  };
+
 exports.createSlaughterhouseReception =
   async (req, res) => {
 

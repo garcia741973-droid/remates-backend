@@ -2,6 +2,9 @@ const express = require('express');
 
 const router = express.Router();
 
+const upload =
+  require('../middleware/uploadMiddleware');
+
 const {
   requireAuth,
 } = require(
@@ -19,6 +22,8 @@ const {
   getSlaughterhouseTrucks,
   getSlaughterhouseReceptionCandidates,
   getOpenSlaughterhouseReceptions,
+  uploadSlaughterhouseReceptionPhoto,
+  createSlaughterhouseGateArrival,
   createSlaughterhouseReception,
   startSlaughterhouseSlaughter,
   getSlaughterhouseSlaughterReceptions,
@@ -89,6 +94,30 @@ router.get(
   getOpenSlaughterhouseReceptions,
 );
 
+// =====================================================
+// 📷 FOTO PORTERÍA / RECEPCIÓN
+// =====================================================
+
+router.post(
+  '/gate-arrivals/photo',
+  requireSlaughterhousePermission(
+    'reception.manage'
+  ),
+  upload.single('file'),
+  uploadSlaughterhouseReceptionPhoto,
+);
+
+// =====================================================
+// 🚪 REGISTRAR LLEGADA A PORTERÍA
+// =====================================================
+
+router.post(
+  '/gate-arrivals',
+  requireSlaughterhousePermission(
+    'reception.manage'
+  ),
+  createSlaughterhouseGateArrival,
+);
 
 // =====================================================
 // 🐄 RECEPCIÓN DE GANADO
