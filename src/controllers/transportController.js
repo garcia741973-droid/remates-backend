@@ -5956,56 +5956,195 @@ const createDeliveryReport =
         [negotiation_id]
       );
 
-    await admin
-      .firestore()
-      .collection('transport_negotiations')
-      .doc(negotiation_id.toString())
-      .collection('messages')
-      .add({
-        sender_id: 0,
-        system: true,
-        message:
-    `✅ Entrega completada.
+      // =====================================================
+      // 💬 MENSAJE 1: ENTREGA COMPLETADA
+      // SQL + FIRESTORE
+      // =====================================================
 
-    👤 Recibido por: ${receiver_name}
-    🪪 CI: ${receiver_ci}
+      const deliveryMessage =
+`✅ Entrega completada.
 
-    📍 Punto final registrado.
+👤 Recibido por: ${receiver_name}
 
-    📝 Observaciones:
-    ${notes && notes.trim().isNotEmpty ? notes : 'Sin observaciones'}`,
-        photo_url: delivery_photo_url,
-        signature_url: receiver_signature_url,
-        lat: delivery_lat,
-        lng: delivery_lng,
-        created_at:
-          admin.firestore.FieldValue.serverTimestamp(),
-      });
+🪪 CI: ${receiver_ci}
 
-    /// ✅ MENSAJE CIERRE DEL CHAT
-    await admin
-      .firestore()
-      .collection('transport_negotiations')
-      .doc(negotiation_id.toString())
-      .collection('messages')
-      .add({
-        sender_id: 0,
-        system: true,
-        message:
-    `━━━━━━━━━━━━━━━━━━
+📍 Punto final registrado.
 
-    ✅ El viaje ha finalizado correctamente.
+📝 Observaciones:
 
-    Este chat permanecerá disponible durante las próximas 48 horas para consultas relacionadas con este transporte.
+${notes && notes.trim().length > 0 ? notes : 'Sin observaciones'}`;
 
-    Transcurrido ese tiempo el chat se cerrará automáticamente y permanecerá disponible únicamente para consulta.
+      // =====================================================
+      // SQL CHAT
+      // =====================================================
 
-    Gracias por utilizar Plaza Ganadera Transporte.
+      await pool.query(
+        `
+        INSERT INTO transport_negotiation_messages (
+          negotiation_id,
+          sender_id,
+          message,
+          photo_url,
+          signature_url
+        )
+        VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5
+        )
+        `,
+        [
+          negotiation_id,
+          userId,
+          deliveryMessage,
+          delivery_photo_url,
+          receiver_signature_url,
+        ]
+      );
 
-    ━━━━━━━━━━━━━━━━━━`,
-        created_at:
-          admin.firestore.FieldValue.serverTimestamp(),
-      });
+      // =====================================================
+      // FIRESTORE CHAT
+      // =====================================================
+
+      await admin
+        .firestore()
+        .collection('transport_negotiations')
+        .doc(negotiation_id.toString())
+        .collection('messages')
+        .add({
+          sender_id: userId,
+          system: true,
+          message: deliveryMessage,
+          photo_url: delivery_photo_url,
+          signature_url: receiver_signature_url,
+          lat: delivery_lat,
+          lng: delivery_lng,
+          created_at:
+            admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+      // =====================================================
+      // 💬 MENSAJE 2: CIERRE DEL VIAJE
+      // SQL + FIRESTORE
+      // =====================================================
+
+      const closingMessage =
+`━━━━━━━━━━━━━━━━━━
+
+✅ El viaje ha finalizado correctamente.
+
+Este chat permanecerá disponible durante las próximas 48 horas para consultas relacionadas con este transporte.
+
+Transcurrido ese tiempo el chat se cerrará automáticamente y permanecerá disponible únicamente para consulta.
+
+Gracias por utilizar Plaza Ganadera Transporte.
+
+━━━━━━━━━━━━━━━━━━`;
+
+      // =====================================================
+      // SQL CHAT
+      // =====================================================
+
+      await pool.query(
+        `
+        INSERT INTO transport_negotiation_messages (
+          negotiation_id,
+          sender_id,
+          message
+        )
+        VALUES (
+          $1,
+          $2,
+          $3
+        )
+        `,
+        [
+          negotiation_id,
+          userId,
+          closingMessage,
+        ]
+      );
+
+      // =====================================================
+      // FIRESTORE CHAT
+      // =====================================================
+
+      await admin
+        .firestore()
+        .collection('transport_negotiations')
+        .doc(negotiation_id.toString())
+        .collection('messages')
+        .add({
+          sender_id: userId,
+          system: true,
+          message: closingMessage,
+          created_at:
+            admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+      // =====================================================
+      // 🔔 ALERTA: ENTREGA FINALIZADA
+      // =====================================================
+
+      const slaughterhouseDeliveryResult =
+        await pool.query(
+          `
+          SELECT
+            tr.requester_company_id,
+            tt.plate
+          FROM transport_requests tr
+          LEFT JOIN transporter_trucks tt
+            ON tt.id = $2
+          WHERE tr.id = $1
+          LIMIT 1
+          `,
+          [
+            negotiation.request_id,
+            negotiation.truck_id,
+          ],
+        );
+
+      if (
+        slaughterhouseDeliveryResult.rows.length > 0
+      ) {
+        const deliveryData =
+          slaughterhouseDeliveryResult.rows[0];
+
+        await sendSlaughterhouseOperatorNotification({
+          companyId:
+            Number(
+              deliveryData.requester_company_id,
+            ),
+
+          permissionCode:
+            'notifications.delivery_completed',
+
+          title:
+            '✅ Entrega del transporte finalizada',
+
+          body:
+            `${deliveryData.plate || 'Camión sin placa'} · recibido por ${receiver_name || 'receptor'}`,
+
+          data: {
+            type:
+              'slaughterhouse_delivery_completed',
+
+            negotiation_id:
+              negotiation_id,
+
+            request_id:
+              negotiation.request_id,
+
+            truck_id:
+              negotiation.truck_id,
+          },
+
+          eventKey:
+            `slaughterhouse_delivery_completed:${negotiation_id}`,
+        });
+      }
 
       await sendUserNotification({
         userId: negotiation.requester_id,
