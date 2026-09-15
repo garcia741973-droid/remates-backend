@@ -526,33 +526,35 @@ exports.getSlaughterhouseReceptionCandidates =
             )::int
               AS guide_quantity,
 
-            CASE
-              WHEN tn.delivered_at
-                IS NULL
-              THEN false
-
-              WHEN tg.id
-                IS NULL
-              THEN false
-
-              ELSE true
-            END
-              AS can_receive,
-
-            CASE
-              WHEN tn.delivered_at
-                IS NULL
-              THEN
-                'El camión todavía no finalizó la ruta'
-
-              WHEN tg.id
-                IS NULL
-              THEN
-                'El transporte no tiene guía registrada'
-
-              ELSE NULL
-            END
-              AS blocked_reason
+              CASE
+                WHEN sga.id
+                  IS NULL
+                THEN false
+                WHEN tn.delivered_at
+                  IS NULL
+                THEN false
+                WHEN tg.id
+                  IS NULL
+                THEN false
+                ELSE true
+              END
+                AS can_receive,
+              CASE
+                WHEN sga.id
+                  IS NULL
+                THEN
+                  'El camión todavía no registra llegada en Portería'
+                WHEN tn.delivered_at
+                  IS NULL
+                THEN
+                  'El camionero todavía no finalizó la entrega'
+                WHEN tg.id
+                  IS NULL
+                THEN
+                  'El transporte no tiene guía registrada'
+                ELSE NULL
+              END
+                AS blocked_reason
 
           FROM transport_negotiations tn
 
