@@ -35723,6 +35723,22 @@ exports.addPreliquidationAdjustment =
           preliquidation.net_weight_kg || 0
         );
 
+      const hookWeightKg =
+        Number(
+          preliquidation.hook_weight_kg || 0
+        );
+
+      const preliquidationQuantity =
+        Number(
+          preliquidation.quantity || 0
+        );
+
+      const pricingBasis =
+        preliquidation.pricing_basis
+          ?.toString()
+          .trim() ||
+        null;
+
 
       // =================================================
       // 3. CALCULAR CANTIDAD BASE SEGÚN TIPO
@@ -35803,14 +35819,12 @@ exports.addPreliquidationAdjustment =
         calculationType ===
         'per_kg'
       ) {
-
         if (
           !Number.isFinite(
             rate
           ) ||
           rate <= 0
         ) {
-
           await client.query(
             'ROLLBACK'
           );
@@ -35819,19 +35833,32 @@ exports.addPreliquidationAdjustment =
             error:
               'La tarifa por kilogramo debe ser mayor a cero',
           });
-
         }
 
-
+        // Si el usuario no indica manualmente los kg,
+        // usamos la base natural de la preliquidación.
+        //
+        // live_kg  => peso neto liquidable
+        // hook_kg  => peso gancho real
         if (
           quantity === null
         ) {
+          if (
+            pricingBasis ===
+            'live_kg'
+          ) {
+            quantity =
+              netWeightKg;
+          }
 
-          quantity =
-            netWeightKg;
-
+          if (
+            pricingBasis ===
+            'hook_kg'
+          ) {
+            quantity =
+              hookWeightKg;
+          }
         }
-
 
         if (
           !Number.isFinite(
@@ -35839,7 +35866,6 @@ exports.addPreliquidationAdjustment =
           ) ||
           quantity <= 0
         ) {
-
           await client.query(
             'ROLLBACK'
           );
@@ -35848,14 +35874,11 @@ exports.addPreliquidationAdjustment =
             error:
               'La cantidad de kilogramos debe ser mayor a cero',
           });
-
         }
-
 
         amount =
           rate *
           quantity;
-
       }
 
 
@@ -35884,42 +35907,13 @@ exports.addPreliquidationAdjustment =
 
 
         // Si el usuario no indica cantidad,
-        // utilizamos la cantidad total de animales
-        // de los pesajes certificados vigentes.
-
+        // utilizamos la cantidad ya congelada
+        // en esta versión de preliquidación.
         if (
           quantity === null
         ) {
-
-          const animalsResult =
-            await client.query(
-              `
-                SELECT
-                  COALESCE(
-                    SUM(quantity),
-                    0
-                  )::numeric
-                    AS animals_count
-                FROM slaughterhouse_live_weighings
-                WHERE
-                  company_id = $1
-                  AND purchase_lot_id = $2
-                  AND status = 'certified'
-              `,
-              [
-                companyId,
-                preliquidation
-                  .purchase_lot_id,
-              ],
-            );
-
-
           quantity =
-            Number(
-              animalsResult.rows[0]
-                .animals_count || 0
-            );
-
+            preliquidationQuantity;
         }
 
 
