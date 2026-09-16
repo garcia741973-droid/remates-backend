@@ -3108,7 +3108,7 @@ exports.getSlaughterhouseSlaughterReceptions =
             -- ============================================
             -- NUEVO:
             -- cantidad física de medias pesadas
-            // ============================================
+            -- ============================================
 
             COALESCE(
               carcasses.half_carcasses_count,
@@ -3134,9 +3134,9 @@ exports.getSlaughterhouseSlaughterReceptions =
           FROM slaughterhouse_receptions sr
 
 
-          // ==============================================
-          // RECEPCIÓN
-          // ==============================================
+          -- ==============================================
+          -- RECEPCIÓN
+          -- ==============================================
 
           LEFT JOIN LATERAL (
 
@@ -3173,23 +3173,23 @@ exports.getSlaughterhouseSlaughterReceptions =
             ON true
 
 
-          // ==============================================
-          // FAENA
-          // ==============================================
+          -- ==============================================
+          -- FAENA
+          -- ==============================================
 
           LEFT JOIN LATERAL (
 
             SELECT
 
-              // ------------------------------------------
-              // ANIMALES COMPLETOS
-              //
-              // Legacy:
-              // fila sin animal/half = animal completo
-              //
-              // Nuevo:
-              // animal con media 1 + media 2 = completo
-              // ------------------------------------------
+              -- ------------------------------------------
+              -- ANIMALES COMPLETOS
+              --
+              -- Legacy:
+              -- fila sin animal/half = animal completo
+              --
+              -- Nuevo:
+              -- animal con media 1 + media 2 = completo
+              -- ------------------------------------------
 
               (
                 SELECT
@@ -3248,9 +3248,9 @@ exports.getSlaughterhouseSlaughterReceptions =
                 AS animals_completed_count,
 
 
-              // ------------------------------------------
-              // MEDIAS NUEVAS PESADAS
-              // ------------------------------------------
+              -- ------------------------------------------
+              -- MEDIAS NUEVAS PESADAS
+              -- ------------------------------------------
 
               (
                 SELECT
@@ -3271,9 +3271,9 @@ exports.getSlaughterhouseSlaughterReceptions =
                 AS half_carcasses_count,
 
 
-              // ------------------------------------------
-              // ANIMAL CON UNA SOLA MEDIA
-              // ------------------------------------------
+              -- ------------------------------------------
+              -- ANIMAL CON UNA SOLA MEDIA
+              -- ------------------------------------------
 
               (
                 SELECT
@@ -3310,12 +3310,12 @@ exports.getSlaughterhouseSlaughterReceptions =
                 AS incomplete_animals_count,
 
 
-              // ------------------------------------------
-              // PESO TOTAL GANCHO
-              //
-              // En nuevo sistema:
-              // suma de todas las medias.
-              // ------------------------------------------
+              -- ------------------------------------------
+              -- PESO TOTAL GANCHO
+              --
+              -- En nuevo sistema:
+              -- suma de todas las medias.
+              -- ------------------------------------------
 
               COALESCE(
                 SUM(
