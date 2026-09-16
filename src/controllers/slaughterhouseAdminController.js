@@ -11600,6 +11600,9 @@ exports.getPurchaseLots =
                 AS classification_name,
 
               spl.purchase_type,
+              spl.pricing_basis,
+              spl.weight_source,
+              spl.capture_sheet_id,
               spl.expected_quantity,
               spl.price_per_unit,
               spl.currency,
@@ -15348,6 +15351,9 @@ exports.getPurchaseLotById =
                 AS classification_name,
 
               spl.purchase_type,
+              spl.pricing_basis,
+              spl.weight_source,
+              spl.capture_sheet_id,
               spl.expected_quantity,
               spl.price_per_unit,
               spl.currency,
