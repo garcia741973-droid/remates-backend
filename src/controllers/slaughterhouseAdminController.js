@@ -7734,6 +7734,63 @@ exports.updateAnimalCategory =
       const category =
         result.rows[0];
 
+      // =====================================================
+      // REGENERAR CLASIFICACIONES RELACIONADAS
+      // =====================================================
+
+      await client.query(
+        `
+          UPDATE slaughterhouse_animal_classifications ac
+          SET
+            generated_code =
+              UPPER(TRIM(c.code)) ||
+              UPPER(TRIM(b.code)) ||
+              UPPER(TRIM(f.code)) ||
+              UPPER(TRIM(a.code)),
+
+            display_name =
+              TRIM(c.name) ||
+              ' | ' ||
+              TRIM(b.name) ||
+              ' | ' ||
+              TRIM(f.name) ||
+              ' | Edad: ' ||
+              REGEXP_REPLACE(
+                TRIM(a.name),
+                '^Edad:\\s*',
+                '',
+                'i'
+              ),
+
+            updated_at = NOW()
+
+          FROM
+            slaughterhouse_animal_categories c,
+            slaughterhouse_breeds b,
+            slaughterhouse_feeding_methods f,
+            slaughterhouse_age_ranges a
+
+          WHERE
+            ac.company_id = $1
+            AND ac.category_id = $2
+
+            AND c.id = ac.category_id
+            AND c.company_id = ac.company_id
+
+            AND b.id = ac.breed_id
+            AND b.company_id = ac.company_id
+
+            AND f.id = ac.feeding_method_id
+            AND f.company_id = ac.company_id
+
+            AND a.id = ac.age_range_id
+            AND a.company_id = ac.company_id
+        `,
+        [
+          companyId,
+          categoryId,
+        ],
+      );
 
       // =================================================
       // AUDITORÍA
@@ -8419,6 +8476,63 @@ exports.updateBreed =
       const breed =
         result.rows[0];
 
+      // =====================================================
+      // REGENERAR CLASIFICACIONES RELACIONADAS
+      // =====================================================
+
+      await client.query(
+        `
+          UPDATE slaughterhouse_animal_classifications ac
+          SET
+            generated_code =
+              UPPER(TRIM(c.code)) ||
+              UPPER(TRIM(b.code)) ||
+              UPPER(TRIM(f.code)) ||
+              UPPER(TRIM(a.code)),
+
+            display_name =
+              TRIM(c.name) ||
+              ' | ' ||
+              TRIM(b.name) ||
+              ' | ' ||
+              TRIM(f.name) ||
+              ' | Edad: ' ||
+              REGEXP_REPLACE(
+                TRIM(a.name),
+                '^Edad:\\s*',
+                '',
+                'i'
+              ),
+
+            updated_at = NOW()
+
+          FROM
+            slaughterhouse_animal_categories c,
+            slaughterhouse_breeds b,
+            slaughterhouse_feeding_methods f,
+            slaughterhouse_age_ranges a
+
+          WHERE
+            ac.company_id = $1
+            AND ac.breed_id = $2
+
+            AND c.id = ac.category_id
+            AND c.company_id = ac.company_id
+
+            AND b.id = ac.breed_id
+            AND b.company_id = ac.company_id
+
+            AND f.id = ac.feeding_method_id
+            AND f.company_id = ac.company_id
+
+            AND a.id = ac.age_range_id
+            AND a.company_id = ac.company_id
+        `,
+        [
+          companyId,
+          breedId,
+        ],
+      );
 
       // =================================================
       // AUDITORÍA
@@ -9104,6 +9218,63 @@ exports.updateFeedingMethod =
       const feedingMethod =
         result.rows[0];
 
+      // =====================================================
+      // REGENERAR CLASIFICACIONES RELACIONADAS
+      // =====================================================
+
+      await client.query(
+        `
+          UPDATE slaughterhouse_animal_classifications ac
+          SET
+            generated_code =
+              UPPER(TRIM(c.code)) ||
+              UPPER(TRIM(b.code)) ||
+              UPPER(TRIM(f.code)) ||
+              UPPER(TRIM(a.code)),
+
+            display_name =
+              TRIM(c.name) ||
+              ' | ' ||
+              TRIM(b.name) ||
+              ' | ' ||
+              TRIM(f.name) ||
+              ' | Edad: ' ||
+              REGEXP_REPLACE(
+                TRIM(a.name),
+                '^Edad:\\s*',
+                '',
+                'i'
+              ),
+
+            updated_at = NOW()
+
+          FROM
+            slaughterhouse_animal_categories c,
+            slaughterhouse_breeds b,
+            slaughterhouse_feeding_methods f,
+            slaughterhouse_age_ranges a
+
+          WHERE
+            ac.company_id = $1
+            AND ac.feeding_method_id = $2
+
+            AND c.id = ac.category_id
+            AND c.company_id = ac.company_id
+
+            AND b.id = ac.breed_id
+            AND b.company_id = ac.company_id
+
+            AND f.id = ac.feeding_method_id
+            AND f.company_id = ac.company_id
+
+            AND a.id = ac.age_range_id
+            AND a.company_id = ac.company_id
+        `,
+        [
+          companyId,
+          feedingMethodId,
+        ],
+      );
 
       // =================================================
       // AUDITORÍA
@@ -9964,6 +10135,63 @@ exports.updateAgeRange =
       const ageRange =
         result.rows[0];
 
+      // =====================================================
+      // REGENERAR CLASIFICACIONES RELACIONADAS
+      // =====================================================
+
+      await client.query(
+        `
+          UPDATE slaughterhouse_animal_classifications ac
+          SET
+            generated_code =
+              UPPER(TRIM(c.code)) ||
+              UPPER(TRIM(b.code)) ||
+              UPPER(TRIM(f.code)) ||
+              UPPER(TRIM(a.code)),
+
+            display_name =
+              TRIM(c.name) ||
+              ' | ' ||
+              TRIM(b.name) ||
+              ' | ' ||
+              TRIM(f.name) ||
+              ' | Edad: ' ||
+              REGEXP_REPLACE(
+                TRIM(a.name),
+                '^Edad:\\s*',
+                '',
+                'i'
+              ),
+
+            updated_at = NOW()
+
+          FROM
+            slaughterhouse_animal_categories c,
+            slaughterhouse_breeds b,
+            slaughterhouse_feeding_methods f,
+            slaughterhouse_age_ranges a
+
+          WHERE
+            ac.company_id = $1
+            AND ac.age_range_id = $2
+
+            AND c.id = ac.category_id
+            AND c.company_id = ac.company_id
+
+            AND b.id = ac.breed_id
+            AND b.company_id = ac.company_id
+
+            AND f.id = ac.feeding_method_id
+            AND f.company_id = ac.company_id
+
+            AND a.id = ac.age_range_id
+            AND a.company_id = ac.company_id
+        `,
+        [
+          companyId,
+          ageRangeId,
+        ],
+      );
 
       // =================================================
       // AUDITORÍA
