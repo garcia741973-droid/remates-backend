@@ -2180,7 +2180,44 @@ exports.createSlaughterhouseReception =
           ],
         );
 
+        // =================================================
+        // VINCULAR TROPA A LA RECEPCIÓN
+        //
+        // Una tropa representa la carga física del camión.
+        // Al recepcionar el transporte, dejamos cerrada la
+        // trazabilidad:
+        //
+        // lote → tropa → transporte → recepción.
+        // =================================================
 
+        await client.query(
+          `
+          UPDATE slaughterhouse_troops
+          SET
+            reception_id = $1,
+            reception_truck_id = $2,
+            transport_guide_id =
+              COALESCE(
+                transport_guide_id,
+                $3
+              ),
+            received_quantity = $4,
+            status = 'received',
+            updated_at = NOW()
+          WHERE
+            company_id = $5
+            AND transport_negotiation_id = $6
+            AND status <> 'cancelled'
+          `,
+          [
+            reception.id,
+            truckResult.rows[0].id,
+            transport.guide_id,
+            receivedQuantity,
+            companyId,
+            transport.negotiation_id,
+          ],
+        );
       // =================================================
       // ACTUALIZAR CABECERA
       // =================================================
