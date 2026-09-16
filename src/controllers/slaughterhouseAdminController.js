@@ -11609,7 +11609,11 @@ exports.getPurchaseLots =
               spl.shrink_percent,
               spl.commission_type,
               spl.commission_value,
+              spl.purchase_date,
               spl.planned_date,
+              spl.seller_payment_method_id,
+              spl.planned_payment_date,
+              spl.payment_terms,
               spl.status,
               spl.notes,
               spl.created_by,
@@ -14395,14 +14399,49 @@ exports.createPurchaseLot =
           : null;
 
 
-      const plannedDate =
-        req.body.planned_date
-          ?.toString()
-          .trim() ||
-        null;
+        const plannedDate =
+          req.body.planned_date
+            ?.toString()
+            .trim() ||
+          null;
 
 
-      const status =
+        const purchaseDate =
+          req.body.purchase_date
+            ?.toString()
+            .trim() ||
+          null;
+
+
+        const sellerPaymentMethodIdRaw =
+          req.body.seller_payment_method_id;
+
+
+        const sellerPaymentMethodId =
+          sellerPaymentMethodIdRaw !== undefined &&
+          sellerPaymentMethodIdRaw !== null &&
+          sellerPaymentMethodIdRaw !== ''
+            ? Number(
+                sellerPaymentMethodIdRaw
+              )
+            : null;
+
+
+        const plannedPaymentDate =
+          req.body.planned_payment_date
+            ?.toString()
+            .trim() ||
+          null;
+
+
+        const paymentTerms =
+          req.body.payment_terms
+            ?.toString()
+            .trim() ||
+          null;
+
+
+        const status =
         req.body.status
           ?.toString()
           .trim()
@@ -14659,6 +14698,59 @@ exports.createPurchaseLot =
 
       }
 
+      if (
+        purchaseDate !== null &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(
+          purchaseDate
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'purchase_date debe tener formato YYYY-MM-DD',
+        });
+      }
+
+
+      if (
+        plannedDate !== null &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(
+          plannedDate
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'planned_date debe tener formato YYYY-MM-DD',
+        });
+      }
+
+
+      if (
+        plannedPaymentDate !== null &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(
+          plannedPaymentDate
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'planned_payment_date debe tener formato YYYY-MM-DD',
+        });
+      }
+
+
+      if (
+        sellerPaymentMethodId !== null &&
+        (
+          !Number.isInteger(
+            sellerPaymentMethodId
+          ) ||
+          sellerPaymentMethodId <= 0
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'seller_payment_method_id inválido',
+        });
+      }
 
       const allowedCommissionTypes =
         [
@@ -14819,7 +14911,6 @@ exports.createPurchaseLot =
       if (
         sellerResult.rows.length === 0
       ) {
-
         await client.query(
           'ROLLBACK'
         );
@@ -14829,7 +14920,55 @@ exports.createPurchaseLot =
           error:
             'El vendedor no existe, está inactivo o no tiene rol seller',
         });
+      }
 
+
+      // =================================================
+      // VALIDAR MÉTODO DE PAGO DEL VENDEDOR
+      //
+      // Si se seleccionó una cuenta / QR / método,
+      // debe pertenecer al mismo vendedor y estar activo.
+      // =================================================
+
+      if (
+        sellerPaymentMethodId !== null
+      ) {
+        const paymentMethodResult =
+          await client.query(
+            `
+              SELECT
+                sppm.id
+              FROM slaughterhouse_person_payment_methods sppm
+              JOIN slaughterhouse_people sp
+                ON sp.id = sppm.person_id
+              WHERE
+                sppm.id = $1
+                AND sppm.person_id = $2
+                AND sp.company_id = $3
+                AND sppm.is_active = true
+              LIMIT 1
+            `,
+            [
+              sellerPaymentMethodId,
+              sellerPersonId,
+              companyId,
+            ],
+          );
+
+
+        if (
+          paymentMethodResult.rows.length === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+
+          return res.status(400).json({
+            error:
+              'El método de pago seleccionado no pertenece al vendedor o está inactivo',
+          });
+        }
       }
 
 
@@ -15097,38 +15236,43 @@ exports.createPurchaseLot =
       const result =
         await client.query(
           `
-            INSERT INTO slaughterhouse_purchase_lots (
-              id,
-              company_id,
-              lot_number,
-              external_order_number,
-              seller_person_id,
-              estate_id,
-              captador_person_id,
-              commissioner_person_id,
-              classification_id,
-              purchase_type,
-              pricing_basis,
-              weight_source,
-              expected_quantity,
-              price_per_unit,
-              currency,
-              shrink_percent,
-              commission_type,
-              commission_value,
-              planned_date,
-              status,
-              notes,
-              created_by
-            )
-            VALUES (
-              $1,$2,$3,$4,$5,
-              $6,$7,$8,$9,$10,
-              $11,$12,$13,$14,$15,
-              $16,$17,$18,$19,$20,
-              $21,$22
-            )
-            RETURNING *
+          INSERT INTO slaughterhouse_purchase_lots (
+            id,
+            company_id,
+            lot_number,
+            external_order_number,
+            seller_person_id,
+            estate_id,
+            captador_person_id,
+            commissioner_person_id,
+            classification_id,
+            purchase_type,
+            pricing_basis,
+            weight_source,
+            expected_quantity,
+            price_per_unit,
+            currency,
+            shrink_percent,
+            commission_type,
+            commission_value,
+            purchase_date,
+            planned_date,
+            seller_payment_method_id,
+            planned_payment_date,
+            payment_terms,
+            status,
+            notes,
+            created_by
+          )
+          VALUES (
+            $1,$2,$3,$4,$5,
+            $6,$7,$8,$9,$10,
+            $11,$12,$13,$14,$15,
+            $16,$17,$18,$19,$20,
+            $21,$22,$23,$24,$25,
+            $26
+          )
+          RETURNING *
           `,
           [
             nextId,
@@ -15149,7 +15293,11 @@ exports.createPurchaseLot =
             shrinkPercent,
             commissionType,
             commissionValue,
+            purchaseDate,
             plannedDate,
+            sellerPaymentMethodId,
+            plannedPaymentDate,
+            paymentTerms,
             status,
             notes,
             userId,
@@ -15361,8 +15509,11 @@ exports.getPurchaseLotById =
 
               spl.commission_type,
               spl.commission_value,
-
+              spl.purchase_date,
               spl.planned_date,
+              spl.seller_payment_method_id,
+              spl.planned_payment_date,
+              spl.payment_terms,
               spl.status,
               spl.notes,
 
@@ -16095,14 +16246,49 @@ exports.updatePurchaseLot =
           : null;
 
 
-      const plannedDate =
-        req.body.planned_date
-          ?.toString()
-          .trim() ||
-        null;
+          const plannedDate =
+            req.body.planned_date
+              ?.toString()
+              .trim() ||
+            null;
 
 
-      const status =
+          const purchaseDate =
+            req.body.purchase_date
+              ?.toString()
+              .trim() ||
+            null;
+
+
+          const sellerPaymentMethodIdRaw =
+            req.body.seller_payment_method_id;
+
+
+          const sellerPaymentMethodId =
+            sellerPaymentMethodIdRaw !== undefined &&
+            sellerPaymentMethodIdRaw !== null &&
+            sellerPaymentMethodIdRaw !== ''
+              ? Number(
+                  sellerPaymentMethodIdRaw
+                )
+              : null;
+
+
+          const plannedPaymentDate =
+            req.body.planned_payment_date
+              ?.toString()
+              .trim() ||
+            null;
+
+
+          const paymentTerms =
+            req.body.payment_terms
+              ?.toString()
+              .trim() ||
+            null;
+
+
+          const status =
         req.body.status
           ?.toString()
           .trim()
@@ -16443,17 +16629,57 @@ exports.updatePurchaseLot =
 
 
       if (
+        purchaseDate !== null &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(
+          purchaseDate
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'purchase_date debe tener formato YYYY-MM-DD',
+        });
+      }
+
+
+      if (
         plannedDate !== null &&
         !/^\d{4}-\d{2}-\d{2}$/.test(
           plannedDate
         )
       ) {
-
         return res.status(400).json({
           error:
             'planned_date debe tener formato YYYY-MM-DD',
         });
+      }
 
+
+      if (
+        plannedPaymentDate !== null &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(
+          plannedPaymentDate
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'planned_payment_date debe tener formato YYYY-MM-DD',
+        });
+      }
+
+
+      if (
+        sellerPaymentMethodId !== null &&
+        (
+          !Number.isInteger(
+            sellerPaymentMethodId
+          ) ||
+          sellerPaymentMethodId <= 0
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'seller_payment_method_id inválido',
+        });
       }
 
 
@@ -16656,26 +16882,73 @@ exports.updatePurchaseLot =
         );
 
 
-      if (
-        sellerResult.rows.length === 0
-      ) {
-
-        await client.query(
-          'ROLLBACK'
-        );
-
-
-        return res.status(400).json({
-          error:
-            'El vendedor no existe, está inactivo o no tiene rol seller',
-        });
-
-      }
+        if (
+          sellerResult.rows.length === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
 
 
-      // =================================================
-      // VALIDAR ESTANCIA
-      // =================================================
+          return res.status(400).json({
+            error:
+              'El vendedor no existe, está inactivo o no tiene rol seller',
+          });
+        }
+
+
+        // =================================================
+        // VALIDAR MÉTODO DE PAGO DEL VENDEDOR
+        //
+        // Si se seleccionó una cuenta / QR / método,
+        // debe pertenecer al vendedor y estar activo.
+        // =================================================
+
+        if (
+          sellerPaymentMethodId !== null
+        ) {
+          const paymentMethodResult =
+            await client.query(
+              `
+                SELECT
+                  sppm.id
+                FROM slaughterhouse_person_payment_methods sppm
+                JOIN slaughterhouse_people sp
+                  ON sp.id = sppm.person_id
+                WHERE
+                  sppm.id = $1
+                  AND sppm.person_id = $2
+                  AND sp.company_id = $3
+                  AND sppm.is_active = true
+                LIMIT 1
+              `,
+              [
+                sellerPaymentMethodId,
+                sellerPersonId,
+                companyId,
+              ],
+            );
+
+
+          if (
+            paymentMethodResult.rows.length === 0
+          ) {
+            await client.query(
+              'ROLLBACK'
+            );
+
+
+            return res.status(400).json({
+              error:
+                'El método de pago seleccionado no pertenece al vendedor o está inactivo',
+            });
+          }
+        }
+
+
+        // =================================================
+        // VALIDAR ESTANCIA
+        // =================================================
 
       if (
         estateId !== null
@@ -16899,33 +17172,35 @@ exports.updatePurchaseLot =
       const result =
         await client.query(
           `
-            UPDATE slaughterhouse_purchase_lots
-            SET
-              external_order_number = $1,
-              seller_person_id = $2,
-              estate_id = $3,
-              captador_person_id = $4,
-              commissioner_person_id = $5,
-              classification_id = $6,
-              purchase_type = $7,
-              pricing_basis = $8,
-              weight_source = $9,
-              expected_quantity = $10,
-              price_per_unit = $11,
-              currency = $12,
-              shrink_percent = $13,
-              commission_type = $14,
-              commission_value = $15,
-              planned_date = $16,
-              status = $17,
-              notes = $18,
-              updated_at = NOW()
-
-            WHERE
-              id = $19
-              AND company_id = $20
-
-            RETURNING *
+          UPDATE slaughterhouse_purchase_lots
+          SET
+            external_order_number = $1,
+            seller_person_id = $2,
+            estate_id = $3,
+            captador_person_id = $4,
+            commissioner_person_id = $5,
+            classification_id = $6,
+            purchase_type = $7,
+            pricing_basis = $8,
+            weight_source = $9,
+            expected_quantity = $10,
+            price_per_unit = $11,
+            currency = $12,
+            shrink_percent = $13,
+            commission_type = $14,
+            commission_value = $15,
+            purchase_date = $16,
+            planned_date = $17,
+            seller_payment_method_id = $18,
+            planned_payment_date = $19,
+            payment_terms = $20,
+            status = $21,
+            notes = $22,
+            updated_at = NOW()
+          WHERE
+            id = $23
+            AND company_id = $24
+          RETURNING *
           `,
           [
             externalOrderNumber,
@@ -16943,7 +17218,11 @@ exports.updatePurchaseLot =
             shrinkPercent,
             commissionType,
             commissionValue,
+            purchaseDate,
             plannedDate,
+            sellerPaymentMethodId,
+            plannedPaymentDate,
+            paymentTerms,
             status,
             notes,
             purchaseLotId,
