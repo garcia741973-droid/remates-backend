@@ -14850,21 +14850,6 @@ exports.createPurchaseLot =
       }
 
 
-      if (
-        plannedDate !== null &&
-        !/^\d{4}-\d{2}-\d{2}$/.test(
-          plannedDate
-        )
-      ) {
-
-        return res.status(400).json({
-          error:
-            'planned_date debe tener formato YYYY-MM-DD',
-        });
-
-      }
-
-
       await client.query(
         'BEGIN'
       );
