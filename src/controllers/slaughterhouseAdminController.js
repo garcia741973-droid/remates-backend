@@ -10667,23 +10667,30 @@ exports.createAnimalClassification =
                 .trim()
                 .toUpperCase()
           )
-          .join('-');
+          .join('');
+
+
+      const ageDisplayName =
+        catalog.age_name
+          .toString()
+          .trim()
+          .replace(
+            /^Edad:\s*/i,
+            ''
+          );
 
 
       const displayName =
-        [
-          catalog.category_name,
-          catalog.breed_name,
-          catalog.feeding_name,
-          catalog.age_name,
-        ]
-          .map(
-            (value) =>
-              value
-                .toString()
-                .trim()
-          )
-          .join(' - ');
+        `${catalog.category_name
+          .toString()
+          .trim()} | ` +
+        `${catalog.breed_name
+          .toString()
+          .trim()} | ` +
+        `${catalog.feeding_name
+          .toString()
+          .trim()} | ` +
+        `Edad: ${ageDisplayName}`;
 
 
       // =================================================
