@@ -25,6 +25,7 @@ const {
   uploadSlaughterhouseReceptionPhoto,
   createSlaughterhouseGateArrival,
   createSlaughterhouseReception,
+  updateSlaughterhouseReceptionTruckLiveWeight,
   startSlaughterhouseSlaughter,
   getSlaughterhouseSlaughterReceptions,
   createSlaughterhouseCarcass,
@@ -131,6 +132,19 @@ router.post(
   createSlaughterhouseReception,
 );
 
+// =====================================================
+// ⚖️ PESO VIVO EN PLANTA
+// =====================================================
+
+router.patch(
+  '/receptions/:id/trucks/:truckId/live-weight',
+
+  requireSlaughterhousePermission(
+    'slaughter.manage'
+  ),
+
+  updateSlaughterhouseReceptionTruckLiveWeight,
+);
 
 // =====================================================
 // 🏭 INICIAR FAENA

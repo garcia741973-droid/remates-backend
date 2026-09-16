@@ -2337,6 +2337,207 @@ exports.createSlaughterhouseReception =
   };
 
 // =====================================================
+// ⚖️ REGISTRAR / ACTUALIZAR PESO VIVO EN PLANTA
+//
+// PATCH
+// /slaughterhouse/receptions/:id/trucks/:truckId/live-weight
+//
+// Se utiliza después de Recepción y antes de Faena.
+// El peso pertenece al camión recepcionado.
+// =====================================================
+
+exports.updateSlaughterhouseReceptionTruckLiveWeight =
+  async (req, res) => {
+    const client =
+      await pool.connect();
+
+    try {
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+      if (!operator) {
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+      const receptionId =
+        Number(
+          req.params.id,
+        );
+
+      const receptionTruckId =
+        Number(
+          req.params.truckId,
+        );
+
+      const liveWeightKg =
+        Number(
+          req.body.live_weight_kg,
+        );
+
+      if (
+        !Number.isInteger(
+          receptionId,
+        ) ||
+        receptionId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Recepción inválida',
+        });
+      }
+
+      if (
+        !Number.isInteger(
+          receptionTruckId,
+        ) ||
+        receptionTruckId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Camión de recepción inválido',
+        });
+      }
+
+      if (
+        !Number.isFinite(
+          liveWeightKg,
+        ) ||
+        liveWeightKg <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Peso vivo inválido',
+        });
+      }
+
+      await client.query(
+        'BEGIN',
+      );
+
+      const truckResult =
+        await client.query(
+          `
+          SELECT
+            srt.id,
+            srt.reception_id,
+            srt.plate_snapshot,
+            srt.received_quantity,
+            srt.live_weight_kg,
+            sr.status
+              AS reception_status
+          FROM slaughterhouse_reception_trucks srt
+          JOIN slaughterhouse_receptions sr
+            ON sr.id =
+              srt.reception_id
+          WHERE
+            srt.id = $1
+            AND srt.reception_id = $2
+            AND sr.company_id = $3
+          LIMIT 1
+          FOR UPDATE OF srt, sr
+          `,
+          [
+            receptionTruckId,
+            receptionId,
+            companyId,
+          ],
+        );
+
+      if (
+        truckResult.rows.length ===
+          0
+      ) {
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(404).json({
+          error:
+            'Camión no encontrado en esta recepción',
+        });
+      }
+
+      const receptionTruck =
+        truckResult.rows[0];
+
+      if (
+        ![
+          'open',
+          'closed',
+        ].includes(
+          receptionTruck.reception_status,
+        )
+      ) {
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(409).json({
+          error:
+            'El peso vivo debe registrarse antes de iniciar la faena',
+        });
+      }
+
+      const updatedResult =
+        await client.query(
+          `
+          UPDATE slaughterhouse_reception_trucks
+          SET
+            live_weight_kg = $1,
+            updated_at = NOW()
+          WHERE
+            id = $2
+            AND reception_id = $3
+          RETURNING *
+          `,
+          [
+            liveWeightKg,
+            receptionTruckId,
+            receptionId,
+          ],
+        );
+
+      await client.query(
+        'COMMIT',
+      );
+
+      return res.json({
+        success: true,
+        truck:
+          updatedResult.rows[0],
+      });
+
+    } catch (error) {
+      await client.query(
+        'ROLLBACK',
+      );
+
+      console.error(
+        'UPDATE SLAUGHTERHOUSE LIVE WEIGHT ERROR:',
+        error,
+      );
+
+      return res.status(500).json({
+        error:
+          'Error registrando peso vivo en planta',
+      });
+
+    } finally {
+      client.release();
+    }
+  };
+
+// =====================================================
 // 🏭 INICIAR FAENA
 //
 // POST /slaughterhouse/receptions/:id/start-slaughter
@@ -2621,6 +2822,96 @@ exports.startSlaughterhouseSlaughter =
         });
       }
 
+      // =================================================
+      // VALIDAR PESO VIVO DE PLANTA
+      //
+      // Solo es obligatorio para:
+      // live_kg + plant
+      // =================================================
+
+      const plantWeightValidation =
+        await client.query(
+          `
+          SELECT
+            COUNT(*) FILTER (
+              WHERE
+                spl.pricing_basis =
+                  'live_kg'
+                AND spl.weight_source =
+                  'plant'
+            )::int
+              AS required_troops,
+
+            COUNT(*) FILTER (
+              WHERE
+                spl.pricing_basis =
+                  'live_kg'
+                AND spl.weight_source =
+                  'plant'
+                AND (
+                  st.reception_truck_id
+                    IS NULL
+                  OR srt.live_weight_kg
+                    IS NULL
+                )
+            )::int
+              AS missing_weight_troops
+
+          FROM slaughterhouse_troops st
+
+          JOIN slaughterhouse_purchase_lots spl
+            ON spl.id =
+              st.purchase_lot_id
+
+          LEFT JOIN slaughterhouse_reception_trucks srt
+            ON srt.id =
+              st.reception_truck_id
+
+          WHERE
+            st.company_id = $1
+            AND st.reception_id = $2
+            AND st.status <>
+              'cancelled'
+            AND (
+              $3::INTEGER IS NULL
+              OR st.id = $3
+            )
+          `,
+          [
+            companyId,
+            receptionId,
+            troopId,
+          ],
+        );
+
+      const plantWeightStatus =
+        plantWeightValidation.rows[0];
+
+      if (
+        Number(
+          plantWeightStatus
+            .missing_weight_troops || 0,
+        ) > 0
+      ) {
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(409).json({
+          error:
+            'Existe ganado comprado por kilo vivo con peso en planta que todavía no tiene peso vivo registrado',
+          required_troops:
+            Number(
+              plantWeightStatus
+                .required_troops || 0,
+            ),
+          missing_weight_troops:
+            Number(
+              plantWeightStatus
+                .missing_weight_troops || 0,
+            ),
+        });
+      }      
 
       // =================================================
       // TROPA ESPECÍFICA
@@ -3115,12 +3406,24 @@ exports.getSlaughterhouseSlaughterReceptions =
               AS received_quantity_total,
 
 
-            COALESCE(
-              trucks.live_weight_total_kg,
-              0
-            )::numeric
+            trucks.live_weight_total_kg
               AS live_weight_total_kg,
 
+            COALESCE(
+              trucks.live_weight_records_count,
+              0
+            )::int
+              AS live_weight_records_count,
+
+            commercial.pricing_basis,
+            commercial.weight_source,
+            commercial.requires_plant_live_weight,
+
+            COALESCE(
+              truck_details.items,
+              '[]'::jsonb
+            )
+              AS reception_trucks,
 
             -- ============================================
             -- COMPATIBILIDAD:
@@ -3192,13 +3495,15 @@ exports.getSlaughterhouseSlaughterReceptions =
                 AS received_quantity_total,
 
 
-              COALESCE(
-                SUM(
-                  srt.live_weight_kg
-                ),
-                0
+              SUM(
+                srt.live_weight_kg
               )::numeric
-                AS live_weight_total_kg
+                AS live_weight_total_kg,
+
+              COUNT(
+                srt.live_weight_kg
+              )::int
+                AS live_weight_records_count
 
             FROM slaughterhouse_reception_trucks srt
 
@@ -3209,6 +3514,110 @@ exports.getSlaughterhouseSlaughterReceptions =
           ) trucks
             ON true
 
+          -- ==============================================
+          -- MODALIDAD COMERCIAL DE LA RECEPCIÓN
+          -- ==============================================
+
+          LEFT JOIN LATERAL (
+            SELECT
+              CASE
+                WHEN COUNT(
+                  DISTINCT spl.pricing_basis
+                ) = 1
+                THEN MAX(
+                  spl.pricing_basis
+                )
+                WHEN COUNT(
+                  DISTINCT spl.pricing_basis
+                ) = 0
+                THEN NULL
+                ELSE 'mixed'
+              END
+                AS pricing_basis,
+
+              CASE
+                WHEN COUNT(
+                  DISTINCT spl.weight_source
+                ) = 1
+                THEN MAX(
+                  spl.weight_source
+                )
+                WHEN COUNT(
+                  DISTINCT spl.weight_source
+                ) = 0
+                THEN NULL
+                ELSE 'mixed'
+              END
+                AS weight_source,
+
+              COALESCE(
+                BOOL_OR(
+                  spl.pricing_basis = 'live_kg'
+                  AND spl.weight_source = 'plant'
+                ),
+                false
+              )
+                AS requires_plant_live_weight
+
+            FROM slaughterhouse_troops st
+            JOIN slaughterhouse_purchase_lots spl
+              ON spl.id =
+                st.purchase_lot_id
+            WHERE
+              st.reception_id =
+                sr.id
+              AND st.status <>
+                'cancelled'
+          ) commercial
+            ON true
+
+          -- ==============================================
+          -- CAMIONES DE LA RECEPCIÓN
+          -- ==============================================
+
+          LEFT JOIN LATERAL (
+            SELECT
+              COALESCE(
+                jsonb_agg(
+                  jsonb_build_object(
+                    'id',
+                      srt.id,
+                    'plate',
+                      srt.plate_snapshot,
+                    'received_quantity',
+                      srt.received_quantity,
+                    'live_weight_kg',
+                      srt.live_weight_kg,
+                    'requires_plant_live_weight',
+                      EXISTS (
+                        SELECT 1
+                        FROM slaughterhouse_troops st2
+                        JOIN slaughterhouse_purchase_lots spl2
+                          ON spl2.id =
+                            st2.purchase_lot_id
+                        WHERE
+                          st2.reception_truck_id =
+                            srt.id
+                          AND st2.status <>
+                            'cancelled'
+                          AND spl2.pricing_basis =
+                            'live_kg'
+                          AND spl2.weight_source =
+                            'plant'
+                      )
+                  )
+                  ORDER BY
+                    srt.id
+                ),
+                '[]'::jsonb
+              )
+                AS items
+            FROM slaughterhouse_reception_trucks srt
+            WHERE
+              srt.reception_id =
+                sr.id
+          ) truck_details
+            ON true
 
           -- ==============================================
           -- FAENA
