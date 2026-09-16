@@ -3924,7 +3924,7 @@ exports.createSlaughterhouseCarcass =
       // faena por lote/recepción completa.
       // =================================================
 
-      const troopId =
+      let troopId =
         req.body?.troop_id === null ||
         req.body?.troop_id === undefined ||
         req.body?.troop_id === ''
@@ -4131,6 +4131,68 @@ exports.createSlaughterhouseCarcass =
         });
       }
 
+      // =================================================
+      // RESOLVER TROPA AUTOMÁTICAMENTE
+      //
+      // Si el móvil no envía troop_id:
+      //
+      // - 1 tropa en faena:
+      //     se asigna automáticamente.
+      //
+      // - varias tropas en faena:
+      //     no se adivina; debe venir troop_id.
+      //
+      // - 0 tropas:
+      //     se mantiene compatibilidad con registros legacy.
+      // =================================================
+
+      if (
+        troopId === null
+      ) {
+        const activeTroopsResult =
+          await client.query(
+            `
+            SELECT
+              id
+            FROM slaughterhouse_troops
+            WHERE
+              company_id = $1
+              AND reception_id = $2
+              AND status = 'in_slaughter'
+            ORDER BY id
+            FOR UPDATE
+            `,
+            [
+              companyId,
+              receptionId,
+            ],
+          );
+
+        if (
+          activeTroopsResult.rows.length === 1
+        ) {
+          troopId =
+            Number(
+              activeTroopsResult
+                .rows[0]
+                .id,
+            );
+        } else if (
+          activeTroopsResult.rows.length > 1
+        ) {
+          await client.query(
+            'ROLLBACK',
+          );
+
+          return res.status(409).json({
+            error:
+              'La recepción tiene varias tropas en faena. Debe indicar troop_id para registrar la media carcasa.',
+            troops_count:
+              activeTroopsResult
+                .rows.length,
+          });
+        }
+      }
 
       // =================================================
       // VALIDAR TROPA OPCIONAL
