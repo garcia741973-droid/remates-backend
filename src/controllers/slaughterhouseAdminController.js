@@ -21545,10 +21545,7 @@ exports.requestTransportForPurchaseLot =
             WHERE
               purchase_lot_id = $1
               AND requester_company_id = $2
-              AND COALESCE(
-                status,
-                'open'
-              ) <> 'cancelled'
+              AND status = 'open'
 
             ORDER BY id DESC
 
@@ -22369,7 +22366,859 @@ exports.requestTransportForPurchaseLot =
     }
 
   };
-  
+
+// =====================================================
+// ✅ CONFIRMAR CAMIÓN PARA LOTE DE COMPRA
+//
+// POST
+// /slaughterhouse/admin/purchase-lots/:id/accept-transport-negotiation
+//
+// Body:
+//
+// {
+//   "negotiation_id": 123,
+//   "trip_price": 1500,
+//   "expected_quantity": 11
+// }
+//
+// REGLAS:
+//
+// - La solicitud pertenece al LOTE.
+// - Se pueden confirmar VARIOS camiones.
+// - Cada negociación confirmada crea UNA TROPA.
+// - La negociación confirmada pasa a paid.
+// - La solicitud de transporte permanece open.
+// - NO cancela las demás negociaciones.
+// - expected_quantity es solamente orientativa.
+// =====================================================
+
+exports.acceptPurchaseLotTransportNegotiation =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+      const purchaseLotId =
+        Number(
+          req.params.id
+        );
+
+      const negotiationId =
+        Number(
+          req.body.negotiation_id
+        );
+
+      const finalTripPrice =
+        Number(
+          req.body.trip_price
+        );
+
+      const expectedQuantityRaw =
+        req.body.expected_quantity;
+
+      const expectedQuantity =
+        expectedQuantityRaw === null ||
+        expectedQuantityRaw === undefined ||
+        expectedQuantityRaw === ''
+          ? null
+          : Number(
+              expectedQuantityRaw
+            );
+
+      // =================================================
+      // VALIDACIONES
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          purchaseLotId
+        ) ||
+        purchaseLotId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de lote inválido',
+        });
+
+      }
+
+      if (
+        !Number.isInteger(
+          negotiationId
+        ) ||
+        negotiationId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'negotiation_id inválido',
+        });
+
+      }
+
+      if (
+        !Number.isFinite(
+          finalTripPrice
+        ) ||
+        finalTripPrice <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Debe indicar un precio final válido para el viaje',
+        });
+
+      }
+
+      if (
+        expectedQuantity !== null &&
+        (
+          !Number.isInteger(
+            expectedQuantity
+          ) ||
+          expectedQuantity <= 0
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'expected_quantity debe ser un entero mayor a 0',
+        });
+
+      }
+
+      await client.query(
+        'BEGIN'
+      );
+
+      // =================================================
+      // BLOQUEAR LOTE
+      // =================================================
+
+      const lotResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              lot_number,
+              status,
+              expected_quantity
+
+            FROM slaughterhouse_purchase_lots
+
+            WHERE
+              id = $1
+              AND company_id = $2
+
+            FOR UPDATE
+          `,
+          [
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+      if (
+        lotResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'Lote de compra no encontrado',
+        });
+
+      }
+
+      const purchaseLot =
+        lotResult.rows[0];
+
+      if (
+        ![
+          'open',
+          'in_transport',
+        ].includes(
+          purchaseLot.status
+        )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            `El lote está en estado ${purchaseLot.status} y no permite confirmar camiones`,
+        });
+
+      }
+
+      // =================================================
+      // NEGOCIACIÓN + SOLICITUD + CAMIÓN
+      //
+      // La negociación DEBE pertenecer a:
+      // - este purchase_lot
+      // - este frigorífico
+      // =================================================
+
+      const negotiationResult =
+        await client.query(
+          `
+            SELECT
+
+              tn.id,
+              tn.request_id,
+              tn.truck_id,
+              tn.requester_id,
+              tn.transporter_id,
+              tn.status,
+              tn.trip_price,
+              tn.unlock_fee,
+              tn.cancelled,
+
+              tr.purchase_lot_id,
+              tr.requester_company_id,
+              tr.status
+                AS request_status,
+
+              truck.plate,
+              truck.brand,
+              truck.model,
+              truck.is_active
+                AS truck_is_active
+
+            FROM transport_negotiations tn
+
+            JOIN transport_requests tr
+              ON tr.id =
+                tn.request_id
+
+            JOIN transporter_trucks truck
+              ON truck.id =
+                tn.truck_id
+
+            WHERE
+              tn.id = $1
+
+              AND tr.purchase_lot_id = $2
+
+              AND tr.requester_company_id = $3
+
+            FOR UPDATE OF tn, tr
+          `,
+          [
+            negotiationId,
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+      if (
+        negotiationResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'La negociación no existe o no pertenece a la solicitud de transporte de este lote',
+        });
+
+      }
+
+      const negotiation =
+        negotiationResult.rows[0];
+
+      // =================================================
+      // SOLICITUD DE CAMIONES DEBE SEGUIR ABIERTA
+      // =================================================
+
+      if (
+        negotiation.request_status !==
+        'open'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            `La solicitud de camiones está en estado ${negotiation.request_status}`,
+        });
+
+      }
+
+      // =================================================
+      // NEGOCIACIÓN DEBE ESTAR ABIERTA
+      // =================================================
+
+      if (
+        negotiation.status !==
+          'open' ||
+        negotiation.cancelled ===
+          true
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'La negociación ya fue confirmada, cancelada o cerrada',
+        });
+
+      }
+
+      // =================================================
+      // CAMIÓN ACTIVO
+      // =================================================
+
+      if (
+        negotiation.truck_is_active !==
+        true
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El camión de esta negociación está inactivo',
+        });
+
+      }
+
+      // =================================================
+      // PROTEGER CONTRA DOBLE TROPA
+      // =================================================
+
+      const existingTroopResult =
+        await client.query(
+          `
+            SELECT
+              id
+
+            FROM slaughterhouse_troops
+
+            WHERE
+              company_id = $1
+              AND transport_negotiation_id = $2
+
+            LIMIT 1
+          `,
+          [
+            companyId,
+            negotiationId,
+          ],
+        );
+
+      if (
+        existingTroopResult.rows.length > 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Esta negociación ya tiene una tropa creada',
+          troop_id:
+            existingTroopResult.rows[0].id,
+        });
+
+      }
+
+      // =================================================
+      // CUENTA CORPORATIVA
+      // =================================================
+
+      const corporateAccountResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              company_id,
+              billing_mode,
+              monthly_fee,
+              per_operation_fee,
+              billing_day,
+              status
+
+            FROM transport_corporate_accounts
+
+            WHERE
+              company_id = $1
+              AND status = 'active'
+
+            LIMIT 1
+
+            FOR UPDATE
+          `,
+          [
+            companyId,
+          ],
+        );
+
+      if (
+        corporateAccountResult
+          .rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El frigorífico no tiene una cuenta corporativa de transporte activa',
+        });
+
+      }
+
+      const corporateAccount =
+        corporateAccountResult.rows[0];
+
+      const usageAmount =
+        corporateAccount.billing_mode ===
+          'monthly_flat'
+          ? 0
+          : Number(
+              corporateAccount
+                .per_operation_fee || 0
+            );
+
+      // =================================================
+      // CONFIRMAR NEGOCIACIÓN
+      //
+      // SOLO esta negociación pasa a paid.
+      //
+      // NO cambiamos transport_requests.status.
+      // NO cancelamos las demás.
+      // =================================================
+
+      const updatedNegotiationResult =
+        await client.query(
+          `
+            UPDATE transport_negotiations
+
+            SET
+              status = 'paid',
+              trip_price = $2,
+              unlock_fee = NULL,
+              cancelled = false,
+              cancelled_by = NULL
+
+            WHERE
+              id = $1
+
+            RETURNING *
+          `,
+          [
+            negotiation.id,
+            finalTripPrice,
+          ],
+        );
+
+      const updatedNegotiation =
+        updatedNegotiationResult.rows[0];
+
+      // =================================================
+      // CREAR TROPA AUTOMÁTICAMENTE
+      //
+      // Una negociación confirmada = una tropa física.
+      //
+      // expected_quantity:
+      // solamente orientación administrativa.
+      // =================================================
+
+      const troopResult =
+        await client.query(
+          `
+            INSERT INTO slaughterhouse_troops (
+
+              company_id,
+
+              purchase_lot_id,
+
+              troop_number,
+
+              transport_request_id,
+
+              transport_negotiation_id,
+
+              truck_id,
+
+              transporter_user_id,
+
+              expected_quantity,
+
+              status,
+
+              notes,
+
+              created_by
+
+            )
+
+            VALUES (
+
+              $1,
+
+              $2,
+
+              NULL,
+
+              $3,
+
+              $4,
+
+              $5,
+
+              $6,
+
+              $7,
+
+              'transport_assigned',
+
+              $8,
+
+              $9
+
+            )
+
+            RETURNING *
+          `,
+          [
+            companyId,
+
+            purchaseLotId,
+
+            negotiation.request_id,
+
+            negotiation.id,
+
+            negotiation.truck_id,
+
+            negotiation.transporter_id,
+
+            expectedQuantity,
+
+            `Camión confirmado desde solicitud de transporte #${negotiation.request_id}`,
+
+            userId,
+          ],
+        );
+
+      const troop =
+        troopResult.rows[0];
+
+      // =================================================
+      // LOTE EN TRANSPORTE
+      // =================================================
+
+      await client.query(
+        `
+          UPDATE slaughterhouse_purchase_lots
+
+          SET
+            status = 'in_transport',
+            updated_at = NOW()
+
+          WHERE
+            id = $1
+            AND company_id = $2
+            AND status = 'open'
+        `,
+        [
+          purchaseLotId,
+          companyId,
+        ],
+      );
+
+      // =================================================
+      // REGISTRAR USO CORPORATIVO
+      //
+      // Un camión confirmado =
+      // una operación de transporte.
+      // =================================================
+
+      const usageResult =
+        await client.query(
+          `
+            INSERT INTO transport_corporate_usage (
+
+              corporate_account_id,
+
+              request_id,
+
+              negotiation_id,
+
+              troop_id,
+
+              service_date,
+
+              charge_type,
+
+              amount,
+
+              description,
+
+              status
+
+            )
+
+            VALUES (
+
+              $1,
+
+              $2,
+
+              $3,
+
+              $4,
+
+              CURRENT_DATE,
+
+              'transport_operation',
+
+              $5,
+
+              $6,
+
+              'unbilled'
+
+            )
+
+            RETURNING *
+          `,
+          [
+            corporateAccount.id,
+
+            negotiation.request_id,
+
+            negotiation.id,
+
+            troop.id,
+
+            usageAmount,
+
+            `Uso Plaza Transporte - solicitud #${negotiation.request_id} - negociación #${negotiation.id}`,
+          ],
+        );
+
+      const corporateUsage =
+        usageResult.rows[0];
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+
+            company_id,
+
+            user_id,
+
+            entity_type,
+
+            entity_id,
+
+            action,
+
+            new_data
+
+          )
+
+          VALUES (
+
+            $1,
+
+            $2,
+
+            'troop',
+
+            $3,
+
+            'accept_purchase_lot_transport_negotiation',
+
+            $4::jsonb
+
+          )
+        `,
+        [
+          companyId,
+
+          userId,
+
+          String(
+            troop.id
+          ),
+
+          JSON.stringify({
+
+            troop,
+
+            purchase_lot_id:
+              purchaseLotId,
+
+            transport_request_id:
+              negotiation.request_id,
+
+            negotiation: {
+              id:
+                negotiation.id,
+
+              status:
+                updatedNegotiation.status,
+
+              transporter_id:
+                negotiation.transporter_id,
+
+              truck_id:
+                negotiation.truck_id,
+
+              plate:
+                negotiation.plate,
+
+              trip_price:
+                finalTripPrice,
+            },
+
+            expected_quantity:
+              expectedQuantity,
+
+            corporate_usage_id:
+              corporateUsage.id,
+
+            corporate_usage_amount:
+              usageAmount,
+
+          }),
+        ],
+      );
+
+      await client.query(
+        'COMMIT'
+      );
+
+      console.log(
+        '✅ PURCHASE LOT TRUCK CONFIRMED =>',
+        {
+          purchase_lot_id:
+            purchaseLotId,
+
+          transport_request_id:
+            negotiation.request_id,
+
+          negotiation_id:
+            negotiation.id,
+
+          troop_id:
+            troop.id,
+
+          truck_id:
+            negotiation.truck_id,
+
+          plate:
+            negotiation.plate,
+
+          expected_quantity:
+            expectedQuantity,
+
+          trip_price:
+            finalTripPrice,
+        }
+      );
+
+      return res.status(201).json({
+
+        success: true,
+
+        message:
+          'Camión confirmado y tropa creada correctamente',
+
+        purchase_lot_id:
+          purchaseLotId,
+
+        transport_request: {
+          id:
+            negotiation.request_id,
+
+          // La solicitud continúa ABIERTA
+          // para contratar más camiones.
+          status:
+            negotiation.request_status,
+        },
+
+        negotiation:
+          updatedNegotiation,
+
+        troop,
+
+        corporate_usage:
+          corporateUsage,
+
+      });
+
+    } catch (error) {
+
+      try {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+      } catch (rollbackError) {
+
+        console.error(
+          'ACCEPT PURCHASE LOT TRANSPORT ROLLBACK ERROR:',
+          rollbackError
+        );
+
+      }
+
+      console.error(
+        'ACCEPT PURCHASE LOT TRANSPORT NEGOTIATION ERROR:',
+        error
+      );
+
+      return res.status(500).json({
+        error:
+          'Error confirmando camión para el lote',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
 // =====================================================
 // 🚛 ESTADO DE TRANSPORTE DE UNA TROPA
 // GET /slaughterhouse/admin/troops/:id/transport

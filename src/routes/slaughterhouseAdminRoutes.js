@@ -133,6 +133,7 @@ const {
   cancelPurchaseLot,
   reactivatePurchaseLot,
   requestTransportForPurchaseLot,
+  acceptPurchaseLotTransportNegotiation,
   getTroops,
 
   createTroop,
@@ -1266,6 +1267,20 @@ router.post(
   ),
 
   requestTransportForPurchaseLot,
+);
+
+router.post(
+  '/purchase-lots/:id/accept-transport-negotiation',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'transport.negotiate'
+  ),
+
+  acceptPurchaseLotTransportNegotiation,
 );
 
 router.post(
