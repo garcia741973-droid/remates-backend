@@ -19916,6 +19916,200 @@ exports.requestTransportForTroop =
           .trim() ||
         null;
 
+      // =================================================
+      // ORIGEN / DESTINO LOGÍSTICO SELECCIONADO EN WEB
+      // =================================================
+
+      const rawPickupSavedLocationId =
+        req.body.approx_pickup_saved_location_id;
+
+      const rawDropoffSavedLocationId =
+        req.body.approx_dropoff_saved_location_id;
+
+      const pickupSavedLocationId =
+        rawPickupSavedLocationId === null ||
+        rawPickupSavedLocationId === undefined ||
+        rawPickupSavedLocationId === ''
+          ? null
+          : Number(rawPickupSavedLocationId);
+
+      const dropoffSavedLocationId =
+        rawDropoffSavedLocationId === null ||
+        rawDropoffSavedLocationId === undefined ||
+        rawDropoffSavedLocationId === ''
+          ? null
+          : Number(rawDropoffSavedLocationId);
+
+      if (
+        pickupSavedLocationId !== null &&
+        (
+          !Number.isInteger(
+            pickupSavedLocationId
+          ) ||
+          pickupSavedLocationId <= 0
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'approx_pickup_saved_location_id inválido',
+        });
+      }
+
+      if (
+        dropoffSavedLocationId !== null &&
+        (
+          !Number.isInteger(
+            dropoffSavedLocationId
+          ) ||
+          dropoffSavedLocationId <= 0
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'approx_dropoff_saved_location_id inválido',
+        });
+      }
+
+      const parseOptionalCoordinate = (
+        value
+      ) => {
+        if (
+          value === null ||
+          value === undefined ||
+          value === ''
+        ) {
+          return null;
+        }
+
+        const parsed =
+          Number(value);
+
+        return Number.isFinite(parsed)
+          ? parsed
+          : NaN;
+      };
+
+      const requestedPickupLat =
+        parseOptionalCoordinate(
+          req.body.approx_pickup_lat
+        );
+
+      const requestedPickupLng =
+        parseOptionalCoordinate(
+          req.body.approx_pickup_lng
+        );
+
+      const requestedDropoffLat =
+        parseOptionalCoordinate(
+          req.body.approx_dropoff_lat
+        );
+
+      const requestedDropoffLng =
+        parseOptionalCoordinate(
+          req.body.approx_dropoff_lng
+        );
+
+      if (
+        Number.isNaN(
+          requestedPickupLat
+        ) ||
+        Number.isNaN(
+          requestedPickupLng
+        ) ||
+        Number.isNaN(
+          requestedDropoffLat
+        ) ||
+        Number.isNaN(
+          requestedDropoffLng
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'Las coordenadas enviadas no son válidas',
+        });
+      }
+
+      if (
+        (
+          requestedPickupLat === null
+        ) !==
+        (
+          requestedPickupLng === null
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'El origen debe tener latitud y longitud',
+        });
+      }
+
+      if (
+        (
+          requestedDropoffLat === null
+        ) !==
+        (
+          requestedDropoffLng === null
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'El destino debe tener latitud y longitud',
+        });
+      }
+
+      if (
+        requestedPickupLat !== null &&
+        (
+          requestedPickupLat < -90 ||
+          requestedPickupLat > 90 ||
+          requestedPickupLng < -180 ||
+          requestedPickupLng > 180
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'Coordenadas de origen fuera de rango',
+        });
+      }
+
+      if (
+        requestedDropoffLat !== null &&
+        (
+          requestedDropoffLat < -90 ||
+          requestedDropoffLat > 90 ||
+          requestedDropoffLng < -180 ||
+          requestedDropoffLng > 180
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'Coordenadas de destino fuera de rango',
+        });
+      }
+
+      const requestedPickupSource =
+        req.body.approx_pickup_source
+          ?.toString()
+          .trim() ||
+        null;
+
+      const requestedDropoffSource =
+        req.body.approx_dropoff_source
+          ?.toString()
+          .trim() ||
+        null;
+
+      const requestedPickupNotes =
+        req.body.approx_pickup_notes
+          ?.toString()
+          .trim() ||
+        null;
+
+      const requestedDropoffNotes =
+        req.body.approx_dropoff_notes
+          ?.toString()
+          .trim() ||
+        null;
 
       // =================================================
       // VALIDACIONES
@@ -20205,76 +20399,344 @@ exports.requestTransportForTroop =
 
 
       // =================================================
-      // NECESITAMOS ORIGEN
+      // RESOLVER ORIGEN
+      //
+      // Prioridad:
+      // 1. Ubicación guardada seleccionada
+      // 2. Coordenadas enviadas desde web
+      // 3. Coordenadas de la Hacienda
       // =================================================
 
       if (
         !context.estate_id
       ) {
-
         await client.query(
           'ROLLBACK'
         );
-
 
         return res.status(400).json({
           error:
             'El lote debe tener una estancia de origen antes de solicitar transporte',
         });
-
       }
 
+      let pickupLocation = null;
 
-      const origin =
+      if (
+        pickupSavedLocationId !== null
+      ) {
+        const pickupResult =
+          await client.query(
+            `
+              SELECT
+                id,
+                user_id,
+                company_id,
+                slaughterhouse_estate_id,
+                name,
+                type,
+                latitude,
+                longitude,
+                notes
+              FROM transport_saved_locations
+              WHERE
+                id = $1
+                AND (
+                  user_id = $2
+                  OR company_id = $3
+                )
+              LIMIT 1
+            `,
+            [
+              pickupSavedLocationId,
+              userId,
+              companyId,
+            ],
+          );
+
+        if (
+          pickupResult.rows.length === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(404).json({
+            error:
+              'La ubicación seleccionada para el origen no existe o no está disponible para FRIGOSI',
+          });
+        }
+
+        pickupLocation =
+          pickupResult.rows[0];
+
+        if (
+          pickupLocation.latitude === null ||
+          pickupLocation.longitude === null
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(400).json({
+            error:
+              'La ubicación seleccionada para el origen no tiene coordenadas',
+          });
+        }
+      }
+
+      let origin =
         [
           context.estate_name,
           context.estate_location,
         ]
-          .filter(
-            Boolean
-          )
+          .filter(Boolean)
           .join(' - ');
 
-
-      if (
-        !origin
-      ) {
-
+      if (!origin) {
         await client.query(
           'ROLLBACK'
         );
-
 
         return res.status(400).json({
           error:
             'La estancia debe tener un nombre o ubicación válida',
         });
-
       }
 
+      let pickupLat =
+        context.estate_lat === null ||
+        context.estate_lat === undefined
+          ? null
+          : Number(
+              context.estate_lat
+            );
+
+      let pickupLng =
+        context.estate_lng === null ||
+        context.estate_lng === undefined
+          ? null
+          : Number(
+              context.estate_lng
+            );
+
+      let pickupSource =
+        'slaughterhouse';
+
+      let pickupNotes =
+        context.estate_location ||
+        origin;
+
+      if (pickupLocation) {
+        pickupLat =
+          Number(
+            pickupLocation.latitude
+          );
+
+        pickupLng =
+          Number(
+            pickupLocation.longitude
+          );
+
+        pickupSource =
+          'saved';
+
+        pickupNotes =
+          pickupLocation.notes ||
+          pickupLocation.name ||
+          origin;
+
+        origin =
+          [
+            context.estate_name,
+            pickupLocation.name,
+          ]
+            .filter(Boolean)
+            .join(' - ');
+      } else if (
+        requestedPickupLat !== null &&
+        requestedPickupLng !== null
+      ) {
+        pickupLat =
+          requestedPickupLat;
+
+        pickupLng =
+          requestedPickupLng;
+
+        pickupSource =
+          requestedPickupSource ||
+          'coordinates';
+
+        pickupNotes =
+          requestedPickupNotes ||
+          origin;
+      } else {
+        pickupSource =
+          requestedPickupSource ||
+          'slaughterhouse';
+
+        pickupNotes =
+          requestedPickupNotes ||
+          pickupNotes;
+      }
 
       // =================================================
-      // DESTINO = PLANTA DEL FRIGORÍFICO
+      // RESOLVER DESTINO
+      //
+      // Prioridad:
+      // 1. Ubicación guardada seleccionada
+      // 2. Coordenadas enviadas desde web
+      // 3. Coordenadas de la planta FRIGOSI
       // =================================================
 
-      const destination =
-        context.company_name;
-
+      let dropoffLocation = null;
 
       if (
-        !destination
+        dropoffSavedLocationId !== null
       ) {
+        const dropoffResult =
+          await client.query(
+            `
+              SELECT
+                id,
+                user_id,
+                company_id,
+                slaughterhouse_estate_id,
+                name,
+                type,
+                latitude,
+                longitude,
+                notes
+              FROM transport_saved_locations
+              WHERE
+                id = $1
+                AND (
+                  user_id = $2
+                  OR company_id = $3
+                )
+              LIMIT 1
+            `,
+            [
+              dropoffSavedLocationId,
+              userId,
+              companyId,
+            ],
+          );
 
+        if (
+          dropoffResult.rows.length === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(404).json({
+            error:
+              'La ubicación seleccionada para el destino no existe o no está disponible para FRIGOSI',
+          });
+        }
+
+        dropoffLocation =
+          dropoffResult.rows[0];
+
+        if (
+          dropoffLocation.latitude === null ||
+          dropoffLocation.longitude === null
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(400).json({
+            error:
+              'La ubicación seleccionada para el destino no tiene coordenadas',
+          });
+        }
+      }
+
+      let destination =
+        context.company_name;
+
+      if (!destination) {
         await client.query(
           'ROLLBACK'
         );
-
 
         return res.status(400).json({
           error:
             'El frigorífico no tiene un nombre válido para usar como destino',
         });
+      }
 
+      let dropoffLat =
+        context.plant_lat === null ||
+        context.plant_lat === undefined
+          ? null
+          : Number(
+              context.plant_lat
+            );
+
+      let dropoffLng =
+        context.plant_lng === null ||
+        context.plant_lng === undefined
+          ? null
+          : Number(
+              context.plant_lng
+            );
+
+      let dropoffSource =
+        'slaughterhouse';
+
+      let dropoffNotes =
+        destination;
+
+      if (dropoffLocation) {
+        dropoffLat =
+          Number(
+            dropoffLocation.latitude
+          );
+
+        dropoffLng =
+          Number(
+            dropoffLocation.longitude
+          );
+
+        dropoffSource =
+          'saved';
+
+        dropoffNotes =
+          dropoffLocation.notes ||
+          dropoffLocation.name ||
+          destination;
+
+        destination =
+          dropoffLocation.name ||
+          destination;
+      } else if (
+        requestedDropoffLat !== null &&
+        requestedDropoffLng !== null
+      ) {
+        dropoffLat =
+          requestedDropoffLat;
+
+        dropoffLng =
+          requestedDropoffLng;
+
+        dropoffSource =
+          requestedDropoffSource ||
+          'coordinates';
+
+        dropoffNotes =
+          requestedDropoffNotes ||
+          destination;
+      } else {
+        dropoffSource =
+          requestedDropoffSource ||
+          'slaughterhouse';
+
+        dropoffNotes =
+          requestedDropoffNotes ||
+          dropoffNotes;
       }
 
 
@@ -20343,7 +20805,6 @@ exports.requestTransportForTroop =
 
               origin_lat,
               origin_lng,
-
               destination_lat,
               destination_lng,
 
@@ -20351,11 +20812,13 @@ exports.requestTransportForTroop =
               approx_pickup_lng,
               approx_pickup_notes,
               approx_pickup_source,
+              approx_pickup_saved_location_id,
 
               approx_dropoff_lat,
               approx_dropoff_lng,
               approx_dropoff_notes,
               approx_dropoff_source,
+              approx_dropoff_saved_location_id,
 
               requester_company_id,
               visibility_scope
@@ -20374,54 +20837,53 @@ exports.requestTransportForTroop =
 
               $9,
               $10,
-
               $11,
               $12,
 
               $9,
               $10,
-              $2,
-              'slaughterhouse',
+              $13,
+              $14,
+              $15,
 
               $11,
               $12,
-              $3,
-              'slaughterhouse',
+              $16,
+              $17,
+              $18,
 
-              $13,
-              $14
+              $19,
+              $20
             )
 
             RETURNING *
           `,
           [
-            userId,
+            userId,                         // $1
+            origin,                         // $2
+            destination,                    // $3
+            quantity,                       // $4
+            animalType,                     // $5
+            context.planned_date,           // $6
+            transportNotes,                 // $7
+            context.seller_phone,           // $8
 
-            origin,
+            pickupLat,                      // $9
+            pickupLng,                      // $10
 
-            destination,
+            dropoffLat,                     // $11
+            dropoffLng,                     // $12
 
-            quantity,
+            pickupNotes,                    // $13
+            pickupSource,                   // $14
+            pickupSavedLocationId,          // $15
 
-            animalType,
+            dropoffNotes,                   // $16
+            dropoffSource,                  // $17
+            dropoffSavedLocationId,         // $18
 
-            context.planned_date,
-
-            transportNotes,
-
-            context.seller_phone,
-
-            context.estate_lat,
-
-            context.estate_lng,
-
-            context.plant_lat,
-
-            context.plant_lng,
-
-            companyId,
-
-            visibilityScope,
+            companyId,                      // $19
+            visibilityScope,                // $20
           ],
         );
 
@@ -20531,6 +20993,33 @@ exports.requestTransportForTroop =
 
             purchase_lot_id:
               context.purchase_lot_id,
+
+            estate_id:
+              context.estate_id,
+
+            approx_pickup_saved_location_id:
+              pickupSavedLocationId,
+
+            approx_pickup_source:
+              pickupSource,
+
+            approx_pickup_lat:
+              pickupLat,
+
+            approx_pickup_lng:
+              pickupLng,
+
+            approx_dropoff_saved_location_id:
+              dropoffSavedLocationId,
+
+            approx_dropoff_source:
+              dropoffSource,
+
+            approx_dropoff_lat:
+              dropoffLat,
+
+            approx_dropoff_lng:
+              dropoffLng,
           }),
         ],
       );
