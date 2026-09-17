@@ -3546,7 +3546,7 @@ exports.getEstates =
               se.seller_person_id,
               se.name,
               se.location_text,
-              se.senasag_predio_number,
+              se.rau,
               se.lat,
               se.lng,
               se.notes,
@@ -3584,7 +3584,7 @@ exports.getEstates =
                   '%' || $2 || '%'
                 OR se.location_text ILIKE
                   '%' || $2 || '%'
-                OR se.senasag_predio_number ILIKE
+                OR se.rau ILIKE
                   '%' || $2 || '%'
                 OR sp.full_name ILIKE
                   '%' || $2 || '%'
@@ -3700,8 +3700,8 @@ exports.createEstate =
         null;
 
 
-      const senasagPredioNumber =
-        req.body.senasag_predio_number
+      const rau =
+        req.body.rau
           ?.toString()
           .trim() ||
         null;
@@ -3885,7 +3885,7 @@ exports.createEstate =
               seller_person_id,
               name,
               location_text,
-              senasag_predio_number,
+              rau,
               lat,
               lng,
               notes,
@@ -3904,7 +3904,7 @@ exports.createEstate =
             sellerPersonId,
             name,
             locationText,
-            senasagPredioNumber,
+            rau,
             lat,
             lng,
             notes,
@@ -4066,8 +4066,8 @@ exports.updateEstate =
         null;
 
 
-      const senasagPredioNumber =
-        req.body.senasag_predio_number
+      const rau =
+        req.body.rau
           ?.toString()
           .trim() ||
         null;
@@ -4296,7 +4296,7 @@ exports.updateEstate =
               seller_person_id = $1,
               name = $2,
               location_text = $3,
-              senasag_predio_number = $4,
+              rau = $4,
               lat = $5,
               lng = $6,
               notes = $7,
@@ -4312,7 +4312,7 @@ exports.updateEstate =
             sellerPersonId,
             name,
             locationText,
-            senasagPredioNumber,
+            rau,
             lat,
             lng,
             notes,
