@@ -8349,12 +8349,13 @@ const cancelTransportRequest =
     }
   };
 
-const createSavedLocation = async (
-  req,
-  res
-) => {
+const createSavedLocation = async (req, res) => {
   try {
-    const userId = req.user.user_id;
+    const userId = Number(req.user.user_id);
+    const authCompanyId =
+      req.user.company_id
+        ? Number(req.user.company_id)
+        : null;
 
     const {
       name,
@@ -8362,39 +8363,224 @@ const createSavedLocation = async (
       latitude,
       longitude,
       notes,
+      slaughterhouse_estate_id,
+      is_primary,
+      corporate,
     } = req.body;
 
-    const result = await pool.query(
-      `
-      INSERT INTO transport_saved_locations (
-        user_id,
-        name,
-        type,
-        latitude,
-        longitude,
-        notes
-      )
-      VALUES ($1,$2,$3,$4,$5,$6)
-      RETURNING *
-      `,
-      [
-        userId,
-        name,
-        type || 'custom',
-        latitude,
-        longitude,
-        notes || null,
-      ]
+    const cleanName =
+      name?.toString().trim() || '';
+
+    const lat =
+      latitude === null ||
+      latitude === undefined ||
+      latitude === ''
+        ? null
+        : Number(latitude);
+
+    const lng =
+      longitude === null ||
+      longitude === undefined ||
+      longitude === ''
+        ? null
+        : Number(longitude);
+
+    if (!cleanName) {
+      return res.status(400).json({
+        error: 'El nombre de la ubicación es obligatorio',
+      });
+    }
+
+    if (
+      lat === null ||
+      lng === null ||
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lng) ||
+      lat < -90 ||
+      lat > 90 ||
+      lng < -180 ||
+      lng > 180
+    ) {
+      return res.status(400).json({
+        error: 'Coordenadas inválidas',
+      });
+    }
+
+    const wantsCorporate =
+      corporate === true ||
+      corporate === 'true' ||
+      slaughterhouse_estate_id !== null &&
+        slaughterhouse_estate_id !== undefined;
+
+    let companyId = null;
+    let estateId = null;
+
+    // =====================================================
+    // UBICACIÓN CORPORATIVA FRIGORÍFICO
+    // =====================================================
+
+    if (wantsCorporate) {
+      if (!authCompanyId) {
+        return res.status(403).json({
+          error:
+            'No existe una empresa autenticada para crear una ubicación corporativa',
+        });
+      }
+
+      const companyResult =
+        await pool.query(
+          `
+          SELECT c.id
+          FROM user_companies uc
+          JOIN companies c
+            ON c.id = uc.company_id
+          WHERE
+            uc.user_id = $1
+            AND uc.company_id = $2
+            AND uc.company_status = 'approved'
+            AND c.company_type = 'slaughterhouse'
+            AND c.is_active = true
+          LIMIT 1
+          `,
+          [
+            userId,
+            authCompanyId,
+          ]
+        );
+
+      if (
+        companyResult.rows.length === 0
+      ) {
+        return res.status(403).json({
+          error:
+            'El usuario no pertenece a un frigorífico autorizado',
+        });
+      }
+
+      companyId =
+        companyResult.rows[0].id;
+
+      if (
+        slaughterhouse_estate_id !== null &&
+        slaughterhouse_estate_id !== undefined &&
+        slaughterhouse_estate_id !== ''
+      ) {
+        estateId =
+          Number(
+            slaughterhouse_estate_id
+          );
+
+        if (
+          !Number.isInteger(estateId) ||
+          estateId <= 0
+        ) {
+          return res.status(400).json({
+            error:
+              'ID de hacienda inválido',
+          });
+        }
+
+        const estateResult =
+          await pool.query(
+            `
+            SELECT id
+            FROM slaughterhouse_estates
+            WHERE
+              id = $1
+              AND company_id = $2
+              AND is_active = true
+            LIMIT 1
+            `,
+            [
+              estateId,
+              companyId,
+            ]
+          );
+
+        if (
+          estateResult.rows.length === 0
+        ) {
+          return res.status(404).json({
+            error:
+              'La hacienda no pertenece al frigorífico',
+          });
+        }
+      }
+    }
+
+    const primary =
+      is_primary === true ||
+      is_primary === 'true';
+
+    // =====================================================
+    // SI SERÁ PRINCIPAL, QUITAR PRINCIPAL ANTERIOR
+    // =====================================================
+
+    if (
+      primary &&
+      companyId &&
+      estateId
+    ) {
+      await pool.query(
+        `
+        UPDATE transport_saved_locations
+        SET is_primary = false
+        WHERE
+          company_id = $1
+          AND slaughterhouse_estate_id = $2
+          AND is_primary = true
+        `,
+        [
+          companyId,
+          estateId,
+        ]
+      );
+    }
+
+    const result =
+      await pool.query(
+        `
+        INSERT INTO transport_saved_locations (
+          user_id,
+          company_id,
+          slaughterhouse_estate_id,
+          name,
+          type,
+          latitude,
+          longitude,
+          notes,
+          is_primary
+        )
+        VALUES (
+          $1,$2,$3,$4,$5,$6,$7,$8,$9
+        )
+        RETURNING *
+        `,
+        [
+          userId,
+          companyId,
+          estateId,
+          cleanName,
+          type || 'custom',
+          lat,
+          lng,
+          notes?.toString().trim() || null,
+          primary,
+        ]
+      );
+
+    return res.status(201).json(
+      result.rows[0]
+    );
+  } catch (error) {
+    console.error(
+      'CREATE SAVED LOCATION ERROR:',
+      error
     );
 
-    res.json(result.rows[0]);
-
-  } catch (error) {
-    console.error(error);
-
-    res.status(500).json({
+    return res.status(500).json({
       error:
-          'Error guardando ubicación',
+        'Error guardando ubicación',
     });
   }
 };
@@ -8404,26 +8590,109 @@ const getMySavedLocations = async (
   res
 ) => {
   try {
-    const userId = req.user.user_id;
+    const userId =
+      Number(req.user.user_id);
 
-    const result = await pool.query(
-      `
-      SELECT *
-      FROM transport_saved_locations
-      WHERE user_id = $1
-      ORDER BY name ASC
-      `,
-      [userId]
+    const authCompanyId =
+      req.user.company_id
+        ? Number(req.user.company_id)
+        : null;
+
+    let corporateCompanyId = null;
+
+    if (authCompanyId) {
+      const companyResult =
+        await pool.query(
+          `
+          SELECT c.id
+          FROM user_companies uc
+          JOIN companies c
+            ON c.id = uc.company_id
+          WHERE
+            uc.user_id = $1
+            AND uc.company_id = $2
+            AND uc.company_status = 'approved'
+            AND c.company_type = 'slaughterhouse'
+            AND c.is_active = true
+          LIMIT 1
+          `,
+          [
+            userId,
+            authCompanyId,
+          ]
+        );
+
+      if (
+        companyResult.rows.length > 0
+      ) {
+        corporateCompanyId =
+          companyResult.rows[0].id;
+      }
+    }
+
+    const result =
+      await pool.query(
+        `
+        SELECT
+          tsl.*,
+
+          CASE
+            WHEN tsl.company_id IS NOT NULL
+              THEN true
+            ELSE false
+          END AS is_corporate,
+
+          se.name
+            AS estate_name,
+
+          (
+            SELECT COUNT(*)::integer
+            FROM transport_location_routes tlr
+            WHERE
+              tlr.saved_location_id =
+                tsl.id
+          )
+            AS routes_count
+
+        FROM transport_saved_locations tsl
+
+        LEFT JOIN slaughterhouse_estates se
+          ON se.id =
+            tsl.slaughterhouse_estate_id
+
+        WHERE
+          tsl.user_id = $1
+          OR (
+            $2::integer IS NOT NULL
+            AND tsl.company_id = $2
+          )
+
+        ORDER BY
+          CASE
+            WHEN tsl.company_id IS NOT NULL
+              THEN 0
+            ELSE 1
+          END,
+          tsl.name ASC
+        `,
+        [
+          userId,
+          corporateCompanyId,
+        ]
+      );
+
+    return res.json(
+      result.rows
+    );
+  } catch (error) {
+    console.error(
+      'GET SAVED LOCATIONS ERROR:',
+      error
     );
 
-    res.json(result.rows);
-
-  } catch (error) {
-    console.error(error);
-
-    res.status(500).json({
+    return res.status(500).json({
       error:
-          'Error cargando ubicaciones',
+        'Error cargando ubicaciones',
     });
   }
 };
