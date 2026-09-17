@@ -8754,47 +8754,101 @@ const shareLocation = async (
   res
 ) => {
   try {
-
     const userId =
-        req.user.user_id;
+      Number(req.user.user_id);
+
+    const authCompanyId =
+      req.user.company_id
+        ? Number(req.user.company_id)
+        : null;
 
     const {
       saved_location_id,
       share_message,
     } = req.body;
 
+    const savedLocationId =
+      Number(saved_location_id);
+
+    if (
+      !Number.isInteger(savedLocationId) ||
+      savedLocationId <= 0
+    ) {
+      return res.status(400).json({
+        error:
+          'ID de ubicación inválido',
+      });
+    }
+
+    // =====================================================
+    // UBICACIÓN ACCESIBLE
+    //
+    // 1. Personal del propio usuario
+    // 2. Corporativa de la empresa activa del frigorífico
+    // =====================================================
+
     const location =
-        await pool.query(
-      `
-      SELECT *
-      FROM transport_saved_locations
-      WHERE id = $1
-      AND user_id = $2
-      `,
-      [
-        saved_location_id,
-        userId,
-      ]
-    );
+      await pool.query(
+        `
+        SELECT
+          tsl.*
+        FROM transport_saved_locations tsl
+        WHERE
+          tsl.id = $1
+          AND (
+            (
+              tsl.user_id = $2
+              AND tsl.company_id IS NULL
+            )
+            OR
+            (
+              $3::integer IS NOT NULL
+              AND tsl.company_id = $3
+              AND EXISTS (
+                SELECT 1
+                FROM user_companies uc
+                JOIN companies c
+                  ON c.id = uc.company_id
+                WHERE
+                  uc.user_id = $2
+                  AND uc.company_id = tsl.company_id
+                  AND uc.company_status = 'approved'
+                  AND c.company_type = 'slaughterhouse'
+                  AND c.is_active = true
+              )
+            )
+          )
+        LIMIT 1
+        `,
+        [
+          savedLocationId,
+          userId,
+          authCompanyId,
+        ]
+      );
 
     if (
       location.rows.length === 0
     ) {
       return res.status(404).json({
         error:
-          'Ubicación no encontrada',
+          'Ubicación no encontrada o sin acceso',
       });
     }
+
+    // =====================================================
+    // INVALIDAR CÓDIGOS ANTERIORES ACTIVOS
+    // =====================================================
 
     await pool.query(
       `
       UPDATE transport_location_share_tokens
       SET expires_at = NOW()
       WHERE saved_location_id = $1
-      AND expires_at > NOW()
+        AND expires_at > NOW()
       `,
       [
-        saved_location_id,
+        savedLocationId,
       ]
     );
 
@@ -8802,29 +8856,28 @@ const shareLocation = async (
     let exists = true;
 
     while (exists) {
-
       token =
-          generateShareToken();
+        generateShareToken();
 
       const verify =
-          await pool.query(
-        `
-        SELECT id
-        FROM transport_location_share_tokens
-        WHERE share_token = $1
-        `,
-        [token]
-      );
+        await pool.query(
+          `
+          SELECT id
+          FROM transport_location_share_tokens
+          WHERE share_token = $1
+          `,
+          [token]
+        );
 
       exists =
-          verify.rows.length > 0;
+        verify.rows.length > 0;
     }
 
     const expires =
-        new Date(
-          Date.now() +
-          (48 * 60 * 60 * 1000),
-        );
+      new Date(
+        Date.now() +
+          48 * 60 * 60 * 1000
+      );
 
     await pool.query(
       `
@@ -8844,33 +8897,63 @@ const shareLocation = async (
       )
       `,
       [
-        saved_location_id,
+        savedLocationId,
         userId,
         token,
         expires,
-        share_message || null,
+        share_message
+          ?.toString()
+          .trim() || null,
       ]
     );
 
-    res.json({
+    const routesResult =
+      await pool.query(
+        `
+        SELECT COUNT(*)::integer
+          AS routes_count
+        FROM transport_location_routes
+        WHERE saved_location_id = $1
+        `,
+        [
+          savedLocationId,
+        ]
+      );
+
+    return res.json({
       success: true,
+
       token,
-      expires_at: expires,
+
+      expires_at:
+        expires,
+
       location_name:
-          location.rows[0].name,
+        location.rows[0].name,
+
       message:
-          share_message ?? '',
-    });
+        share_message
+          ?.toString()
+          .trim() || '',
 
+      routes_count:
+        routesResult.rows[0]
+          ?.routes_count ?? 0,
+
+      is_corporate:
+        location.rows[0]
+          .company_id !== null,
+    });
   } catch (error) {
+    console.error(
+      'SHARE LOCATION ERROR:',
+      error
+    );
 
-    console.error(error);
-
-    res.status(500).json({
+    return res.status(500).json({
       error:
-          'Error compartiendo ubicación',
+        'Error compartiendo ubicación',
     });
-
   }
 };
 
@@ -9174,26 +9257,110 @@ const createLocationRoute = async (req, res) => {
   }
 };
 
-const getLocationRoutes = async (req, res) => {
+const getLocationRoutes = async (
+  req,
+  res
+) => {
   try {
-    const { saved_location_id } = req.params;
+    const userId =
+      Number(req.user.user_id);
 
-    const result = await pool.query(
-      `
-      SELECT *
-      FROM transport_location_routes
-      WHERE saved_location_id = $1
-      ORDER BY created_at DESC
-      `,
-      [saved_location_id]
+    const authCompanyId =
+      req.user.company_id
+        ? Number(req.user.company_id)
+        : null;
+
+    const savedLocationId =
+      Number(
+        req.params.saved_location_id
+      );
+
+    if (
+      !Number.isInteger(
+        savedLocationId
+      ) ||
+      savedLocationId <= 0
+    ) {
+      return res.status(400).json({
+        error:
+          'ID de ubicación inválido',
+      });
+    }
+
+    const accessResult =
+      await pool.query(
+        `
+        SELECT tsl.id
+        FROM transport_saved_locations tsl
+        WHERE
+          tsl.id = $1
+          AND (
+            (
+              tsl.user_id = $2
+              AND tsl.company_id IS NULL
+            )
+            OR
+            (
+              $3::integer IS NOT NULL
+              AND tsl.company_id = $3
+              AND EXISTS (
+                SELECT 1
+                FROM user_companies uc
+                JOIN companies c
+                  ON c.id = uc.company_id
+                WHERE
+                  uc.user_id = $2
+                  AND uc.company_id =
+                    tsl.company_id
+                  AND uc.company_status =
+                    'approved'
+                  AND c.is_active = true
+              )
+            )
+          )
+        LIMIT 1
+        `,
+        [
+          savedLocationId,
+          userId,
+          authCompanyId,
+        ]
+      );
+
+    if (
+      accessResult.rows.length === 0
+    ) {
+      return res.status(404).json({
+        error:
+          'Ubicación no encontrada o sin acceso',
+      });
+    }
+
+    const result =
+      await pool.query(
+        `
+        SELECT *
+        FROM transport_location_routes
+        WHERE saved_location_id = $1
+        ORDER BY created_at DESC
+        `,
+        [
+          savedLocationId,
+        ]
+      );
+
+    return res.json(
+      result.rows
+    );
+  } catch (error) {
+    console.error(
+      'GET LOCATION ROUTES ERROR:',
+      error
     );
 
-    res.json(result.rows);
-  } catch (error) {
-    console.error(error);
-
-    res.status(500).json({
-      error: 'Error obteniendo rutas',
+    return res.status(500).json({
+      error:
+        'Error obteniendo rutas',
     });
   }
 };
