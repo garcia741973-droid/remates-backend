@@ -6927,10 +6927,93 @@ exports.finishSlaughterhouseSlaughter =
       if (
         !updatedReception
       ) {
-
         throw new Error(
           'No fue posible actualizar la recepción'
         );
+      }
+
+
+      // =================================================
+      // COMPLETAR LOTES DE COMPRA
+      //
+      // Solo cuando la recepción quedó completamente
+      // finalizada.
+      //
+      // Un lote pasa a COMPLETED únicamente si:
+      // - participa en esta recepción
+      // - no está ya completed/cancelled
+      // - no le queda ninguna tropa activa pendiente
+      //
+      // Esto permite que un lote tenga varias tropas
+      // sin cerrarlo prematuramente.
+      // =================================================
+
+      if (
+        receptionCompleted
+      ) {
+        const completedLotsResult =
+          await client.query(
+            `
+            UPDATE slaughterhouse_purchase_lots spl
+
+            SET
+              status = 'completed',
+              updated_at = NOW()
+
+            WHERE
+              spl.company_id = $1
+
+              AND spl.status NOT IN (
+                'completed',
+                'cancelled'
+              )
+
+              AND EXISTS (
+                SELECT 1
+                FROM slaughterhouse_troops linked
+                WHERE
+                  linked.purchase_lot_id =
+                    spl.id
+                  AND linked.company_id =
+                    spl.company_id
+                  AND linked.reception_id =
+                    $2
+              )
+
+              AND NOT EXISTS (
+                SELECT 1
+                FROM slaughterhouse_troops pending
+                WHERE
+                  pending.purchase_lot_id =
+                    spl.id
+                  AND pending.company_id =
+                    spl.company_id
+                  AND pending.status NOT IN (
+                    'completed',
+                    'cancelled'
+                  )
+              )
+
+            RETURNING
+              id,
+              lot_number,
+              status
+            `,
+            [
+              companyId,
+              receptionId,
+            ],
+          );
+
+
+        if (
+          completedLotsResult.rows.length > 0
+        ) {
+          console.log(
+            'PURCHASE LOTS COMPLETED =>',
+            completedLotsResult.rows,
+          );
+        }
       }
 
 
