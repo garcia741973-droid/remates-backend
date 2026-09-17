@@ -1,5 +1,11 @@
 const { pool } = require('../config/db');
 
+const admin = require('firebase-admin');
+
+const {
+  sendUserNotification,
+} = require('../services/notificationService');
+
 const bcrypt = require('bcrypt');
 
 const INTERNAL_USER_ROLES = [
@@ -23101,6 +23107,171 @@ exports.acceptPurchaseLotTransportNegotiation =
       await client.query(
         'COMMIT'
       );
+
+      // =====================================================
+      // 💬 CONFIRMACIÓN AL CAMIONERO
+      //
+      // FUERA DE LA TRANSACCIÓN.
+      //
+      // Si falla SQL, Firestore o push,
+      // NO deshacemos la contratación del camión.
+      // =====================================================
+
+      const confirmationMessage =
+        `✅ Transporte confirmado.
+
+      FRIGOSI confirmó tu propuesta de transporte.
+
+      Lote: ${purchaseLot.lot_number}
+      Animales previstos para este camión: ${
+        expectedQuantity !== null
+          ? expectedQuantity
+          : 'Por definir'
+      }
+
+      Ya puedes continuar en:
+      Mis viajes → Preparar viaje.`;
+
+      // =====================================================
+      // 💾 MENSAJE SQL
+      //
+      // sender_id debe ser un usuario real porque
+      // transport_negotiation_messages tiene FK a users.
+      // =====================================================
+
+      try {
+
+        await pool.query(
+          `
+            INSERT INTO transport_negotiation_messages (
+              negotiation_id,
+              sender_id,
+              message,
+              photo_url
+            )
+            VALUES (
+              $1,
+              $2,
+              $3,
+              NULL
+            )
+          `,
+          [
+            negotiation.id,
+            userId,
+            confirmationMessage,
+          ],
+        );
+
+        console.log(
+          '✅ PURCHASE LOT CONFIRMATION SQL MESSAGE SAVED =>',
+          negotiation.id,
+        );
+
+      } catch (messageSqlError) {
+
+        console.error(
+          '❌ PURCHASE LOT CONFIRMATION SQL MESSAGE ERROR:',
+          messageSqlError,
+        );
+
+      }
+
+      // =====================================================
+      // 🔥 MENSAJE FIRESTORE
+      //
+      // Esto hace que aparezca inmediatamente
+      // dentro del chat del camionero.
+      // =====================================================
+
+      try {
+
+        await firebaseAdmin
+          .firestore()
+          .collection(
+            'transport_negotiations'
+          )
+          .doc(
+            negotiation.id.toString()
+          )
+          .collection(
+            'messages'
+          )
+          .add({
+            sender_id: 0,
+            system: true,
+            message:
+              confirmationMessage,
+            created_at:
+              firebaseAdmin
+                .firestore
+                .FieldValue
+                .serverTimestamp(),
+          });
+
+        console.log(
+          '✅ PURCHASE LOT CONFIRMATION FIRESTORE SAVED =>',
+          negotiation.id,
+        );
+
+      } catch (firestoreError) {
+
+        console.error(
+          '❌ PURCHASE LOT CONFIRMATION FIRESTORE ERROR:',
+          firestoreError,
+        );
+
+      }
+
+      // =====================================================
+      // 🔔 PUSH AL CAMIONERO
+      // =====================================================
+
+      try {
+
+        await sendUserNotification({
+          userId:
+            negotiation.transporter_id,
+
+          title:
+            'Transporte confirmado',
+
+          body:
+            expectedQuantity !== null
+              ? `FRIGOSI confirmó tu camión para ${expectedQuantity} animales. Ya puedes preparar el viaje.`
+              : 'FRIGOSI confirmó tu camión. Ya puedes preparar el viaje.',
+
+          data: {
+            type:
+              'transport_paid',
+
+            negotiation_id:
+              negotiation.id,
+
+            request_id:
+              negotiation.request_id,
+
+            purchase_lot_id:
+              purchaseLotId,
+
+            troop_id:
+              troop.id,
+          },
+        });
+
+        console.log(
+          '✅ PURCHASE LOT TRANSPORTER NOTIFIED =>',
+          negotiation.transporter_id,
+        );
+
+      } catch (notificationError) {
+
+        console.error(
+          '❌ PURCHASE LOT TRANSPORTER NOTIFICATION ERROR:',
+          notificationError,
+        );
+
+      }
 
       console.log(
         '✅ PURCHASE LOT TRUCK CONFIRMED =>',
