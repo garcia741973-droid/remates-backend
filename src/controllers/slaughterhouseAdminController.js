@@ -21073,6 +21073,1302 @@ exports.requestTransportForTroop =
 
   };
   
+// =====================================================
+// 🚛 SOLICITAR CAMIONES PARA UN LOTE DE COMPRA
+// POST /slaughterhouse/admin/purchase-lots/:id/request-transport
+//
+// Body opcional:
+//
+// {
+//   "visibility_scope": "company_network",
+//   "notes": null,
+//   "approx_pickup_saved_location_id": null,
+//   "approx_dropoff_saved_location_id": null,
+//   "approx_pickup_lat": null,
+//   "approx_pickup_lng": null,
+//   "approx_pickup_notes": null,
+//   "approx_pickup_source": null,
+//   "approx_dropoff_lat": null,
+//   "approx_dropoff_lng": null,
+//   "approx_dropoff_notes": null,
+//   "approx_dropoff_source": null
+// }
+//
+// IMPORTANTE:
+// - La solicitud nace desde el LOTE.
+// - Todavía NO se crea ninguna tropa.
+// - quantity es la cantidad contratada de referencia.
+// - Las tropas se crearán cuando se acepten camiones.
+// =====================================================
+
+exports.requestTransportForPurchaseLot =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+      const purchaseLotId =
+        Number(
+          req.params.id
+        );
+
+      const visibilityScope =
+        req.body.visibility_scope
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        'company_network';
+
+      const extraNotes =
+        req.body.notes
+          ?.toString()
+          .trim() ||
+        null;
+
+      // =================================================
+      // ORIGEN / DESTINO LOGÍSTICO SELECCIONADO EN WEB
+      // =================================================
+
+      const rawPickupSavedLocationId =
+        req.body.approx_pickup_saved_location_id;
+
+      const rawDropoffSavedLocationId =
+        req.body.approx_dropoff_saved_location_id;
+
+      const pickupSavedLocationId =
+        rawPickupSavedLocationId === null ||
+        rawPickupSavedLocationId === undefined ||
+        rawPickupSavedLocationId === ''
+          ? null
+          : Number(
+              rawPickupSavedLocationId
+            );
+
+      const dropoffSavedLocationId =
+        rawDropoffSavedLocationId === null ||
+        rawDropoffSavedLocationId === undefined ||
+        rawDropoffSavedLocationId === ''
+          ? null
+          : Number(
+              rawDropoffSavedLocationId
+            );
+
+      if (
+        pickupSavedLocationId !== null &&
+        (
+          !Number.isInteger(
+            pickupSavedLocationId
+          ) ||
+          pickupSavedLocationId <= 0
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'approx_pickup_saved_location_id inválido',
+        });
+
+      }
+
+      if (
+        dropoffSavedLocationId !== null &&
+        (
+          !Number.isInteger(
+            dropoffSavedLocationId
+          ) ||
+          dropoffSavedLocationId <= 0
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'approx_dropoff_saved_location_id inválido',
+        });
+
+      }
+
+      const parseOptionalCoordinate = (
+        value
+      ) => {
+
+        if (
+          value === null ||
+          value === undefined ||
+          value === ''
+        ) {
+          return null;
+        }
+
+        const parsed =
+          Number(value);
+
+        return Number.isFinite(parsed)
+          ? parsed
+          : NaN;
+      };
+
+      const requestedPickupLat =
+        parseOptionalCoordinate(
+          req.body.approx_pickup_lat
+        );
+
+      const requestedPickupLng =
+        parseOptionalCoordinate(
+          req.body.approx_pickup_lng
+        );
+
+      const requestedDropoffLat =
+        parseOptionalCoordinate(
+          req.body.approx_dropoff_lat
+        );
+
+      const requestedDropoffLng =
+        parseOptionalCoordinate(
+          req.body.approx_dropoff_lng
+        );
+
+      if (
+        Number.isNaN(
+          requestedPickupLat
+        ) ||
+        Number.isNaN(
+          requestedPickupLng
+        ) ||
+        Number.isNaN(
+          requestedDropoffLat
+        ) ||
+        Number.isNaN(
+          requestedDropoffLng
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Las coordenadas enviadas no son válidas',
+        });
+
+      }
+
+      if (
+        (
+          requestedPickupLat === null
+        ) !==
+        (
+          requestedPickupLng === null
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'El origen debe tener latitud y longitud',
+        });
+
+      }
+
+      if (
+        (
+          requestedDropoffLat === null
+        ) !==
+        (
+          requestedDropoffLng === null
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'El destino debe tener latitud y longitud',
+        });
+
+      }
+
+      if (
+        requestedPickupLat !== null &&
+        (
+          requestedPickupLat < -90 ||
+          requestedPickupLat > 90 ||
+          requestedPickupLng < -180 ||
+          requestedPickupLng > 180
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Coordenadas de origen fuera de rango',
+        });
+
+      }
+
+      if (
+        requestedDropoffLat !== null &&
+        (
+          requestedDropoffLat < -90 ||
+          requestedDropoffLat > 90 ||
+          requestedDropoffLng < -180 ||
+          requestedDropoffLng > 180
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Coordenadas de destino fuera de rango',
+        });
+
+      }
+
+      const requestedPickupSource =
+        req.body.approx_pickup_source
+          ?.toString()
+          .trim() ||
+        null;
+
+      const requestedDropoffSource =
+        req.body.approx_dropoff_source
+          ?.toString()
+          .trim() ||
+        null;
+
+      const requestedPickupNotes =
+        req.body.approx_pickup_notes
+          ?.toString()
+          .trim() ||
+        null;
+
+      const requestedDropoffNotes =
+        req.body.approx_dropoff_notes
+          ?.toString()
+          .trim() ||
+        null;
+
+      // =================================================
+      // VALIDACIONES
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          purchaseLotId
+        ) ||
+        purchaseLotId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de lote inválido',
+        });
+
+      }
+
+      if (
+        ![
+          'company_network',
+          'public',
+        ].includes(
+          visibilityScope
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'visibility_scope debe ser company_network o public',
+        });
+
+      }
+
+      await client.query(
+        'BEGIN'
+      );
+
+      // =================================================
+      // OBTENER LOTE + VENDEDOR + HACIENDA + DESTINO
+      // =================================================
+
+      const contextResult =
+        await client.query(
+          `
+            SELECT
+
+              spl.id
+                AS purchase_lot_id,
+
+              spl.lot_number,
+
+              spl.external_order_number,
+
+              spl.status
+                AS purchase_lot_status,
+
+              spl.expected_quantity
+                AS purchase_lot_expected_quantity,
+
+              spl.planned_date,
+
+              spl.seller_person_id,
+
+              spl.classification_id,
+
+              seller.full_name
+                AS seller_name,
+
+              seller.phone
+                AS seller_phone,
+
+              estate.id
+                AS estate_id,
+
+              estate.name
+                AS estate_name,
+
+              estate.location_text
+                AS estate_location,
+
+              estate.lat
+                AS estate_lat,
+
+              estate.lng
+                AS estate_lng,
+
+              classification.generated_code
+                AS classification_code,
+
+              classification.display_name
+                AS classification_name,
+
+              company.name
+                AS company_name,
+
+              company.plant_lat,
+
+              company.plant_lng
+
+            FROM slaughterhouse_purchase_lots spl
+
+            JOIN slaughterhouse_people seller
+              ON seller.id =
+                spl.seller_person_id
+              AND seller.company_id =
+                spl.company_id
+
+            LEFT JOIN slaughterhouse_estates estate
+              ON estate.id =
+                spl.estate_id
+              AND estate.company_id =
+                spl.company_id
+
+            LEFT JOIN slaughterhouse_animal_classifications classification
+              ON classification.id =
+                spl.classification_id
+              AND classification.company_id =
+                spl.company_id
+
+            JOIN companies company
+              ON company.id =
+                spl.company_id
+
+            WHERE
+              spl.id = $1
+              AND spl.company_id = $2
+
+            FOR UPDATE OF spl
+          `,
+          [
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+      if (
+        contextResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'Lote de compra no encontrado',
+        });
+
+      }
+
+      const context =
+        contextResult.rows[0];
+
+      // =================================================
+      // EL LOTE DEBE ESTAR OPERATIVO
+      // =================================================
+
+      if (
+        ![
+          'open',
+          'in_transport',
+        ].includes(
+          context.purchase_lot_status
+        )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            `El lote está en estado ${context.purchase_lot_status} y no puede solicitar transporte`,
+        });
+
+      }
+
+      // =================================================
+      // EVITAR DOS SOLICITUDES ACTIVAS DEL MISMO LOTE
+      // =================================================
+
+      const existingRequestResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              status
+
+            FROM transport_requests
+
+            WHERE
+              purchase_lot_id = $1
+              AND requester_company_id = $2
+              AND COALESCE(
+                status,
+                'open'
+              ) <> 'cancelled'
+
+            ORDER BY id DESC
+
+            LIMIT 1
+
+            FOR UPDATE
+          `,
+          [
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+      if (
+        existingRequestResult.rows.length > 0
+      ) {
+
+        const existingRequest =
+          existingRequestResult.rows[0];
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Este lote ya tiene una solicitud de camiones activa',
+
+          transport_request_id:
+            existingRequest.id,
+
+          transport_request_status:
+            existingRequest.status,
+        });
+
+      }
+
+      // =================================================
+      // CANTIDAD CONTRATADA DEL LOTE
+      //
+      // Es referencia para buscar transporte.
+      // NO representa capacidad obligatoria por camión.
+      // =================================================
+
+      const quantity =
+        Number(
+          context.purchase_lot_expected_quantity
+        );
+
+      if (
+        !Number.isInteger(
+          quantity
+        ) ||
+        quantity <= 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(400).json({
+          error:
+            'El lote debe tener una cantidad contratada mayor a 0 antes de solicitar camiones',
+        });
+
+      }
+
+      // =================================================
+      // RESOLVER ORIGEN
+      // =================================================
+
+      if (
+        !context.estate_id
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(400).json({
+          error:
+            'El lote debe tener una estancia de origen antes de solicitar transporte',
+        });
+
+      }
+
+      let pickupLocation =
+        null;
+
+      if (
+        pickupSavedLocationId !== null
+      ) {
+
+        const pickupResult =
+          await client.query(
+            `
+              SELECT
+                id,
+                user_id,
+                company_id,
+                slaughterhouse_estate_id,
+                name,
+                type,
+                latitude,
+                longitude,
+                notes
+
+              FROM transport_saved_locations
+
+              WHERE
+                id = $1
+                AND (
+                  user_id = $2
+                  OR company_id = $3
+                )
+
+              LIMIT 1
+            `,
+            [
+              pickupSavedLocationId,
+              userId,
+              companyId,
+            ],
+          );
+
+        if (
+          pickupResult.rows.length === 0
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(404).json({
+            error:
+              'La ubicación seleccionada para el origen no existe o no está disponible para FRIGOSI',
+          });
+
+        }
+
+        pickupLocation =
+          pickupResult.rows[0];
+
+        if (
+          pickupLocation.latitude === null ||
+          pickupLocation.longitude === null
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(400).json({
+            error:
+              'La ubicación seleccionada para el origen no tiene coordenadas',
+          });
+
+        }
+
+      }
+
+      let origin =
+        [
+          context.estate_name,
+          context.estate_location,
+        ]
+          .filter(
+            Boolean
+          )
+          .join(
+            ' - '
+          );
+
+      if (!origin) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(400).json({
+          error:
+            'La estancia debe tener un nombre o ubicación válida',
+        });
+
+      }
+
+      let pickupLat =
+        context.estate_lat === null ||
+        context.estate_lat === undefined
+          ? null
+          : Number(
+              context.estate_lat
+            );
+
+      let pickupLng =
+        context.estate_lng === null ||
+        context.estate_lng === undefined
+          ? null
+          : Number(
+              context.estate_lng
+            );
+
+      let pickupSource =
+        'slaughterhouse';
+
+      let pickupNotes =
+        context.estate_location ||
+        origin;
+
+      if (
+        pickupLocation
+      ) {
+
+        pickupLat =
+          Number(
+            pickupLocation.latitude
+          );
+
+        pickupLng =
+          Number(
+            pickupLocation.longitude
+          );
+
+        pickupSource =
+          'saved';
+
+        pickupNotes =
+          pickupLocation.notes ||
+          pickupLocation.name ||
+          origin;
+
+        origin =
+          [
+            context.estate_name,
+            pickupLocation.name,
+          ]
+            .filter(
+              Boolean
+            )
+            .join(
+              ' - '
+            );
+
+      } else if (
+        requestedPickupLat !== null &&
+        requestedPickupLng !== null
+      ) {
+
+        pickupLat =
+          requestedPickupLat;
+
+        pickupLng =
+          requestedPickupLng;
+
+        pickupSource =
+          requestedPickupSource ||
+          'coordinates';
+
+        pickupNotes =
+          requestedPickupNotes ||
+          origin;
+
+      } else {
+
+        pickupSource =
+          requestedPickupSource ||
+          'slaughterhouse';
+
+        pickupNotes =
+          requestedPickupNotes ||
+          pickupNotes;
+
+      }
+
+      // =================================================
+      // RESOLVER DESTINO
+      // =================================================
+
+      let dropoffLocation =
+        null;
+
+      if (
+        dropoffSavedLocationId !== null
+      ) {
+
+        const dropoffResult =
+          await client.query(
+            `
+              SELECT
+                id,
+                user_id,
+                company_id,
+                slaughterhouse_estate_id,
+                name,
+                type,
+                latitude,
+                longitude,
+                notes
+
+              FROM transport_saved_locations
+
+              WHERE
+                id = $1
+                AND (
+                  user_id = $2
+                  OR company_id = $3
+                )
+
+              LIMIT 1
+            `,
+            [
+              dropoffSavedLocationId,
+              userId,
+              companyId,
+            ],
+          );
+
+        if (
+          dropoffResult.rows.length === 0
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(404).json({
+            error:
+              'La ubicación seleccionada para el destino no existe o no está disponible para FRIGOSI',
+          });
+
+        }
+
+        dropoffLocation =
+          dropoffResult.rows[0];
+
+        if (
+          dropoffLocation.latitude === null ||
+          dropoffLocation.longitude === null
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(400).json({
+            error:
+              'La ubicación seleccionada para el destino no tiene coordenadas',
+          });
+
+        }
+
+      }
+
+      let destination =
+        context.company_name;
+
+      if (
+        !destination
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(400).json({
+          error:
+            'El frigorífico no tiene un nombre válido para usar como destino',
+        });
+
+      }
+
+      let dropoffLat =
+        context.plant_lat === null ||
+        context.plant_lat === undefined
+          ? null
+          : Number(
+              context.plant_lat
+            );
+
+      let dropoffLng =
+        context.plant_lng === null ||
+        context.plant_lng === undefined
+          ? null
+          : Number(
+              context.plant_lng
+            );
+
+      let dropoffSource =
+        'slaughterhouse';
+
+      let dropoffNotes =
+        destination;
+
+      if (
+        dropoffLocation
+      ) {
+
+        dropoffLat =
+          Number(
+            dropoffLocation.latitude
+          );
+
+        dropoffLng =
+          Number(
+            dropoffLocation.longitude
+          );
+
+        dropoffSource =
+          'saved';
+
+        dropoffNotes =
+          dropoffLocation.notes ||
+          dropoffLocation.name ||
+          destination;
+
+        destination =
+          dropoffLocation.name ||
+          destination;
+
+      } else if (
+        requestedDropoffLat !== null &&
+        requestedDropoffLng !== null
+      ) {
+
+        dropoffLat =
+          requestedDropoffLat;
+
+        dropoffLng =
+          requestedDropoffLng;
+
+        dropoffSource =
+          requestedDropoffSource ||
+          'coordinates';
+
+        dropoffNotes =
+          requestedDropoffNotes ||
+          destination;
+
+      } else {
+
+        dropoffSource =
+          requestedDropoffSource ||
+          'slaughterhouse';
+
+        dropoffNotes =
+          requestedDropoffNotes ||
+          dropoffNotes;
+
+      }
+
+      // =================================================
+      // TIPO DE ANIMAL
+      // =================================================
+
+      const animalType =
+        context.classification_name ||
+        context.classification_code ||
+        'Ganado bovino';
+
+      // =================================================
+      // NOTAS DE TRAZABILIDAD
+      // =================================================
+
+      const transportNotes =
+        [
+          'Frigosi - Solicitud de camiones',
+
+          `Lote: ${context.lot_number}`,
+
+          context.external_order_number
+            ? `Orden externa: ${context.external_order_number}`
+            : null,
+
+          `Cantidad contratada de referencia: ${quantity}`,
+
+          context.seller_name
+            ? `Vendedor: ${context.seller_name}`
+            : null,
+
+          context.estate_name
+            ? `Hacienda: ${context.estate_name}`
+            : null,
+
+          extraNotes,
+        ]
+          .filter(
+            Boolean
+          )
+          .join(
+            '\n'
+          );
+
+      // =================================================
+      // CREAR SOLICITUD EN PLAZA TRANSPORTE
+      // =================================================
+
+      const requestResult =
+        await client.query(
+          `
+            INSERT INTO transport_requests (
+
+              user_id,
+
+              origin,
+              destination,
+
+              quantity,
+              animal_type,
+
+              travel_date,
+
+              notes,
+
+              contact_phone,
+
+              status,
+
+              origin_lat,
+              origin_lng,
+
+              destination_lat,
+              destination_lng,
+
+              approx_pickup_lat,
+              approx_pickup_lng,
+
+              approx_pickup_notes,
+              approx_pickup_source,
+
+              approx_pickup_saved_location_id,
+
+              approx_dropoff_lat,
+              approx_dropoff_lng,
+
+              approx_dropoff_notes,
+              approx_dropoff_source,
+
+              approx_dropoff_saved_location_id,
+
+              requester_company_id,
+
+              visibility_scope,
+
+              purchase_lot_id
+
+            )
+
+            VALUES (
+
+              $1,
+
+              $2,
+              $3,
+
+              $4,
+              $5,
+
+              $6,
+
+              $7,
+
+              $8,
+
+              'open',
+
+              $9,
+              $10,
+
+              $11,
+              $12,
+
+              $9,
+              $10,
+
+              $13,
+              $14,
+
+              $15,
+
+              $11,
+              $12,
+
+              $16,
+              $17,
+
+              $18,
+
+              $19,
+
+              $20,
+
+              $21
+
+            )
+
+            RETURNING *
+          `,
+          [
+            userId,                         // $1
+
+            origin,                         // $2
+            destination,                    // $3
+
+            quantity,                       // $4
+            animalType,                     // $5
+
+            context.planned_date,           // $6
+
+            transportNotes,                 // $7
+
+            context.seller_phone,           // $8
+
+            pickupLat,                      // $9
+            pickupLng,                      // $10
+
+            dropoffLat,                     // $11
+            dropoffLng,                     // $12
+
+            pickupNotes,                    // $13
+            pickupSource,                   // $14
+
+            pickupSavedLocationId,          // $15
+
+            dropoffNotes,                   // $16
+            dropoffSource,                  // $17
+
+            dropoffSavedLocationId,         // $18
+
+            companyId,                      // $19
+
+            visibilityScope,                // $20
+
+            purchaseLotId,                  // $21
+          ],
+        );
+
+      const transportRequest =
+        requestResult.rows[0];
+
+      // =================================================
+      // EL LOTE ENTRA A FASE DE TRANSPORTE
+      //
+      // TODAVÍA NO SE CREA NINGUNA TROPA.
+      // =================================================
+
+      await client.query(
+        `
+          UPDATE slaughterhouse_purchase_lots
+
+          SET
+            status = 'in_transport',
+            updated_at = NOW()
+
+          WHERE
+            id = $1
+            AND company_id = $2
+            AND status = 'open'
+        `,
+        [
+          purchaseLotId,
+          companyId,
+        ],
+      );
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+
+            company_id,
+
+            user_id,
+
+            entity_type,
+
+            entity_id,
+
+            action,
+
+            new_data
+
+          )
+
+          VALUES (
+
+            $1,
+
+            $2,
+
+            'purchase_lot',
+
+            $3,
+
+            'request_transport',
+
+            $4::jsonb
+
+          )
+        `,
+        [
+          companyId,
+
+          userId,
+
+          String(
+            purchaseLotId
+          ),
+
+          JSON.stringify({
+
+            transport_request_id:
+              transportRequest.id,
+
+            visibility_scope:
+              visibilityScope,
+
+            purchase_lot_id:
+              purchaseLotId,
+
+            contracted_quantity:
+              quantity,
+
+            estate_id:
+              context.estate_id,
+
+            approx_pickup_saved_location_id:
+              pickupSavedLocationId,
+
+            approx_pickup_source:
+              pickupSource,
+
+            approx_pickup_lat:
+              pickupLat,
+
+            approx_pickup_lng:
+              pickupLng,
+
+            approx_dropoff_saved_location_id:
+              dropoffSavedLocationId,
+
+            approx_dropoff_source:
+              dropoffSource,
+
+            approx_dropoff_lat:
+              dropoffLat,
+
+            approx_dropoff_lng:
+              dropoffLng,
+
+          }),
+        ],
+      );
+
+      await client.query(
+        'COMMIT'
+      );
+
+      console.log(
+        '🚛 PURCHASE LOT TRANSPORT REQUEST CREATED =>',
+        {
+          purchase_lot_id:
+            purchaseLotId,
+
+          transport_request_id:
+            transportRequest.id,
+
+          quantity,
+
+          visibility_scope:
+            visibilityScope,
+        }
+      );
+
+      return res.status(201).json({
+
+        success: true,
+
+        message:
+          visibilityScope ===
+          'company_network'
+            ? 'Solicitud de camiones enviada a la red privada de transportistas'
+            : 'Solicitud de camiones publicada en Plaza Transporte',
+
+        purchase_lot_id:
+          purchaseLotId,
+
+        contracted_quantity:
+          quantity,
+
+        transport_request:
+          transportRequest,
+
+      });
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      console.error(
+        'REQUEST TRANSPORT FOR PURCHASE LOT ERROR:',
+        error
+      );
+
+      return res.status(500).json({
+        error:
+          'Error solicitando camiones para el lote',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
   
 // =====================================================
 // 🚛 ESTADO DE TRANSPORTE DE UNA TROPA

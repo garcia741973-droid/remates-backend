@@ -131,9 +131,8 @@ const {
   updatePurchaseLot,
 
   cancelPurchaseLot,
-
   reactivatePurchaseLot,
-
+  requestTransportForPurchaseLot,
   getTroops,
 
   createTroop,
@@ -1253,6 +1252,20 @@ router.patch(
 
   reactivatePurchaseLot,
 
+);
+
+router.post(
+  '/purchase-lots/:id/request-transport',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'transport.request'
+  ),
+
+  requestTransportForPurchaseLot,
 );
 
 router.post(
