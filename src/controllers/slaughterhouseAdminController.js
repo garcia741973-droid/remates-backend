@@ -22185,30 +22185,7 @@ exports.requestTransportForPurchaseLot =
       const transportRequest =
         requestResult.rows[0];
 
-      // =================================================
-      // EL LOTE ENTRA A FASE DE TRANSPORTE
-      //
-      // TODAVÍA NO SE CREA NINGUNA TROPA.
-      // =================================================
 
-      await client.query(
-        `
-          UPDATE slaughterhouse_purchase_lots
-
-          SET
-            status = 'in_transport',
-            updated_at = NOW()
-
-          WHERE
-            id = $1
-            AND company_id = $2
-            AND status = 'open'
-        `,
-        [
-          purchaseLotId,
-          companyId,
-        ],
-      );
 
       // =================================================
       // AUDITORÍA
