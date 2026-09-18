@@ -38,14 +38,59 @@ function getKeyId() {
 }
 
 function createSignedFieldQrPayload({
+
   companyId,
+
   purchaseLotId,
+
+  troopId,
+
   authorizationNumber,
+
   publicCode,
+
   token,
+
   sellerPersonId,
+
+  commercialAgreementHash,
+
   expiresAt,
+
 }) {
+
+  const normalizedTroopId =
+    Number(
+      troopId
+    );
+
+  if (
+    !Number.isInteger(
+      normalizedTroopId
+    ) ||
+    normalizedTroopId <= 0
+  ) {
+    throw new Error(
+      'troopId inválido para QR de campo'
+    );
+  }
+
+  const normalizedAgreementHash =
+    commercialAgreementHash
+      ?.toString()
+      .trim()
+      .toLowerCase();
+
+  if (
+    !normalizedAgreementHash ||
+    !/^[a-f0-9]{64}$/.test(
+      normalizedAgreementHash
+    )
+  ) {
+    throw new Error(
+      'commercialAgreementHash inválido'
+    );
+  }
   const keyId = getKeyId();
 
   const signedData = {
@@ -60,6 +105,12 @@ function createSignedFieldQrPayload({
 
     purchase_lot_id:
       Number(purchaseLotId),
+
+    troop_id:
+      normalizedTroopId,
+
+    commercial_agreement_hash:
+      normalizedAgreementHash,
 
     authorization_number:
       Number(authorizationNumber),

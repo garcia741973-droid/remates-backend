@@ -660,7 +660,10 @@ exports.getAssignedCaptureSheetById =
 // - NO despacha.
 // - NO modifica expected_quantity.
 // - Guarda la cantidad realmente capturada en campo.
-// - Es idempotente por lote/camión.
+// - Requiere troop_id.
+// - Trabaja sobre una tropa ya creada por Transporte.
+// - NO crea tropas desde Campo.
+// - Es idempotente por tropa/camión.
 // =====================================================
 exports.syncFieldLotCapture =
   async (req, res) => {
@@ -689,6 +692,11 @@ exports.syncFieldLotCapture =
       const purchaseLotId =
         Number(
           req.params.purchaseLotId
+        );
+
+      const troopId =
+        Number(
+          req.body?.troop_id
         );
 
       const captureStatus =
@@ -751,6 +759,18 @@ exports.syncFieldLotCapture =
         return res.status(400).json({
           error:
             'purchaseLotId inválido',
+        });
+      }
+
+      if (
+        !Number.isInteger(
+          troopId
+        ) ||
+        troopId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'troop_id inválido',
         });
       }
 
@@ -943,45 +963,71 @@ exports.syncFieldLotCapture =
       }
 
       // =================================================
-      // ID ESTABLE DEL CAMIÓN/CARGA
+      // IDENTIDAD ESTABLE DE CAMPO POR TROPA
       //
-      // En nuestro modelo actual:
-      // 1 lote = 1 camión/carga.
+      // La tropa YA debe existir porque fue creada
+      // al aceptar la negociación de transporte.
       //
-      // No dependemos de que el teléfono genere otro UUID
-      // después de una pérdida de conexión.
+      // Campo NO crea tropas.
       // =================================================
 
       const fieldSyncId =
-        `field:${companyId}:lot:${purchaseLotId}`;
+        `field:${companyId}:lot:${purchaseLotId}:troop:${troopId}`;
 
       // =================================================
-      // BUSCAR TROPA EXISTENTE DEL LOTE
+      // OBTENER ÚNICAMENTE LA TROPA INDICADA
       // =================================================
 
-      const existingTroopsResult =
+      const existingTroopResult =
         await client.query(
           `
             SELECT *
+
             FROM slaughterhouse_troops
 
             WHERE
-              company_id = $1
-              AND purchase_lot_id = $2
+              id = $1
+              AND company_id = $2
+              AND purchase_lot_id = $3
               AND status <> 'cancelled'
-
-            ORDER BY id ASC
 
             FOR UPDATE
           `,
           [
+            troopId,
             companyId,
             purchaseLotId,
           ],
         );
 
       if (
-        existingTroopsResult.rows.length > 1
+        existingTroopResult.rows.length ===
+        0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'La tropa indicada no existe o no pertenece a este lote',
+        });
+      }
+
+      const existingTroop =
+        existingTroopResult.rows[0];
+
+      const oldData =
+        existingTroop;
+
+      // =================================================
+      // UNA TROPA CERTIFICADA YA ES INMUTABLE
+      // =================================================
+
+      if (
+        existingTroop
+          .field_capture_status ===
+        'certified'
       ) {
         await client.query(
           'ROLLBACK'
@@ -989,157 +1035,115 @@ exports.syncFieldLotCapture =
 
         return res.status(409).json({
           error:
-            'El lote tiene más de una tropa activa y requiere revisión administrativa',
+            'La captura de esta tropa ya fue certificada y no puede modificarse',
         });
       }
 
-      let troop;
-      let created = false;
-      let oldData = null;
-
       // =================================================
-      // REUTILIZAR TROPA EXISTENTE
+      // NO MODIFICAR UNA TROPA QUE YA AVANZÓ
       // =================================================
 
       if (
-        existingTroopsResult.rows.length === 1
+        [
+          'dispatched',
+          'in_transit',
+          'received',
+          'in_slaughter',
+          'completed',
+        ].includes(
+          existingTroop.status
+        )
       ) {
+        await client.query(
+          'ROLLBACK'
+        );
 
-        const existingTroop =
-          existingTroopsResult.rows[0];
-
-        oldData =
-          existingTroop;
-
-        if (
-          existingTroop
-            .field_capture_status ===
-          'certified'
-        ) {
-          await client.query(
-            'ROLLBACK'
-          );
-
-          return res.status(409).json({
-            error:
-              'La captura de este camión ya fue certificada y no puede modificarse',
-          });
-        }
-
-        if (
-          [
-            'dispatched',
-            'in_transit',
-            'received',
-            'in_slaughter',
-            'completed',
-          ].includes(
-            existingTroop.status
-          )
-        ) {
-          await client.query(
-            'ROLLBACK'
-          );
-
-          return res.status(409).json({
-            error:
-              `La tropa ya se encuentra en estado ${existingTroop.status}`,
-          });
-        }
-
-        const updateResult =
-          await client.query(
-            `
-              UPDATE slaughterhouse_troops
-
-              SET
-                field_sync_id = $1,
-                field_capture_status = $2::varchar,
-                field_captured_quantity = $3,
-                field_captured_at =
-                  CASE
-                    WHEN $2::varchar = 'captured'
-                      THEN COALESCE(
-                        field_captured_at,
-                        NOW()
-                      )
-                    ELSE NULL
-                  END,
-                updated_at = NOW()
-
-              WHERE
-                id = $4
-                AND company_id = $5
-
-              RETURNING *
-            `,
-            [
-              fieldSyncId,
-              captureStatus,
-              quantity,
-              existingTroop.id,
-              companyId,
-            ],
-          );
-
-        troop =
-          updateResult.rows[0];
-
-      } else {
-
-        // =================================================
-        // CREAR TROPA DE CAMPO
-        // =================================================
-
-        const insertResult =
-          await client.query(
-            `
-              INSERT INTO slaughterhouse_troops (
-                company_id,
-                purchase_lot_id,
-                expected_quantity,
-                status,
-                created_by,
-                field_sync_id,
-                field_capture_status,
-                field_captured_quantity,
-                field_captured_at
-              )
-
-              VALUES (
-                $1,
-                $2,
-                $3,
-                'planned',
-                $4,
-                $5,
-                $6::varchar,
-                $7,
-                CASE
-                  WHEN $6::varchar = 'captured'
-                    THEN NOW()
-                  ELSE NULL
-                END
-              )
-
-              RETURNING *
-            `,
-            [
-              companyId,
-              purchaseLotId,
-              lot.expected_quantity,
-              userId,
-              fieldSyncId,
-              captureStatus,
-              quantity,
-            ],
-          );
-
-        troop =
-          insertResult.rows[0];
-
-        created = true;
+        return res.status(409).json({
+          error:
+            `La tropa ya se encuentra en estado ${existingTroop.status}`,
+        });
       }
+
+      // =================================================
+      // ACTUALIZAR SOLAMENTE ESTA TROPA
+      //
+      // expected_quantity NO se modifica.
+      // field_captured_quantity es la realidad de campo.
+      // =================================================
+
+      const updateResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_troops
+
+            SET
+              field_sync_id = $1,
+
+              field_capture_status =
+                $2::varchar,
+
+              field_captured_quantity =
+                $3,
+
+              field_captured_at =
+                CASE
+                  WHEN
+                    $2::varchar =
+                    'captured'
+                  THEN
+                    COALESCE(
+                      field_captured_at,
+                      NOW()
+                    )
+                  ELSE NULL
+                END,
+
+              updated_at =
+                NOW()
+
+            WHERE
+              id = $4
+              AND company_id = $5
+              AND purchase_lot_id = $6
+              AND status <> 'cancelled'
+              AND COALESCE(
+                field_capture_status,
+                ''
+              ) <> 'certified'
+
+            RETURNING *
+          `,
+          [
+            fieldSyncId,
+            captureStatus,
+            quantity,
+            troopId,
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+      if (
+        updateResult.rows.length ===
+        0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'La tropa cambió de estado durante la sincronización',
+        });
+      }
+
+      const troop =
+        updateResult.rows[0];
+
+      // Se conserva por compatibilidad con
+      // clientes que ya leen esta propiedad.
+      const created =
+        false;
 
       // =================================================
       // AUDITORÍA
@@ -1191,8 +1195,23 @@ exports.syncFieldLotCapture =
           purchaseLotId,
         lot_number:
           lot.lot_number,
+        // Cantidad comercial contratada
+        // para el lote completo.
         expected_quantity:
           lot.expected_quantity,
+
+        contracted_quantity:
+          lot.expected_quantity,
+
+        // Cantidad orientativa asignada
+        // específicamente a este camión.
+        troop_expected_quantity:
+          troop.expected_quantity,
+
+        troop_id:
+          troop.id,
+
+        // Cantidad realmente cargada.
         field_captured_quantity:
           troop.field_captured_quantity,
         field_capture_status:
@@ -1236,9 +1255,10 @@ exports.syncFieldLotCapture =
 // Reglas:
 // - Solo captador asignado.
 // - Solo live_kg + origin.
-// - 1 lote = 1 camión/carga en este flujo.
-// - Crea o reutiliza la tropa.
-// - Crea o reutiliza el MISMO weighing draft.
+// - Requiere troop_id.
+// - La tropa YA debe existir desde Transporte.
+// - Campo NO crea tropas.
+// - Cada tropa tiene su propio weighing draft.
 // - Reemplaza items dentro de la misma transacción.
 // - Backend recalcula todos los totales.
 // - NO certifica.
@@ -1271,6 +1291,11 @@ exports.syncFieldLiveWeighing =
       const purchaseLotId =
         Number(
           req.params.purchaseLotId
+        );
+
+      const troopId =
+        Number(
+          req.body?.troop_id
         );
 
       const items =
@@ -1319,6 +1344,18 @@ exports.syncFieldLiveWeighing =
         return res.status(400).json({
           error:
             'purchaseLotId inválido',
+        });
+      }
+
+      if (
+        !Number.isInteger(
+          troopId
+        ) ||
+        troopId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'troop_id inválido',
         });
       }
 
@@ -1640,42 +1677,69 @@ exports.syncFieldLiveWeighing =
           : null;
 
       // =================================================
-      // IDENTIDAD ESTABLE DE CAMPO
+      // IDENTIDAD ESTABLE DE CAMPO POR TROPA
       // =================================================
 
       const troopFieldSyncId =
-        `field:${companyId}:lot:${purchaseLotId}`;
+        `field:${companyId}:lot:${purchaseLotId}:troop:${troopId}`;
 
       const weighingFieldSyncId =
-        `field:${companyId}:lot:${purchaseLotId}:weighing`;
+        `${troopFieldSyncId}:weighing`;
 
       // =================================================
-      // CREAR / REUTILIZAR TROPA
+      // OBTENER TROPA EXISTENTE
+      //
+      // La tropa nació previamente desde Transporte.
+      // Campo solamente registra lo realmente cargado.
       // =================================================
 
-      const troopsResult =
+      const existingTroopResult =
         await client.query(
           `
             SELECT *
+
             FROM slaughterhouse_troops
 
             WHERE
-              company_id = $1
-              AND purchase_lot_id = $2
+              id = $1
+              AND company_id = $2
+              AND purchase_lot_id = $3
               AND status <> 'cancelled'
-
-            ORDER BY id ASC
 
             FOR UPDATE
           `,
           [
+            troopId,
             companyId,
             purchaseLotId,
           ],
         );
 
       if (
-        troopsResult.rows.length > 1
+        existingTroopResult.rows.length ===
+        0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'La tropa indicada no existe o no pertenece a este lote',
+        });
+      }
+
+      const existingTroop =
+        existingTroopResult.rows[0];
+
+      // =================================================
+      // TROPA YA CERTIFICADA = INMUTABLE
+      // =================================================
+
+      if (
+        existingTroop
+          .field_capture_status ===
+        'certified'
       ) {
         await client.query(
           'ROLLBACK'
@@ -1683,136 +1747,107 @@ exports.syncFieldLiveWeighing =
 
         return res.status(409).json({
           error:
-            'El lote tiene más de una tropa activa y requiere revisión administrativa',
+            'La captura de esta tropa ya fue certificada y no puede modificarse',
         });
       }
 
-      let troop;
-      let troopCreated = false;
+      // =================================================
+      // NO MODIFICAR TROPA QUE YA AVANZÓ
+      // =================================================
 
       if (
-        troopsResult.rows.length === 1
+        [
+          'dispatched',
+          'in_transit',
+          'received',
+          'in_slaughter',
+          'completed',
+        ].includes(
+          existingTroop.status
+        )
       ) {
+        await client.query(
+          'ROLLBACK'
+        );
 
-        const existingTroop =
-          troopsResult.rows[0];
-
-        if (
-          existingTroop
-            .field_capture_status ===
-          'certified'
-        ) {
-          await client.query(
-            'ROLLBACK'
-          );
-
-          return res.status(409).json({
-            error:
-              'La carga ya fue certificada y no puede modificarse',
-          });
-        }
-
-        if (
-          [
-            'dispatched',
-            'in_transit',
-            'received',
-            'in_slaughter',
-            'completed',
-          ].includes(
-            existingTroop.status
-          )
-        ) {
-          await client.query(
-            'ROLLBACK'
-          );
-
-          return res.status(409).json({
-            error:
-              `La tropa ya se encuentra en estado ${existingTroop.status}`,
-          });
-        }
-
-        const updateTroopResult =
-          await client.query(
-            `
-              UPDATE slaughterhouse_troops
-
-              SET
-                field_sync_id = $1,
-                field_capture_status = 'captured',
-                field_captured_quantity = $2,
-                field_captured_at =
-                  COALESCE(
-                    field_captured_at,
-                    NOW()
-                  ),
-                updated_at = NOW()
-
-              WHERE
-                id = $3
-                AND company_id = $4
-
-              RETURNING *
-            `,
-            [
-              troopFieldSyncId,
-              quantity,
-              existingTroop.id,
-              companyId,
-            ],
-          );
-
-        troop =
-          updateTroopResult.rows[0];
-
-      } else {
-
-        const insertTroopResult =
-          await client.query(
-            `
-              INSERT INTO slaughterhouse_troops (
-                company_id,
-                purchase_lot_id,
-                expected_quantity,
-                status,
-                created_by,
-                field_sync_id,
-                field_capture_status,
-                field_captured_quantity,
-                field_captured_at
-              )
-
-              VALUES (
-                $1,
-                $2,
-                $3,
-                'planned',
-                $4,
-                $5,
-                'captured',
-                $6,
-                NOW()
-              )
-
-              RETURNING *
-            `,
-            [
-              companyId,
-              purchaseLotId,
-              lot.expected_quantity,
-              userId,
-              troopFieldSyncId,
-              quantity,
-            ],
-          );
-
-        troop =
-          insertTroopResult.rows[0];
-
-        troopCreated =
-          true;
+        return res.status(409).json({
+          error:
+            `La tropa ya se encuentra en estado ${existingTroop.status}`,
+        });
       }
+
+      // =================================================
+      // ACTUALIZAR REALIDAD DE CAMPO
+      //
+      // expected_quantity NO se toca.
+      // quantity se deriva de los animales pesados.
+      // =================================================
+
+      const updateTroopResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_troops
+
+            SET
+              field_sync_id = $1,
+
+              field_capture_status =
+                'captured',
+
+              field_captured_quantity =
+                $2,
+
+              field_captured_at =
+                COALESCE(
+                  field_captured_at,
+                  NOW()
+                ),
+
+              updated_at =
+                NOW()
+
+            WHERE
+              id = $3
+              AND company_id = $4
+              AND purchase_lot_id = $5
+              AND status <> 'cancelled'
+              AND COALESCE(
+                field_capture_status,
+                ''
+              ) <> 'certified'
+
+            RETURNING *
+          `,
+          [
+            troopFieldSyncId,
+            quantity,
+            troopId,
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+      if (
+        updateTroopResult.rows.length ===
+        0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'La tropa cambió de estado durante la sincronización',
+        });
+      }
+
+      const troop =
+        updateTroopResult.rows[0];
+
+      // Compatibilidad con la respuesta anterior.
+      // Campo ya nunca crea tropas.
+      const troopCreated =
+        false;
 
       // =================================================
       // BUSCAR PESAJE DE CAMPO EXISTENTE
@@ -1879,6 +1914,25 @@ exports.syncFieldLiveWeighing =
           return res.status(409).json({
             error:
               'El pesaje de campo pertenece a otro lote',
+          });
+        }
+
+        if (
+          Number(
+            existingWeighing
+              .troop_id
+          ) !==
+          Number(
+            troop.id
+          )
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El pesaje de campo pertenece a otra tropa',
           });
         }
 
@@ -2174,9 +2228,22 @@ exports.syncFieldLiveWeighing =
         lot_number:
           lot.lot_number,
 
+        // Cantidad contratada del lote completo.
         expected_quantity:
           lot.expected_quantity,
 
+        contracted_quantity:
+          lot.expected_quantity,
+
+        // Tropa/camión trabajado.
+        troop_id:
+          troop.id,
+
+        // Cantidad orientativa de este camión.
+        troop_expected_quantity:
+          troop.expected_quantity,
+
+        // Realidad capturada en campo.
         field_captured_quantity:
           quantity,
 

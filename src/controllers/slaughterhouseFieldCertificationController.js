@@ -144,6 +144,38 @@ function canonicalJson(
   );
 }
 
+function commercialDateOnly(
+  value
+) {
+
+  if (
+    value === null ||
+    value === undefined ||
+    value === ''
+  ) {
+    return null;
+  }
+
+  if (
+    value instanceof Date
+  ) {
+    return value
+      .toISOString()
+      .slice(
+        0,
+        10
+      );
+  }
+
+  return String(
+    value
+  ).slice(
+    0,
+    10
+  );
+
+}
+
 // =====================================================
 // 🔐 CERTIFICAR CARGA DE CAMPO CON QR V2
 //
@@ -198,6 +230,11 @@ exports.certifyFieldLot =
       const purchaseLotId =
         Number(
           req.params.purchaseLotId
+        );
+
+      const troopId =
+        Number(
+          req.body?.troop_id
         );
 
       const qrPayload =
@@ -293,6 +330,20 @@ exports.certifyFieldLot =
           400,
           'purchaseLotId inválido'
         );
+      }
+
+      if (
+        !Number.isInteger(
+          troopId
+        ) ||
+        troopId <= 0
+      ) {
+
+        fail(
+          400,
+          'troop_id inválido'
+        );
+
       }
 
       if (
@@ -424,6 +475,40 @@ exports.certifyFieldLot =
       }
 
       if (
+        Number(
+          signedData.troop_id
+        ) !== troopId
+      ) {
+
+        fail(
+          409,
+          'El QR no corresponde a esta tropa / camión'
+        );
+
+      }
+
+      const signedCommercialAgreementHash =
+        signedData
+          .commercial_agreement_hash
+          ?.toString()
+          .trim()
+          .toLowerCase();
+
+      if (
+        !signedCommercialAgreementHash ||
+        !/^[a-f0-9]{64}$/.test(
+          signedCommercialAgreementHash
+        )
+      ) {
+
+        fail(
+          409,
+          'El QR no contiene un acuerdo comercial válido'
+        );
+
+      }
+
+      if (
         signedData.purpose !==
           'field_load_close'
       ) {
@@ -536,10 +621,19 @@ exports.certifyFieldLot =
               spl.purchase_type,
               spl.pricing_basis,
               spl.weight_source,
+
               spl.expected_quantity,
               spl.price_per_unit,
               spl.currency,
               spl.shrink_percent,
+
+              spl.purchase_date,
+              spl.planned_date,
+
+              spl.seller_payment_method_id,
+              spl.planned_payment_date,
+              spl.payment_terms,
+
               spl.status
                 AS lot_status,
 
@@ -644,49 +738,161 @@ exports.certifyFieldLot =
       }
 
       // ===============================================
-      // TROPA YA SINCRONIZADA
+      // ACUERDO COMERCIAL ACTUAL DEL LOTE
+      //
+      // Debe producir EXACTAMENTE el mismo hash
+      // que fue firmado al emitir el QR.
       // ===============================================
 
-      const troopsResult =
+      const currentCommercialAgreement = {
+
+        seller_person_id:
+          Number(
+            lot.seller_person_id
+          ),
+
+        estate_id:
+          lot.estate_id !== null
+            ? Number(
+                lot.estate_id
+              )
+            : null,
+
+        classification_id:
+          lot.classification_id !==
+            null
+            ? Number(
+                lot.classification_id
+              )
+            : null,
+
+        classification_code:
+          lot.classification_code ||
+          null,
+
+        purchase_type:
+          lot.purchase_type,
+
+        pricing_basis:
+          lot.pricing_basis,
+
+        weight_source:
+          lot.weight_source,
+
+        expected_quantity:
+          lot.expected_quantity !==
+            null
+            ? Number(
+                lot.expected_quantity
+              )
+            : null,
+
+        price_per_unit:
+          lot.price_per_unit !==
+            null
+            ? Number(
+                lot.price_per_unit
+              )
+            : null,
+
+        currency:
+          lot.currency,
+
+        shrink_percent:
+          Number(
+            lot.shrink_percent ||
+            0
+          ),
+
+        purchase_date:
+          commercialDateOnly(
+            lot.purchase_date
+          ),
+
+        planned_date:
+          commercialDateOnly(
+            lot.planned_date
+          ),
+
+        seller_payment_method_id:
+          lot
+            .seller_payment_method_id !==
+            null
+            ? Number(
+                lot
+                  .seller_payment_method_id
+              )
+            : null,
+
+        planned_payment_date:
+          commercialDateOnly(
+            lot.planned_payment_date
+          ),
+
+        payment_terms:
+          lot.payment_terms ||
+          null,
+
+      };
+
+      const currentCommercialAgreementHash =
+        sha256Hex(
+          canonicalJson(
+            currentCommercialAgreement
+          )
+        );
+
+      if (
+        currentCommercialAgreementHash !==
+        signedCommercialAgreementHash
+      ) {
+
+        fail(
+          409,
+          'Las condiciones comerciales del lote cambiaron después de emitir el QR. Debe revocarse y emitir una nueva autorización.'
+        );
+
+      }
+
+      // ===============================================
+      // TROPA ESPECÍFICA YA SINCRONIZADA
+      // ===============================================
+
+      const troopResult =
         await client.query(
           `
             SELECT *
+
             FROM slaughterhouse_troops
+
             WHERE
-              company_id = $1
-              AND purchase_lot_id = $2
+              id = $1
+              AND company_id = $2
+              AND purchase_lot_id = $3
               AND status <> 'cancelled'
-            ORDER BY id ASC
+
             FOR UPDATE
           `,
           [
+            troopId,
             companyId,
             purchaseLotId,
           ],
         );
 
       if (
-        troopsResult.rows.length ===
-        0
+        troopResult.rows.length === 0
       ) {
-        fail(
-          409,
-          'La captura todavía no fue sincronizada con el servidor'
-        );
-      }
 
-      if (
-        troopsResult.rows.length >
-        1
-      ) {
         fail(
           409,
-          'El lote tiene más de una tropa activa y requiere revisión administrativa'
+          'La tropa indicada no existe o no pertenece a este lote'
         );
+
       }
 
       let troop =
-        troopsResult.rows[0];
+        troopResult.rows[0];
 
       if (
         [
@@ -751,6 +957,95 @@ exports.certifyFieldLot =
 
       const authorization =
         authorizationResult.rows[0];
+
+      // ===============================================
+      // VALIDAR TROPA + ACUERDO DEL SNAPSHOT DEL QR
+      // ===============================================
+
+      const authorizationTroopId =
+        Number(
+          authorization
+            .details_snapshot
+            ?.troop_id
+        );
+
+      if (
+        !Number.isInteger(
+          authorizationTroopId
+        ) ||
+        authorizationTroopId !==
+          troopId
+      ) {
+
+        fail(
+          409,
+          'La autorización QR fue emitida para otra tropa'
+        );
+
+      }
+
+      const authorizationAgreementHash =
+        authorization
+          .details_snapshot
+          ?.commercial_agreement_hash
+          ?.toString()
+          .trim()
+          .toLowerCase();
+
+      if (
+        !authorizationAgreementHash ||
+        authorizationAgreementHash !==
+          signedCommercialAgreementHash ||
+        authorizationAgreementHash !==
+          currentCommercialAgreementHash
+      ) {
+
+        fail(
+          409,
+          'El acuerdo comercial de la autorización no coincide'
+        );
+
+      }
+
+      const authorizationAgreement =
+        authorization
+          .details_snapshot
+          ?.commercial_agreement;
+
+      if (
+        authorizationAgreement === null ||
+        typeof authorizationAgreement !==
+          'object' ||
+        Array.isArray(
+          authorizationAgreement
+        )
+      ) {
+
+        fail(
+          409,
+          'La autorización no contiene el acuerdo comercial certificado'
+        );
+
+      }
+
+      const authorizationAgreementCalculatedHash =
+        sha256Hex(
+          canonicalJson(
+            authorizationAgreement
+          )
+        );
+
+      if (
+        authorizationAgreementCalculatedHash !==
+        authorizationAgreementHash
+      ) {
+
+        fail(
+          409,
+          'El acuerdo comercial almacenado en la autorización fue alterado'
+        );
+
+      }
 
       if (
         authorization.purpose !==
@@ -1147,22 +1442,26 @@ exports.certifyFieldLot =
       }
 
       if (
-        reviewSnapshot
-          .backend_troop_id !==
-          null &&
-        reviewSnapshot
-          .backend_troop_id !==
-          undefined &&
+        !Number.isInteger(
+          Number(
+            reviewSnapshot
+              .backend_troop_id
+          )
+        ) ||
         Number(
           reviewSnapshot
             .backend_troop_id
         ) !==
-          Number(troop.id)
+          Number(
+            troop.id
+          )
       ) {
+
         fail(
           409,
           'La tropa revisada no coincide con el servidor'
         );
+
       }
 
       // ===============================================
@@ -1200,7 +1499,7 @@ exports.certifyFieldLot =
           'origin'
       ) {
         const weighingFieldSyncId =
-          `field:${companyId}:lot:${purchaseLotId}:weighing`;
+          `field:${companyId}:lot:${purchaseLotId}:troop:${troop.id}:weighing`;
 
         const weighingResult =
           await client.query(
@@ -1524,6 +1823,12 @@ exports.certifyFieldLot =
         public_code:
           authorization.public_code,
 
+        commercial_agreement_hash:
+          signedCommercialAgreementHash,
+
+        commercial_agreement:
+          authorizationAgreement,
+
         purchase_type:
           lot.purchase_type,
 
@@ -1606,7 +1911,7 @@ exports.certifyFieldLot =
       // CERTIFICAR TROPA
       // ===============================================
 
-      const troopResult =
+      const certifiedTroopResult =
         await client.query(
           `
             UPDATE slaughterhouse_troops
@@ -1641,7 +1946,7 @@ exports.certifyFieldLot =
         );
 
       if (
-        troopResult.rows.length ===
+        certifiedTroopResult.rows.length ===
         0
       ) {
         fail(
@@ -1651,7 +1956,7 @@ exports.certifyFieldLot =
       }
 
       troop =
-        troopResult.rows[0];
+        certifiedTroopResult.rows[0];
 
       // ===============================================
       // CERTIFICAR PESAJE SI EXISTE
@@ -1853,6 +2158,9 @@ exports.certifyFieldLot =
 
             review_snapshot:
               reviewSnapshot,
+
+            commercial_agreement_hash:
+              signedCommercialAgreementHash,
 
             document_hash:
               documentHash,

@@ -6,6 +6,115 @@ const {
 } = require('../services/fieldQrSignatureService');
 
 // =====================================================
+// HASH CANÓNICO DEL ACUERDO COMERCIAL
+// =====================================================
+
+function canonicalize(
+  value
+) {
+
+  if (
+    Array.isArray(
+      value
+    )
+  ) {
+    return value.map(
+      canonicalize
+    );
+  }
+
+  if (
+    value !== null &&
+    typeof value ===
+      'object'
+  ) {
+
+    const result = {};
+
+    for (
+      const key
+      of Object.keys(
+        value
+      ).sort()
+    ) {
+
+      result[key] =
+        canonicalize(
+          value[key]
+        );
+
+    }
+
+    return result;
+
+  }
+
+  return value;
+
+}
+
+function canonicalJson(
+  value
+) {
+
+  return JSON.stringify(
+    canonicalize(
+      value
+    )
+  );
+
+}
+
+function sha256Hex(
+  value
+) {
+
+  return crypto
+    .createHash(
+      'sha256'
+    )
+    .update(
+      value
+    )
+    .digest(
+      'hex'
+    );
+
+}
+
+function dateOnly(
+  value
+) {
+
+  if (
+    value === null ||
+    value === undefined ||
+    value === ''
+  ) {
+    return null;
+  }
+
+  if (
+    value instanceof Date
+  ) {
+    return value
+      .toISOString()
+      .slice(
+        0,
+        10
+      );
+  }
+
+  return String(
+    value
+  ).slice(
+    0,
+    10
+  );
+
+}
+
+// =====================================================
 // 🔐 EMITIR AUTORIZACIÓN QR DE CAMPO V2
 //
 // POST /slaughterhouse/admin/purchase-lots/:id/field-authorizations
@@ -38,6 +147,11 @@ exports.issueFieldAuthorization =
       const purchaseLotId =
         Number(
           req.params.id
+        );
+
+      const troopId =
+        Number(
+          req.body.troop_id
         );
 
       const expectedDate =
@@ -73,6 +187,20 @@ exports.issueFieldAuthorization =
           error:
             'ID de lote inválido',
         });
+      }
+
+      if (
+        !Number.isInteger(
+          troopId
+        ) ||
+        troopId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'troop_id inválido',
+        });
+
       }
 
       if (
@@ -162,7 +290,25 @@ exports.issueFieldAuthorization =
               spl.id,
               spl.lot_number,
               spl.status,
+
+              spl.capture_sheet_id,
+
+              spl.purchase_type,
+              spl.pricing_basis,
+              spl.weight_source,
+
+              spl.expected_quantity,
+              spl.price_per_unit,
+              spl.currency,
+              spl.shrink_percent,
+
+              spl.purchase_date,
               spl.planned_date,
+
+              spl.seller_payment_method_id,
+              spl.planned_payment_date,
+              spl.payment_terms,
+
               spl.seller_person_id,
 
               seller.full_name
@@ -258,6 +404,99 @@ exports.issueFieldAuthorization =
       }
 
       // ===============================================
+      // TROPA PARA LA CUAL SE EMITE EL QR
+      // ===============================================
+
+      const troopResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              purchase_lot_id,
+              transport_request_id,
+              transport_negotiation_id,
+              truck_id,
+              transporter_user_id,
+              expected_quantity,
+              status,
+              field_capture_status,
+              field_authorization_id
+
+            FROM slaughterhouse_troops
+
+            WHERE
+              id = $1
+              AND company_id = $2
+              AND purchase_lot_id = $3
+              AND status <> 'cancelled'
+
+            FOR UPDATE
+          `,
+          [
+            troopId,
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+      if (
+        troopResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'La tropa no pertenece a este lote',
+        });
+
+      }
+
+      const troop =
+        troopResult.rows[0];
+
+      if (
+        [
+          'dispatched',
+          'in_transit',
+          'received',
+          'in_slaughter',
+          'completed',
+        ].includes(
+          troop.status
+        )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            `No puede emitirse un QR para una tropa en estado ${troop.status}`,
+        });
+
+      }
+
+      if (
+        troop.field_capture_status ===
+        'certified'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Esta tropa ya tiene su carga certificada',
+        });
+
+      }
+
+      // ===============================================
       // WHATSAPP REQUIERE TELÉFONO
       // ===============================================
 
@@ -301,7 +540,10 @@ exports.issueFieldAuthorization =
       );
 
       // ===============================================
-      // NO PERMITIR DOS QR DE CAMPO ACTIVOS
+      // NO PERMITIR DOS QR ACTIVOS PARA LA MISMA TROPA
+      //
+      // Un lote sí puede tener varios QR activos:
+      // uno por cada tropa/camión.
       // ===============================================
 
       const activeResult =
@@ -311,35 +553,47 @@ exports.issueFieldAuthorization =
               id,
               public_code,
               expires_at
+
             FROM slaughterhouse_weighing_authorizations
+
             WHERE
               company_id = $1
               AND purchase_lot_id = $2
               AND purpose = 'field_load_close'
               AND status = 'pending'
+
+              AND details_snapshot->>'troop_id'
+                = $3
+
               AND (
                 expires_at IS NULL
                 OR expires_at > NOW()
               )
+
             LIMIT 1
+
             FOR UPDATE
           `,
           [
             companyId,
             purchaseLotId,
+            String(
+              troopId
+            ),
           ],
         );
 
       if (
         activeResult.rows.length > 0
       ) {
+
         await client.query(
           'ROLLBACK'
         );
 
         return res.status(409).json({
           error:
-            'Este lote ya tiene una autorización QR de campo activa. Debe revocarla antes de emitir una nueva.',
+            'Esta tropa ya tiene una autorización QR de campo activa. Debe revocarla antes de emitir una nueva.',
           authorization: {
             id:
               activeResult.rows[0].id,
@@ -351,6 +605,7 @@ exports.issueFieldAuthorization =
                 .expires_at,
           },
         });
+
       }
 
       // ===============================================
@@ -415,37 +670,183 @@ exports.issueFieldAuthorization =
       // SNAPSHOT DE EMISIÓN
       // ===============================================
 
+      // ===============================================
+      // ACUERDO COMERCIAL INMUTABLE
+      //
+      // Esto representa LO PACTADO.
+      // La cantidad real cargada NO va aquí.
+      // ===============================================
+
+      const commercialAgreement = {
+
+        seller_person_id:
+          Number(
+            purchaseLot
+              .seller_person_id
+          ),
+
+        estate_id:
+          purchaseLot
+            .estate_id !== null
+            ? Number(
+                purchaseLot
+                  .estate_id
+              )
+            : null,
+
+        classification_id:
+          purchaseLot
+            .classification_id !==
+            null
+            ? Number(
+                purchaseLot
+                  .classification_id
+              )
+            : null,
+
+        classification_code:
+          purchaseLot
+            .classification_code ||
+          null,
+
+        purchase_type:
+          purchaseLot
+            .purchase_type,
+
+        pricing_basis:
+          purchaseLot
+            .pricing_basis,
+
+        weight_source:
+          purchaseLot
+            .weight_source,
+
+        expected_quantity:
+          purchaseLot
+            .expected_quantity !==
+            null
+            ? Number(
+                purchaseLot
+                  .expected_quantity
+              )
+            : null,
+
+        price_per_unit:
+          purchaseLot
+            .price_per_unit !==
+            null
+            ? Number(
+                purchaseLot
+                  .price_per_unit
+              )
+            : null,
+
+        currency:
+          purchaseLot.currency,
+
+        shrink_percent:
+          Number(
+            purchaseLot
+              .shrink_percent ||
+            0
+          ),
+
+        purchase_date:
+          dateOnly(
+            purchaseLot
+              .purchase_date
+          ),
+
+        planned_date:
+          dateOnly(
+            purchaseLot
+              .planned_date
+          ),
+
+        seller_payment_method_id:
+          purchaseLot
+            .seller_payment_method_id !==
+            null
+            ? Number(
+                purchaseLot
+                  .seller_payment_method_id
+              )
+            : null,
+
+        planned_payment_date:
+          dateOnly(
+            purchaseLot
+              .planned_payment_date
+          ),
+
+        payment_terms:
+          purchaseLot
+            .payment_terms ||
+          null,
+
+      };
+
+      const commercialAgreementHash =
+        sha256Hex(
+          canonicalJson(
+            commercialAgreement
+          )
+        );
+
       const detailsSnapshot = {
+
         purchase_lot_id:
           purchaseLotId,
 
         lot_number:
           purchaseLot.lot_number,
 
+        troop_id:
+          troopId,
+
+        capture_sheet_id:
+          purchaseLot
+            .capture_sheet_id,
+
         seller_person_id:
-          purchaseLot.seller_person_id,
+          purchaseLot
+            .seller_person_id,
 
         seller_name:
-          purchaseLot.seller_name,
+          purchaseLot
+            .seller_name,
 
         estate_id:
-          purchaseLot.estate_id,
+          purchaseLot
+            .estate_id,
 
         estate_name:
-          purchaseLot.estate_name,
+          purchaseLot
+            .estate_name,
 
         classification_id:
-          purchaseLot.classification_id,
+          purchaseLot
+            .classification_id,
 
         classification_code:
-          purchaseLot.classification_code,
+          purchaseLot
+            .classification_code,
 
         classification_name:
-          purchaseLot.classification_name,
+          purchaseLot
+            .classification_name,
+
+        commercial_agreement:
+          commercialAgreement,
+
+        commercial_agreement_hash:
+          commercialAgreementHash,
 
         expected_date:
           expectedDate ||
-          purchaseLot.planned_date,
+          purchaseLot
+            .planned_date,
+
       };
 
       // ===============================================
@@ -458,16 +859,27 @@ exports.issueFieldAuthorization =
         signedData,
       } =
         createSignedFieldQrPayload({
+
           companyId,
+
           purchaseLotId,
+
+          troopId,
+
           authorizationNumber,
+
           publicCode,
+
           token,
 
           sellerPersonId:
-            purchaseLot.seller_person_id,
+            purchaseLot
+              .seller_person_id,
+
+          commercialAgreementHash,
 
           expiresAt,
+
         });
 
       const qrPayloadHash =
@@ -605,6 +1017,12 @@ exports.issueFieldAuthorization =
 
             purchase_lot_id:
               purchaseLotId,
+
+            troop_id:
+              troopId,
+
+            commercial_agreement_hash:
+              commercialAgreementHash,
 
             authorization_number:
               authorizationNumber,
