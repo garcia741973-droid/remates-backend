@@ -23368,6 +23368,360 @@ exports.acceptPurchaseLotTransportNegotiation =
   };
 
 // =====================================================
+// 🔒 CERRAR SOLICITUD DE CAMIONES DEL LOTE
+//
+// POST /slaughterhouse/admin/purchase-lots/:id/close-transport-request
+//
+// IMPORTANTE:
+//
+// - NO cancela los camiones ya confirmados.
+// - NO modifica las tropas creadas.
+// - La solicitud deja de aparecer en Plaza Transporte.
+// - Solo cancela propuestas que todavía estén open.
+// =====================================================
+
+exports.closePurchaseLotTransportRequest =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+      const purchaseLotId =
+        Number(
+          req.params.id
+        );
+
+      if (
+        !Number.isInteger(
+          purchaseLotId
+        ) ||
+        purchaseLotId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de lote inválido',
+        });
+
+      }
+
+      await client.query(
+        'BEGIN'
+      );
+
+      // ===============================================
+      // BLOQUEAR LOTE
+      // ===============================================
+
+      const lotResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              lot_number,
+              status,
+              expected_quantity
+
+            FROM slaughterhouse_purchase_lots
+
+            WHERE
+              id = $1
+              AND company_id = $2
+
+            FOR UPDATE
+          `,
+          [
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+      if (
+        lotResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'Lote de compra no encontrado',
+        });
+
+      }
+
+      const purchaseLot =
+        lotResult.rows[0];
+
+      // ===============================================
+      // BUSCAR SOLICITUD ABIERTA DEL LOTE
+      // ===============================================
+
+      const requestResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM transport_requests
+
+            WHERE
+              purchase_lot_id = $1
+              AND requester_company_id = $2
+              AND status = 'open'
+
+            ORDER BY id DESC
+
+            LIMIT 1
+
+            FOR UPDATE
+          `,
+          [
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+      if (
+        requestResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Este lote no tiene una solicitud de camiones abierta',
+        });
+
+      }
+
+      const transportRequest =
+        requestResult.rows[0];
+
+      // ===============================================
+      // DEBE EXISTIR AL MENOS UN CAMIÓN CONFIRMADO
+      // ===============================================
+
+      const confirmedResult =
+        await client.query(
+          `
+            SELECT
+              COUNT(*)::int AS total
+
+            FROM slaughterhouse_troops
+
+            WHERE
+              company_id = $1
+              AND purchase_lot_id = $2
+              AND transport_request_id = $3
+              AND status <> 'cancelled'
+          `,
+          [
+            companyId,
+            purchaseLotId,
+            transportRequest.id,
+          ],
+        );
+
+      const confirmedTrucks =
+        Number(
+          confirmedResult.rows[0]
+            ?.total || 0
+        );
+
+      if (
+        confirmedTrucks <= 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Todavía no existe ningún camión confirmado para este lote',
+        });
+
+      }
+
+      // ===============================================
+      // CERRAR SOLICITUD
+      // ===============================================
+
+      const closedRequestResult =
+        await client.query(
+          `
+            UPDATE transport_requests
+
+            SET
+              status = 'closed'
+
+            WHERE
+              id = $1
+              AND status = 'open'
+
+            RETURNING *
+          `,
+          [
+            transportRequest.id,
+          ],
+        );
+
+      // ===============================================
+      // CANCELAR SOLO PROPUESTAS NO CONFIRMADAS
+      //
+      // paid / trip_active / etc. NO SE TOCAN.
+      // ===============================================
+
+      const cancelledNegotiationsResult =
+        await client.query(
+          `
+            UPDATE transport_negotiations
+
+            SET
+              status = 'cancelled',
+              cancelled = true,
+              cancelled_by = $2
+
+            WHERE
+              request_id = $1
+              AND status = 'open'
+
+            RETURNING id
+          `,
+          [
+            transportRequest.id,
+            userId,
+          ],
+        );
+
+      // ===============================================
+      // AUDITORÍA
+      // ===============================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'transport_request',
+            $3,
+            'close_transport_request',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+          userId,
+          String(
+            transportRequest.id
+          ),
+          JSON.stringify(
+            transportRequest
+          ),
+          JSON.stringify({
+            ...closedRequestResult
+              .rows[0],
+            confirmed_trucks:
+              confirmedTrucks,
+            cancelled_open_negotiations:
+              cancelledNegotiationsResult
+                .rows
+                .map(
+                  row => row.id
+                ),
+          }),
+        ],
+      );
+
+      await client.query(
+        'COMMIT'
+      );
+
+      console.log(
+        '✅ PURCHASE LOT TRANSPORT REQUEST CLOSED =>',
+        {
+          purchase_lot_id:
+            purchaseLotId,
+          request_id:
+            transportRequest.id,
+          confirmed_trucks:
+            confirmedTrucks,
+          cancelled_open_negotiations:
+            cancelledNegotiationsResult
+              .rowCount,
+        },
+      );
+
+      return res.json({
+        success: true,
+        message:
+          'Solicitud de camiones cerrada correctamente',
+        purchase_lot_id:
+          purchaseLot.id,
+        lot_number:
+          purchaseLot.lot_number,
+        transport_request:
+          closedRequestResult.rows[0],
+        confirmed_trucks:
+          confirmedTrucks,
+        cancelled_open_negotiations:
+          cancelledNegotiationsResult
+            .rowCount,
+      });
+
+    } catch (error) {
+
+      try {
+        await client.query(
+          'ROLLBACK'
+        );
+      } catch (_) {}
+
+      console.error(
+        'CLOSE PURCHASE LOT TRANSPORT REQUEST ERROR:',
+        error,
+      );
+
+      return res.status(500).json({
+        error:
+          'Error cerrando la solicitud de camiones',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+// =====================================================
 // 🚛 TRANSPORTE ACTIVO DEL LOTE DE COMPRA
 //
 // GET
