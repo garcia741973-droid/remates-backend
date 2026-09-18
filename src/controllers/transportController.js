@@ -2170,20 +2170,84 @@ const createTransportNegotiation = async (req, res) => {
     const negotiation =
     result.rows[0];
 
-    /// 🔥 PUSH AL GANADERO
-    await sendUserNotification({
-    userId: request.user_id,
-    title: 'Nuevo transportista interesado',
-    body:
-        'Un camionero quiere negociar tu carga',
-    data: {
-        type: 'transport_negotiation',
-        negotiation_id:
-        negotiation.id,
-        request_id:
-        request.id,
-    },
-    });
+    // =====================================================
+    // 🔔 NOTIFICAR NUEVA PROPUESTA
+    //
+    // Solicitud corporativa:
+    // bandeja web + FCM a operadores autorizados.
+    //
+    // Solicitud normal:
+    // mantiene el comportamiento original.
+    // =====================================================
+
+    if (
+      request.requester_company_id
+    ) {
+
+      await sendSlaughterhouseOperatorNotification({
+
+        companyId:
+          request.requester_company_id,
+
+        permissionCode:
+          'transport.negotiate',
+
+        title:
+          '🚛 Nueva propuesta de transporte',
+
+        body:
+          'Un camionero quiere negociar el transporte de un lote.',
+
+        data: {
+
+          type:
+            'transport_negotiation',
+
+          negotiation_id:
+            negotiation.id,
+
+          request_id:
+            request.id,
+
+          purchase_lot_id:
+            request.purchase_lot_id ||
+            null,
+
+          source:
+            'transport_proposal',
+        },
+
+        eventKey:
+          `slaughterhouse_transport_proposal:${negotiation.id}`,
+      });
+
+    } else {
+
+      await sendUserNotification({
+
+        userId:
+          request.user_id,
+
+        title:
+          'Nuevo transportista interesado',
+
+        body:
+          'Un camionero quiere negociar tu carga',
+
+        data: {
+
+          type:
+            'transport_negotiation',
+
+          negotiation_id:
+            negotiation.id,
+
+          request_id:
+            request.id,
+        },
+      });
+
+    }
 
     res.json(
     negotiation
@@ -2502,51 +2566,37 @@ const finalMessage =
         negotiation.requester_company_id
       ) {
 
-        const companyUsers =
-          await pool.query(
-            `
-            SELECT DISTINCT
-              uc.user_id
-            FROM user_companies uc
-            WHERE
-              uc.company_id = $1
-              AND uc.company_status = 'approved'
-              AND uc.role = 'client'
-            `,
-            [
-              negotiation.requester_company_id,
-            ]
-          );
+        await sendSlaughterhouseOperatorNotification({
 
+          companyId:
+            negotiation.requester_company_id,
 
-        for (
-          const companyUser
-          of companyUsers.rows
-        ) {
+          permissionCode:
+            'transport.negotiate',
 
-          await sendUserNotification({
+          title:
+            '💬 Nuevo mensaje de transporte',
 
-            userId:
-              companyUser.user_id,
+          body:
+            finalMessage,
 
-            title:
-              'Nuevo mensaje de transporte',
+          data: {
 
-            body:
-              message,
+            type:
+              'transport_negotiation',
 
-            data: {
+            negotiation_id,
 
-              type:
-                'transport_negotiation',
+            request_id:
+              negotiation.request_id,
 
-              negotiation_id,
+            source:
+              'transport_chat',
+          },
 
-              request_id:
-                negotiation.request_id,
-            },
-          });
-        }
+          eventKey:
+            `slaughterhouse_transport_message:${negotiation_id}:${result.rows[0].id}`,
+        });
 
       } else {
 
