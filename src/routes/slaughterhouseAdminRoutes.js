@@ -122,6 +122,8 @@ const {
 
   addCaptureSheetLot,
 
+  preparePurchaseLotFieldPickup,
+
   getPurchaseLots,
 
   getPurchaseLotById,
@@ -1146,6 +1148,21 @@ router.post(
   ),
 
   addCaptureSheetLot,
+
+);
+
+router.post(
+  '/purchase-lots/:id/prepare-field-pickup',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'lots.manage'
+  ),
+
+  preparePurchaseLotFieldPickup,
 
 );
 

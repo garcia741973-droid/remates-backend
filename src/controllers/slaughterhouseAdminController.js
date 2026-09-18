@@ -14437,6 +14437,425 @@ exports.addCaptureSheetLot =
   };
 
 // =====================================================
+// 📋 PREPARAR RECOJO DE UN LOTE EXISTENTE
+//
+// POST /slaughterhouse/admin/purchase-lots/:id/prepare-field-pickup
+//
+// Crea una hoja de captación para un lote que ya existe
+// y vincula el lote a esa hoja.
+//
+// NO crea un lote nuevo.
+// =====================================================
+
+exports.preparePurchaseLotFieldPickup =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+      const purchaseLotId =
+        Number(
+          req.params.id
+        );
+
+      if (
+        !Number.isInteger(
+          purchaseLotId
+        ) ||
+        purchaseLotId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'ID de lote inválido',
+        });
+      }
+
+      await client.query(
+        'BEGIN'
+      );
+
+      // =================================================
+      // BLOQUEAR Y LEER LOTE
+      // =================================================
+
+      const lotResult =
+        await client.query(
+          `
+            SELECT
+              spl.id,
+              spl.lot_number,
+              spl.company_id,
+              spl.seller_person_id,
+              spl.captador_person_id,
+              spl.planned_date,
+              spl.capture_sheet_id,
+              spl.status,
+
+              seller.full_name
+                AS seller_name,
+
+              captador.full_name
+                AS captador_name,
+
+              captador.user_id
+                AS captador_user_id
+
+            FROM slaughterhouse_purchase_lots spl
+
+            JOIN slaughterhouse_people seller
+              ON seller.id =
+                spl.seller_person_id
+              AND seller.company_id =
+                spl.company_id
+
+            LEFT JOIN slaughterhouse_people captador
+              ON captador.id =
+                spl.captador_person_id
+              AND captador.company_id =
+                spl.company_id
+
+            WHERE
+              spl.id = $1
+              AND spl.company_id = $2
+
+            FOR UPDATE OF spl
+          `,
+          [
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+      if (
+        lotResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'Lote de compra no encontrado',
+        });
+      }
+
+      const lot =
+        lotResult.rows[0];
+
+      // =================================================
+      // YA ESTÁ PREPARADO
+      // =================================================
+
+      if (
+        lot.capture_sheet_id !== null
+      ) {
+
+        const sheetResult =
+          await client.query(
+            `
+              SELECT *
+              FROM slaughterhouse_capture_sheets
+              WHERE
+                id = $1
+                AND company_id = $2
+              LIMIT 1
+            `,
+            [
+              lot.capture_sheet_id,
+              companyId,
+            ],
+          );
+
+        await client.query(
+          'COMMIT'
+        );
+
+        return res.json({
+          success: true,
+          already_prepared: true,
+          purchase_lot: lot,
+          capture_sheet:
+            sheetResult.rows[0] || null,
+        });
+      }
+
+      // =================================================
+      // ESTADO DEL LOTE
+      // =================================================
+
+      if (
+        ![
+          'open',
+          'in_transport',
+        ].includes(
+          lot.status
+        )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            `El lote no puede prepararse para recojo en estado ${lot.status}`,
+        });
+      }
+
+      // =================================================
+      // CAPTADOR OBLIGATORIO
+      // =================================================
+
+      if (
+        lot.captador_person_id === null
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El lote no tiene comprador/captador asignado',
+        });
+      }
+
+      if (
+        lot.captador_user_id === null
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El comprador/captador debe estar vinculado a un usuario de Plaza Ganadera',
+        });
+      }
+
+      // =================================================
+      // NUEVO ID DE HOJA
+      // =================================================
+
+      const sequenceResult =
+        await client.query(
+          `
+            SELECT
+              nextval(
+                'slaughterhouse_capture_sheets_id_seq'
+              )::int
+                AS next_id
+          `
+        );
+
+      const nextId =
+        Number(
+          sequenceResult.rows[0]
+            .next_id
+        );
+
+      const year =
+        new Date()
+          .getFullYear();
+
+      const captureNumber =
+        `CAP-${companyId}-${year}-${String(
+          nextId
+        ).padStart(6, '0')}`;
+
+      // =================================================
+      // CREAR HOJA
+      // =================================================
+
+      const sheetResult =
+        await client.query(
+          `
+            INSERT INTO slaughterhouse_capture_sheets (
+              id,
+              company_id,
+              capture_number,
+              seller_person_id,
+              captador_person_id,
+              planned_date,
+              status,
+              notes,
+              created_by
+            )
+            VALUES (
+              $1,$2,$3,$4,$5,
+              $6,'open',$7,$8
+            )
+            RETURNING *
+          `,
+          [
+            nextId,
+            companyId,
+            captureNumber,
+            lot.seller_person_id,
+            lot.captador_person_id,
+            lot.planned_date,
+            `Preparación de recojo para ${lot.lot_number}`,
+            userId,
+          ],
+        );
+
+      const captureSheet =
+        sheetResult.rows[0];
+
+      // =================================================
+      // VINCULAR EL LOTE EXISTENTE
+      // =================================================
+
+      const updatedLotResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_purchase_lots
+
+            SET
+              capture_sheet_id = $1,
+              updated_at = NOW()
+
+            WHERE
+              id = $2
+              AND company_id = $3
+              AND capture_sheet_id IS NULL
+
+            RETURNING *
+          `,
+          [
+            captureSheet.id,
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+      if (
+        updatedLotResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El lote ya fue vinculado a otra hoja de captación',
+        });
+      }
+
+      const updatedLot =
+        updatedLotResult.rows[0];
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            new_data
+          )
+          VALUES (
+            $1,
+            $2,
+            'purchase_lot',
+            $3,
+            'prepare_field_pickup',
+            $4::jsonb
+          )
+        `,
+        [
+          companyId,
+          userId,
+          String(
+            purchaseLotId
+          ),
+          JSON.stringify({
+            purchase_lot_id:
+              purchaseLotId,
+            capture_sheet_id:
+              captureSheet.id,
+            capture_number:
+              captureSheet.capture_number,
+            seller_person_id:
+              lot.seller_person_id,
+            captador_person_id:
+              lot.captador_person_id,
+            captador_user_id:
+              lot.captador_user_id,
+          }),
+        ],
+      );
+
+      await client.query(
+        'COMMIT'
+      );
+
+      return res.status(201).json({
+        success: true,
+        already_prepared: false,
+        message:
+          'Recojo preparado correctamente',
+        purchase_lot:
+          updatedLot,
+        capture_sheet:
+          captureSheet,
+        captador: {
+          person_id:
+            lot.captador_person_id,
+          user_id:
+            lot.captador_user_id,
+          name:
+            lot.captador_name,
+        },
+      });
+
+    } catch (error) {
+
+      try {
+        await client.query(
+          'ROLLBACK'
+        );
+      } catch (_) {}
+
+      console.error(
+        'PREPARE PURCHASE LOT FIELD PICKUP ERROR:',
+        error
+      );
+
+      return res.status(500).json({
+        error:
+          'Error preparando recojo del lote',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+// =====================================================
 // ➕ CREAR LOTE DE COMPRA
 // POST /slaughterhouse/admin/purchase-lots
 //
