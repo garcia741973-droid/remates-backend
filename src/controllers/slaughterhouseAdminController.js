@@ -23186,7 +23186,7 @@ exports.acceptPurchaseLotTransportNegotiation =
 
       try {
 
-        await firebaseAdmin
+        await admin
           .firestore()
           .collection(
             'transport_negotiations'
@@ -23203,7 +23203,7 @@ exports.acceptPurchaseLotTransportNegotiation =
             message:
               confirmationMessage,
             created_at:
-              firebaseAdmin
+              admin
                 .firestore
                 .FieldValue
                 .serverTimestamp(),
