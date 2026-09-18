@@ -523,7 +523,13 @@ exports.getAssignedCaptureSheetById =
                 troop_summary.received_quantity,
                 0
               )::int
-                AS received_quantity
+                AS received_quantity,
+
+              COALESCE(
+                troop_summary.troops,
+                '[]'::jsonb
+              )
+                AS troops
 
             FROM slaughterhouse_purchase_lots spl
 
@@ -557,9 +563,73 @@ exports.getAssignedCaptureSheetById =
                   ),
                   0
                 )::int
-                  AS received_quantity
+                  AS received_quantity,
+
+                COALESCE(
+                  jsonb_agg(
+                    jsonb_build_object(
+                      'id',
+                        st.id,
+
+                      'troop_number',
+                        st.troop_number,
+
+                      'transport_request_id',
+                        st.transport_request_id,
+
+                      'transport_negotiation_id',
+                        st.transport_negotiation_id,
+
+                      'truck_id',
+                        st.truck_id,
+
+                      'transporter_user_id',
+                        st.transporter_user_id,
+
+                      'plate',
+                        tt.plate,
+
+                      'brand',
+                        tt.brand,
+
+                      'model',
+                        tt.model,
+
+                      'expected_quantity',
+                        st.expected_quantity,
+
+                      'status',
+                        st.status,
+
+                      'field_sync_id',
+                        st.field_sync_id,
+
+                      'field_capture_status',
+                        st.field_capture_status,
+
+                      'field_captured_quantity',
+                        st.field_captured_quantity,
+
+                      'field_captured_at',
+                        st.field_captured_at,
+
+                      'field_authorization_id',
+                        st.field_authorization_id
+                    )
+                    ORDER BY st.id ASC
+                  )
+                    FILTER (
+                      WHERE st.id IS NOT NULL
+                    ),
+                  '[]'::jsonb
+                )
+                  AS troops
 
               FROM slaughterhouse_troops st
+
+              LEFT JOIN transporter_trucks tt
+                ON tt.id =
+                  st.truck_id
 
               WHERE
                 st.purchase_lot_id =
@@ -859,8 +929,8 @@ exports.syncFieldLotCapture =
       // =================================================
       // VALIDAR HOJA + LOTE + ASIGNACIÓN
       //
-      // Bloqueamos el lote para evitar que dos reintentos
-      // creen dos tropas al mismo tiempo.
+      // Bloqueamos el lote para mantener consistente
+      // la sincronización ante reintentos concurrentes.
       // =================================================
 
       const lotResult =
