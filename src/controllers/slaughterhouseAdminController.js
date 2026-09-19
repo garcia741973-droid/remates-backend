@@ -45450,3 +45450,988 @@ exports.getTransporterPaymentsReport =
     }
 
   };
+
+// =====================================================
+// 📊 INFORME FINAL — LOTES DE COMPRA
+//
+// GET /slaughterhouse/admin/reports/final-lots
+//
+// UNA FILA POR LOTE.
+// SOLO LECTURA.
+//
+// Consolida sin multiplicar filas:
+// - compra
+// - certificación de campo
+// - tropas
+// - recepción
+// - faena
+// - medias reses
+// - última preliquidación
+// =====================================================
+
+exports.getFinalLotsReport =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      // =================================================
+      // FILTROS
+      // =================================================
+
+      const from =
+        req.query.from
+          ?.toString()
+          .trim() ||
+        null;
+
+      const to =
+        req.query.to
+          ?.toString()
+          .trim() ||
+        null;
+
+      const status =
+        req.query.status
+          ?.toString()
+          .trim() ||
+        null;
+
+      const q =
+        req.query.q
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      // =================================================
+      // CONSULTA
+      // =================================================
+
+      const result =
+        await pool.query(
+          `
+            SELECT
+
+              spl.id
+                AS purchase_lot_id,
+
+              spl.purchase_date,
+
+              spl.external_order_number,
+
+              spl.lot_number,
+
+              spl.status,
+
+
+              seller.id
+                AS seller_person_id,
+
+              seller.full_name
+                AS seller_name,
+
+              seller.document_number
+                AS seller_document_number,
+
+              seller.export_enabled
+                AS seller_export_enabled,
+
+
+              estate.id
+                AS estate_id,
+
+              estate.name
+                AS estate_name,
+
+              estate.senasag_predio_number
+                AS estate_senasag_predio_number,
+
+
+              captador.id
+                AS captador_person_id,
+
+              captador.full_name
+                AS captador_name,
+
+
+              classification.generated_code
+                AS classification_code,
+
+              classification.display_name
+                AS classification_name,
+
+
+              spl.pricing_basis,
+
+              spl.weight_source,
+
+              spl.expected_quantity,
+
+              spl.price_per_unit,
+
+              spl.currency,
+
+              spl.shrink_percent,
+
+
+              // ==========================================
+              // CAMPO
+              // ==========================================
+
+              COALESCE(
+                field_summary.field_quantity,
+                0
+              )::int
+                AS field_quantity,
+
+              field_summary.field_gross_weight_kg,
+
+              field_summary.field_net_weight_kg,
+
+
+              // ==========================================
+              // TROPAS / RECEPCIÓN
+              // ==========================================
+
+              COALESCE(
+                troop_summary.troops_count,
+                0
+              )::int
+                AS troops_count,
+
+              COALESCE(
+                troop_summary.dispatched_quantity,
+                0
+              )::int
+                AS dispatched_quantity,
+
+              COALESCE(
+                troop_summary.received_quantity,
+                0
+              )::int
+                AS received_quantity,
+
+              COALESCE(
+                troop_summary.completed_troops,
+                0
+              )::int
+                AS completed_troops,
+
+
+              // ==========================================
+              // FAENA
+              // ==========================================
+
+              COALESCE(
+                carcass_summary.slaughtered_animals,
+                0
+              )::int
+                AS slaughtered_animals,
+
+              COALESCE(
+                carcass_summary.half_carcasses_count,
+                0
+              )::int
+                AS half_carcasses_count,
+
+              COALESCE(
+                carcass_summary.incomplete_animals,
+                0
+              )::int
+                AS incomplete_animals,
+
+              carcass_summary.hook_weight_kg,
+
+              carcass_summary.average_hook_weight_kg,
+
+              carcass_summary.min_hook_weight_kg,
+
+              carcass_summary.max_hook_weight_kg,
+
+
+              // ==========================================
+              // PRELIQUIDACIÓN
+              // ==========================================
+
+              preliq.id
+                AS preliquidation_id,
+
+              preliq.version
+                AS preliquidation_version,
+
+              preliq.status
+                AS preliquidation_status,
+
+              preliq.gross_weight_kg,
+
+              preliq.shrink_weight_kg,
+
+              preliq.net_weight_kg,
+
+              preliq.live_weight_kg,
+
+              preliq.hook_weight_kg
+                AS preliquidation_hook_weight_kg,
+
+              preliq.base_amount,
+
+              preliq.discounts_total,
+
+              preliq.additions_total,
+
+              preliq.total_payable,
+
+              preliq.generated_at,
+
+              preliq.approved_at,
+
+              preliq.exported_at,
+
+
+              // ==========================================
+              // RENDIMIENTO
+              //
+              // Solo existe cuando la preliquidación
+              // dispone de peso vivo oficial.
+              // ==========================================
+
+              CASE
+
+                WHEN
+                  preliq.live_weight_kg
+                    IS NOT NULL
+
+                  AND
+                  preliq.live_weight_kg >
+                    0
+
+                  AND
+                  carcass_summary.hook_weight_kg
+                    IS NOT NULL
+
+                THEN
+                  ROUND(
+                    (
+                      carcass_summary.hook_weight_kg
+                      /
+                      preliq.live_weight_kg
+                    ) * 100,
+                    2
+                  )
+
+                ELSE
+                  NULL
+
+              END
+                AS carcass_yield_percent,
+
+
+              // ==========================================
+              // FECHAS OPERATIVAS
+              // ==========================================
+
+              reception_summary.first_received_at,
+
+              reception_summary.slaughter_started_at,
+
+              reception_summary.slaughter_completed_at,
+
+
+              // ==========================================
+              // ESTADO DESCRIPTIVO DEL EXPEDIENTE
+              // ==========================================
+
+              CASE
+
+                WHEN spl.status =
+                  'cancelled'
+                THEN
+                  'CANCELADO'
+
+
+                WHEN
+                  preliq.status =
+                    'exported'
+                THEN
+                  'LIQUIDACIÓN EXPORTADA'
+
+
+                WHEN
+                  preliq.status =
+                    'approved'
+                THEN
+                  'LIQUIDACIÓN APROBADA'
+
+
+                WHEN
+                  preliq.status =
+                    'reviewed'
+                THEN
+                  'LIQUIDACIÓN REVISADA'
+
+
+                WHEN
+                  preliq.status =
+                    'draft'
+                THEN
+                  'PRELIQUIDACIÓN'
+
+
+                WHEN
+                  COALESCE(
+                    troop_summary.troops_count,
+                    0
+                  ) > 0
+
+                  AND
+                  COALESCE(
+                    troop_summary.completed_troops,
+                    0
+                  ) =
+                  COALESCE(
+                    troop_summary.troops_count,
+                    0
+                  )
+
+                THEN
+                  'FAENA COMPLETADA'
+
+
+                WHEN
+                  COALESCE(
+                    carcass_summary.half_carcasses_count,
+                    0
+                  ) > 0
+
+                THEN
+                  'EN FAENA'
+
+
+                WHEN
+                  COALESCE(
+                    troop_summary.received_quantity,
+                    0
+                  ) > 0
+
+                THEN
+                  'EN RECEPCIÓN'
+
+
+                WHEN
+                  COALESCE(
+                    troop_summary.dispatched_quantity,
+                    0
+                  ) > 0
+
+                THEN
+                  'EN TRANSPORTE'
+
+
+                WHEN
+                  COALESCE(
+                    field_summary.field_quantity,
+                    0
+                  ) > 0
+
+                THEN
+                  'CAMPO CERTIFICADO'
+
+
+                ELSE
+                  'COMPRA ABIERTA'
+
+              END
+                AS process_status
+
+
+            FROM
+              slaughterhouse_purchase_lots spl
+
+
+            JOIN
+              slaughterhouse_people seller
+
+              ON seller.id =
+                spl.seller_person_id
+
+              AND seller.company_id =
+                spl.company_id
+
+
+            LEFT JOIN
+              slaughterhouse_estates estate
+
+              ON estate.id =
+                spl.estate_id
+
+              AND estate.company_id =
+                spl.company_id
+
+
+            LEFT JOIN
+              slaughterhouse_people captador
+
+              ON captador.id =
+                spl.captador_person_id
+
+              AND captador.company_id =
+                spl.company_id
+
+
+            LEFT JOIN
+              slaughterhouse_animal_classifications
+                classification
+
+              ON classification.id =
+                spl.classification_id
+
+              AND classification.company_id =
+                spl.company_id
+
+
+            // ============================================
+            // CAMPO CERTIFICADO
+            //
+            // Rectificaciones anteriores quedan status
+            // rectified y no se duplican.
+            // ============================================
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+
+                COALESCE(
+                  SUM(slw.quantity),
+                  0
+                )::int
+                  AS field_quantity,
+
+                COALESCE(
+                  SUM(slw.gross_weight_kg),
+                  0
+                )::numeric
+                  AS field_gross_weight_kg,
+
+                COALESCE(
+                  SUM(slw.net_weight_kg),
+                  0
+                )::numeric
+                  AS field_net_weight_kg
+
+              FROM
+                slaughterhouse_live_weighings slw
+
+              WHERE
+                slw.company_id =
+                  spl.company_id
+
+                AND slw.purchase_lot_id =
+                  spl.id
+
+                AND slw.status =
+                  'certified'
+
+            ) field_summary
+              ON true
+
+
+            // ============================================
+            // TROPAS
+            // ============================================
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+
+                COUNT(*) FILTER (
+                  WHERE
+                    st.status <>
+                      'cancelled'
+                )::int
+                  AS troops_count,
+
+                COALESCE(
+                  SUM(
+                    st.dispatched_quantity
+                  ) FILTER (
+                    WHERE
+                      st.status <>
+                        'cancelled'
+                  ),
+                  0
+                )::int
+                  AS dispatched_quantity,
+
+                COALESCE(
+                  SUM(
+                    st.received_quantity
+                  ) FILTER (
+                    WHERE
+                      st.status <>
+                        'cancelled'
+                  ),
+                  0
+                )::int
+                  AS received_quantity,
+
+                COUNT(*) FILTER (
+                  WHERE
+                    st.status =
+                      'completed'
+                )::int
+                  AS completed_troops
+
+              FROM
+                slaughterhouse_troops st
+
+              WHERE
+                st.company_id =
+                  spl.company_id
+
+                AND st.purchase_lot_id =
+                  spl.id
+
+            ) troop_summary
+              ON true
+
+
+            // ============================================
+            // FAENA / MEDIAS RESES
+            //
+            // LEGACY:
+            // fila sin animal_sequence_number/half_number
+            // = 1 animal.
+            //
+            // NUEVO:
+            // 2 medias distintas = 1 animal completo.
+            // ============================================
+
+            LEFT JOIN LATERAL (
+
+              WITH lot_carcasses AS (
+
+                SELECT
+                  sc.*
+
+                FROM
+                  slaughterhouse_carcasses sc
+
+                JOIN
+                  slaughterhouse_troops stc
+
+                  ON stc.id =
+                    sc.troop_id
+
+                  AND stc.company_id =
+                    spl.company_id
+
+                  AND stc.purchase_lot_id =
+                    spl.id
+
+                WHERE
+                  stc.status <>
+                    'cancelled'
+
+              ),
+
+
+              legacy AS (
+
+                SELECT
+
+                  COUNT(*)::int
+                    AS animals_count
+
+                FROM
+                  lot_carcasses
+
+                WHERE
+                  animal_sequence_number
+                    IS NULL
+
+                  OR half_number
+                    IS NULL
+
+              ),
+
+
+              modern_animals AS (
+
+                SELECT
+
+                  troop_id,
+
+                  animal_sequence_number,
+
+                  COUNT(
+                    DISTINCT half_number
+                  )::int
+                    AS halves_count
+
+                FROM
+                  lot_carcasses
+
+                WHERE
+                  animal_sequence_number
+                    IS NOT NULL
+
+                  AND half_number
+                    IS NOT NULL
+
+                GROUP BY
+                  troop_id,
+                  animal_sequence_number
+
+              ),
+
+
+              modern_summary AS (
+
+                SELECT
+
+                  COUNT(*) FILTER (
+                    WHERE
+                      halves_count = 2
+                  )::int
+                    AS completed_animals,
+
+                  COUNT(*) FILTER (
+                    WHERE
+                      halves_count = 1
+                  )::int
+                    AS incomplete_animals
+
+                FROM
+                  modern_animals
+
+              ),
+
+
+              weight_summary AS (
+
+                SELECT
+
+                  COUNT(*) FILTER (
+                    WHERE
+                      animal_sequence_number
+                        IS NOT NULL
+
+                      AND half_number
+                        IS NOT NULL
+                  )::int
+                    AS half_carcasses_count,
+
+                  COALESCE(
+                    SUM(hook_weight_kg),
+                    0
+                  )::numeric
+                    AS hook_weight_kg,
+
+                  ROUND(
+                    AVG(hook_weight_kg),
+                    2
+                  )
+                    AS average_hook_weight_kg,
+
+                  MIN(hook_weight_kg)
+                    AS min_hook_weight_kg,
+
+                  MAX(hook_weight_kg)
+                    AS max_hook_weight_kg
+
+                FROM
+                  lot_carcasses
+
+              )
+
+
+              SELECT
+
+                (
+                  legacy.animals_count
+                  +
+                  COALESCE(
+                    modern_summary.completed_animals,
+                    0
+                  )
+                )::int
+                  AS slaughtered_animals,
+
+                COALESCE(
+                  modern_summary.incomplete_animals,
+                  0
+                )::int
+                  AS incomplete_animals,
+
+                weight_summary.half_carcasses_count,
+
+                weight_summary.hook_weight_kg,
+
+                weight_summary.average_hook_weight_kg,
+
+                weight_summary.min_hook_weight_kg,
+
+                weight_summary.max_hook_weight_kg
+
+              FROM
+                legacy
+
+              CROSS JOIN
+                modern_summary
+
+              CROSS JOIN
+                weight_summary
+
+            ) carcass_summary
+              ON true
+
+
+            // ============================================
+            // ÚLTIMA PRELIQUIDACIÓN DEL LOTE
+            // ============================================
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+                sp.*
+
+              FROM
+                slaughterhouse_preliquidations sp
+
+              WHERE
+                sp.company_id =
+                  spl.company_id
+
+                AND sp.purchase_lot_id =
+                  spl.id
+
+              ORDER BY
+                sp.version DESC,
+                sp.id DESC
+
+              LIMIT 1
+
+            ) preliq
+              ON true
+
+
+            // ============================================
+            // FECHAS DE RECEPCIÓN / FAENA
+            // ============================================
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+
+                MIN(srt.received_at)
+                  AS first_received_at,
+
+                MIN(sr.slaughter_started_at)
+                  AS slaughter_started_at,
+
+                MAX(sr.completed_at)
+                  AS slaughter_completed_at
+
+              FROM
+                slaughterhouse_troops str
+
+              LEFT JOIN
+                slaughterhouse_reception_trucks srt
+
+                ON srt.id =
+                  str.reception_truck_id
+
+              LEFT JOIN
+                slaughterhouse_receptions sr
+
+                ON sr.id =
+                  str.reception_id
+
+                AND sr.company_id =
+                  str.company_id
+
+              WHERE
+                str.company_id =
+                  spl.company_id
+
+                AND str.purchase_lot_id =
+                  spl.id
+
+                AND str.status <>
+                  'cancelled'
+
+            ) reception_summary
+              ON true
+
+
+            WHERE
+
+              spl.company_id = $1
+
+              AND (
+                $2::DATE IS NULL
+
+                OR spl.purchase_date >=
+                  $2::DATE
+              )
+
+              AND (
+                $3::DATE IS NULL
+
+                OR spl.purchase_date <=
+                  $3::DATE
+              )
+
+              AND (
+                $4::TEXT IS NULL
+
+                OR spl.status =
+                  $4
+
+                OR preliq.status =
+                  $4
+              )
+
+              AND (
+                $5::TEXT IS NULL
+
+                OR spl.lot_number
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR spl.external_order_number
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR seller.full_name
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR estate.name
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR captador.full_name
+                  ILIKE
+                  '%' || $5 || '%'
+              )
+
+
+            ORDER BY
+
+              spl.purchase_date DESC
+                NULLS LAST,
+
+              spl.id DESC
+          `,
+          [
+            companyId,
+            from,
+            to,
+            status === 'all'
+              ? null
+              : status,
+            q,
+          ],
+        );
+
+
+      // =================================================
+      // RESUMEN GENERAL
+      // =================================================
+
+      const totalAnimals =
+        result.rows.reduce(
+          (
+            total,
+            row
+          ) =>
+            total +
+            Number(
+              row.slaughtered_animals ||
+              0
+            ),
+          0
+        );
+
+
+      const totalHookWeight =
+        result.rows.reduce(
+          (
+            total,
+            row
+          ) =>
+            total +
+            Number(
+              row.hook_weight_kg ||
+              0
+            ),
+          0
+        );
+
+
+      const totalLiquidated =
+        result.rows.reduce(
+          (
+            total,
+            row
+          ) =>
+            total +
+            Number(
+              row.total_payable ||
+              0
+            ),
+          0
+        );
+
+
+      return res.json({
+
+        success:
+          true,
+
+        rows:
+          result.rows,
+
+        summary: {
+
+          count:
+            result.rows.length,
+
+          slaughtered_animals:
+            totalAnimals,
+
+          hook_weight_kg:
+            totalHookWeight,
+
+          total_amount:
+            totalLiquidated,
+
+        },
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        'GET FINAL LOTS REPORT ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+
+        error:
+          'Error obteniendo informe final de lotes',
+
+      });
+
+    }
+
+  };

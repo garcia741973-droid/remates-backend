@@ -222,6 +222,8 @@ const {
 
   getTransporterPaymentsReport,
 
+  getFinalLotsReport,
+
 } = require(
 
   '../controllers/slaughterhouseAdminController'
@@ -2008,6 +2010,20 @@ router.get(
   ),
 
   getTransporterPaymentsReport,
+);
+
+router.get(
+  '/reports/final-lots',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'reports.view'
+  ),
+
+  getFinalLotsReport,
 );
 
 // =====================================================
