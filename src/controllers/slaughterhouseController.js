@@ -6600,6 +6600,9 @@ exports.finishSlaughterhouseSlaughter =
       let troop =
         null;
 
+      let purchaseLotId =
+        null;
+
       let receivedQuantity =
         0;
 
@@ -6624,13 +6627,14 @@ exports.finishSlaughterhouseSlaughter =
         const troopResult =
           await client.query(
             `
-            SELECT
+              SELECT
 
-              st.id,
-              st.troop_number,
-              st.received_quantity,
-              st.status,
-              st.reception_truck_id,
+                st.id,
+                st.troop_number,
+                st.purchase_lot_id,
+                st.received_quantity,
+                st.status,
+                st.reception_truck_id,
 
               COALESCE(
                 srt.live_weight_kg,
@@ -6690,6 +6694,10 @@ exports.finishSlaughterhouseSlaughter =
         troop =
           troopResult.rows[0];
 
+        purchaseLotId =
+          Number(
+            troop.purchase_lot_id,
+          );
 
         if (
           troop.status !==
@@ -7368,20 +7376,19 @@ exports.finishSlaughterhouseSlaughter =
           await client.query(
             `
             SELECT
-
               COUNT(*)::int
                 AS remaining_count
 
             FROM slaughterhouse_troops
 
             WHERE
-              reception_id = $1
+              purchase_lot_id = $1
               AND company_id = $2
               AND status <> 'cancelled'
               AND status <> 'completed'
             `,
             [
-              receptionId,
+              purchaseLotId,
               companyId,
             ],
           );
