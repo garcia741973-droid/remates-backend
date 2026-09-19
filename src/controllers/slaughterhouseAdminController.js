@@ -46573,6 +46573,64 @@ exports.getFinalLotDetail =
               spl.notes,
 
 
+              seller_payment_method.id
+                AS seller_payment_method_id,
+
+              seller_payment_method.method_type
+                AS seller_payment_method_type,
+
+              CASE
+
+                WHEN seller_payment_method.method_type =
+                  'bank_account'
+                THEN
+                  'CUENTA BANCARIA'
+
+                WHEN seller_payment_method.method_type =
+                  'qr'
+                THEN
+                  'QR'
+
+                WHEN seller_payment_method.method_type =
+                  'mobile_wallet'
+                THEN
+                  'BILLETERA MÓVIL'
+
+                WHEN seller_payment_method.method_type =
+                  'check'
+                THEN
+                  'CHEQUE'
+
+                WHEN seller_payment_method.method_type =
+                  'other'
+                THEN
+                  'OTRO'
+
+                ELSE
+                  NULL
+
+              END
+                AS seller_payment_method_label,
+
+              seller_bank.name
+                AS seller_bank_name,
+
+              seller_payment_method.account_number
+                AS seller_account_number,
+
+              seller_payment_method.account_type
+                AS seller_account_type,
+
+              seller_payment_method.account_holder
+                AS seller_account_holder,
+
+              seller_payment_method.wallet_phone
+                AS seller_wallet_phone,
+
+              seller_payment_method.wallet_name
+                AS seller_wallet_name,
+
+
               seller.id
                 AS seller_person_id,
 
@@ -46651,6 +46709,23 @@ exports.getFinalLotDetail =
 
               AND seller.company_id =
                 spl.company_id
+
+            LEFT JOIN
+              slaughterhouse_person_payment_methods
+                seller_payment_method
+
+              ON seller_payment_method.id =
+                spl.seller_payment_method_id
+
+              AND seller_payment_method.person_id =
+                spl.seller_person_id
+
+
+            LEFT JOIN
+              slaughterhouse_banks seller_bank
+
+              ON seller_bank.id =
+                seller_payment_method.bank_id
 
             LEFT JOIN
               slaughterhouse_estates estate
@@ -46945,6 +47020,21 @@ exports.getFinalLotDetail =
                 tn.delivered_at,
 
 
+                COALESCE(
+                  transporter_person.full_name,
+                  transporter_user.full_name,
+                  transporter_user.name,
+                  transporter_user.email
+                )
+                  AS transporter_name,
+
+                transporter_person.document_number
+                  AS transporter_document_number,
+
+                transporter_person.phone
+                  AS transporter_phone,
+
+
                 truck.plate,
 
                 truck.brand,
@@ -47017,6 +47107,23 @@ exports.getFinalLotDetail =
 
                 ON tn.id =
                   st.transport_negotiation_id
+
+              LEFT JOIN
+                users transporter_user
+
+                ON transporter_user.id =
+                  tn.transporter_id
+
+
+              LEFT JOIN
+                slaughterhouse_people
+                  transporter_person
+
+                ON transporter_person.company_id =
+                  st.company_id
+
+                AND transporter_person.user_id =
+                  tn.transporter_id
 
               LEFT JOIN
                 transporter_trucks truck
@@ -47510,6 +47617,59 @@ exports.exportFinalLotXlsx =
 
                 spl.payment_terms,
 
+
+                seller_payment_method.id
+                  AS seller_payment_method_id,
+
+                seller_payment_method.method_type
+                  AS seller_payment_method_type,
+
+                CASE
+
+                  WHEN seller_payment_method.method_type =
+                    'bank_account'
+                  THEN
+                    'CUENTA BANCARIA'
+
+                  WHEN seller_payment_method.method_type =
+                    'qr'
+                  THEN
+                    'QR'
+
+                  WHEN seller_payment_method.method_type =
+                    'mobile_wallet'
+                  THEN
+                    'BILLETERA MÓVIL'
+
+                  WHEN seller_payment_method.method_type =
+                    'check'
+                  THEN
+                    'CHEQUE'
+
+                  WHEN seller_payment_method.method_type =
+                    'other'
+                  THEN
+                    'OTRO'
+
+                  ELSE
+                    NULL
+
+                END
+                  AS seller_payment_method_label,
+
+                seller_bank.name
+                  AS seller_bank_name,
+
+                seller_payment_method.account_number
+                  AS seller_account_number,
+
+                seller_payment_method.account_type
+                  AS seller_account_type,
+
+                seller_payment_method.account_holder
+                  AS seller_account_holder,
+
+
                 seller.full_name
                   AS seller_name,
 
@@ -47551,6 +47711,23 @@ exports.exportFinalLotXlsx =
 
                 AND seller.company_id =
                   spl.company_id
+
+              LEFT JOIN
+                slaughterhouse_person_payment_methods
+                  seller_payment_method
+
+                ON seller_payment_method.id =
+                  spl.seller_payment_method_id
+
+                AND seller_payment_method.person_id =
+                  spl.seller_person_id
+
+
+              LEFT JOIN
+                slaughterhouse_banks seller_bank
+
+                ON seller_bank.id =
+                  seller_payment_method.bank_id
 
               LEFT JOIN
                 slaughterhouse_estates estate
@@ -47758,6 +47935,16 @@ exports.exportFinalLotXlsx =
 
                 tn.delivered_at,
 
+
+                COALESCE(
+                  transporter_person.full_name,
+                  transporter_user.full_name,
+                  transporter_user.name,
+                  transporter_user.email
+                )
+                  AS transporter_name,
+
+
                 truck.plate,
 
                 truck.brand,
@@ -47808,6 +47995,23 @@ exports.exportFinalLotXlsx =
 
                 ON tn.id =
                   st.transport_negotiation_id
+
+              LEFT JOIN
+                users transporter_user
+
+                ON transporter_user.id =
+                  tn.transporter_id
+
+
+              LEFT JOIN
+                slaughterhouse_people
+                  transporter_person
+
+                ON transporter_person.company_id =
+                  st.company_id
+
+                AND transporter_person.user_id =
+                  tn.transporter_id
 
               LEFT JOIN
                 transporter_trucks truck
@@ -48732,6 +48936,28 @@ exports.exportFinalLotXlsx =
         ],
 
         [
+          'Método de pago',
+          text(
+            lot.seller_payment_method_label
+          ),
+          'Banco',
+          text(
+            lot.seller_bank_name
+          ),
+        ],
+
+        [
+          'Cuenta',
+          text(
+            lot.seller_account_number
+          ),
+          'Titular',
+          text(
+            lot.seller_account_holder
+          ),
+        ],
+
+        [
           'Pago previsto',
           dateText(
             lot.planned_payment_date
@@ -49101,6 +49327,8 @@ exports.exportFinalLotXlsx =
 
           'Camión',
 
+          'Transportista',
+
           'Marca',
 
           'Modelo',
@@ -49176,6 +49404,10 @@ exports.exportFinalLotXlsx =
           text(
             row.plate ||
             row.plate_snapshot
+          ),
+
+          text(
+            row.transporter_name
           ),
 
           text(
