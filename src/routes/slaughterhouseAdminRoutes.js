@@ -216,6 +216,8 @@ const {
 
   updateNotificationRecipient,
 
+  getSellerPaymentsReport,
+
 } = require(
 
   '../controllers/slaughterhouseAdminController'
@@ -1956,6 +1958,24 @@ router.post(
 
   closeAdminReception,
 
+);
+
+// =====================================================
+// 📊 INFORMES
+// =====================================================
+
+router.get(
+  '/reports/seller-payments',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'reports.view'
+  ),
+
+  getSellerPaymentsReport,
 );
 
 // =====================================================

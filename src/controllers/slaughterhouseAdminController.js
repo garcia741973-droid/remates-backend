@@ -43931,3 +43931,497 @@ exports.updateNotificationRecipient =
     }
 
   };
+
+// =====================================================
+// 📊 INFORME — VENDEDORES / GANADEROS
+//
+// GET /slaughterhouse/admin/reports/seller-payments
+//
+// SOLO LECTURA.
+// No registra ni modifica pagos.
+// Consolida:
+// - lote de compra
+// - vendedor
+// - hacienda
+// - captador
+// - método de pago pactado
+// - última preliquidación disponible
+// - cantidad recibida
+// =====================================================
+
+exports.getSellerPaymentsReport =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      // =================================================
+      // FILTROS
+      // =================================================
+
+      const from =
+        req.query.from
+          ?.toString()
+          .trim() ||
+        null;
+
+      const to =
+        req.query.to
+          ?.toString()
+          .trim() ||
+        null;
+
+      const status =
+        req.query.status
+          ?.toString()
+          .trim() ||
+        null;
+
+      const q =
+        req.query.q
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      // =================================================
+      // CONSULTA
+      // =================================================
+
+      const result =
+        await pool.query(
+          `
+            SELECT
+
+              spl.id
+                AS purchase_lot_id,
+
+              spl.purchase_date,
+
+              spl.external_order_number,
+
+              spl.lot_number,
+
+              spl.status
+                AS lot_status,
+
+
+              seller.id
+                AS seller_person_id,
+
+              seller.full_name
+                AS seller_name,
+
+              seller.document_number
+                AS seller_document_number,
+
+              seller.export_enabled
+                AS seller_export_enabled,
+
+
+              estate.id
+                AS estate_id,
+
+              estate.name
+                AS estate_name,
+
+
+              captador.id
+                AS captador_person_id,
+
+              captador.full_name
+                AS captador_name,
+
+
+              spl.purchase_type,
+
+              spl.pricing_basis,
+
+              spl.weight_source,
+
+              spl.expected_quantity,
+
+              spl.price_per_unit,
+
+              spl.currency,
+
+              spl.shrink_percent,
+
+
+              CASE
+
+                WHEN spl.pricing_basis =
+                  'per_head'
+                THEN
+                  'POR CABEZA'
+
+                WHEN spl.pricing_basis =
+                  'live_kg'
+                THEN
+                  'KILO VIVO'
+
+                WHEN spl.pricing_basis =
+                  'hook_kg'
+                THEN
+                  'KILO GANCHO'
+
+                ELSE
+                  UPPER(
+                    COALESCE(
+                      spl.pricing_basis,
+                      spl.purchase_type,
+                      ''
+                    )
+                  )
+
+              END
+                AS pricing_basis_label,
+
+
+              spl.seller_payment_method_id,
+
+              payment_method.method_type
+                AS payment_method_type,
+
+              CASE
+
+                WHEN payment_method.method_type =
+                  'bank_account'
+                THEN
+                  'CUENTA BANCARIA'
+
+                WHEN payment_method.method_type =
+                  'qr'
+                THEN
+                  'QR'
+
+                WHEN payment_method.method_type =
+                  'mobile_wallet'
+                THEN
+                  'BILLETERA MÓVIL'
+
+                WHEN payment_method.method_type =
+                  'check'
+                THEN
+                  'CHEQUE'
+
+                WHEN payment_method.method_type =
+                  'other'
+                THEN
+                  'OTRO'
+
+                ELSE
+                  NULL
+
+              END
+                AS payment_method_label,
+
+              bank.name
+                AS seller_bank_name,
+
+              payment_method.account_number
+                AS seller_account_number,
+
+              payment_method.account_type
+                AS seller_account_type,
+
+              payment_method.account_holder
+                AS seller_account_holder,
+
+              payment_method.wallet_phone
+                AS seller_wallet_phone,
+
+              payment_method.wallet_name
+                AS seller_wallet_name,
+
+
+              spl.planned_payment_date,
+
+              spl.payment_terms,
+
+
+              COALESCE(
+                troop_summary.received_quantity,
+                0
+              )::int
+                AS received_quantity,
+
+
+              preliq.id
+                AS preliquidation_id,
+
+              preliq.version
+                AS preliquidation_version,
+
+              preliq.status
+                AS preliquidation_status,
+
+              preliq.gross_weight_kg,
+
+              preliq.shrink_weight_kg,
+
+              preliq.net_weight_kg,
+
+              preliq.price_per_kg,
+
+              preliq.unit_price,
+
+              preliq.base_amount,
+
+              preliq.discounts_total,
+
+              preliq.additions_total,
+
+              preliq.total_payable,
+
+              preliq.live_weight_kg,
+
+              preliq.hook_weight_kg,
+
+              preliq.generated_at,
+
+              preliq.approved_at,
+
+              preliq.exported_at
+
+
+            FROM
+              slaughterhouse_purchase_lots spl
+
+
+            JOIN
+              slaughterhouse_people seller
+
+              ON seller.id =
+                spl.seller_person_id
+
+              AND seller.company_id =
+                spl.company_id
+
+
+            LEFT JOIN
+              slaughterhouse_estates estate
+
+              ON estate.id =
+                spl.estate_id
+
+              AND estate.company_id =
+                spl.company_id
+
+
+            LEFT JOIN
+              slaughterhouse_people captador
+
+              ON captador.id =
+                spl.captador_person_id
+
+              AND captador.company_id =
+                spl.company_id
+
+
+            LEFT JOIN
+              slaughterhouse_person_payment_methods
+                payment_method
+
+              ON payment_method.id =
+                spl.seller_payment_method_id
+
+              AND payment_method.person_id =
+                spl.seller_person_id
+
+
+            LEFT JOIN
+              slaughterhouse_banks bank
+
+              ON bank.id =
+                payment_method.bank_id
+
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+
+                SUM(
+                  COALESCE(
+                    st.received_quantity,
+                    0
+                  )
+                )::int
+                  AS received_quantity
+
+              FROM
+                slaughterhouse_troops st
+
+              WHERE
+                st.company_id =
+                  spl.company_id
+
+                AND st.purchase_lot_id =
+                  spl.id
+
+                AND st.status <>
+                  'cancelled'
+
+            ) troop_summary
+              ON true
+
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+                sp.*
+
+              FROM
+                slaughterhouse_preliquidations sp
+
+              WHERE
+                sp.company_id =
+                  spl.company_id
+
+                AND sp.purchase_lot_id =
+                  spl.id
+
+              ORDER BY
+                sp.version DESC,
+                sp.id DESC
+
+              LIMIT 1
+
+            ) preliq
+              ON true
+
+
+            WHERE
+
+              spl.company_id = $1
+
+              AND (
+                $2::DATE IS NULL
+                OR spl.purchase_date >=
+                  $2::DATE
+              )
+
+              AND (
+                $3::DATE IS NULL
+                OR spl.purchase_date <=
+                  $3::DATE
+              )
+
+              AND (
+                $4::TEXT IS NULL
+                OR
+                (
+                  $4 = 'no_preliquidation'
+                  AND preliq.id IS NULL
+                )
+                OR
+                preliq.status = $4
+              )
+
+              AND (
+                $5::TEXT IS NULL
+
+                OR seller.full_name
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR estate.name
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR captador.full_name
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR spl.lot_number
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR spl.external_order_number
+                  ILIKE
+                  '%' || $5 || '%'
+              )
+
+            ORDER BY
+
+              spl.purchase_date DESC
+                NULLS LAST,
+
+              spl.id DESC
+          `,
+          [
+            companyId,
+            from,
+            to,
+            status === 'all'
+              ? null
+              : status,
+            q,
+          ],
+        );
+
+
+      // =================================================
+      // RESUMEN INFORMATIVO
+      //
+      // No representa pagos ejecutados.
+      // =================================================
+
+      const totalLiquidated =
+        result.rows.reduce(
+          (
+            total,
+            row
+          ) =>
+            total +
+            Number(
+              row.total_payable ||
+              0
+            ),
+          0
+        );
+
+
+      return res.json({
+
+        success:
+          true,
+
+        rows:
+          result.rows,
+
+        summary: {
+
+          count:
+            result.rows.length,
+
+          total_amount:
+            totalLiquidated,
+
+        },
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        'GET SELLER PAYMENTS REPORT ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+
+        error:
+          'Error obteniendo informe de vendedores',
+
+      });
+
+    }
+
+  };
