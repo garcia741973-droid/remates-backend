@@ -46435,3 +46435,863 @@ exports.getFinalLotsReport =
     }
 
   };
+
+// =====================================================
+// 📊 DETALLE FINAL DE UN LOTE DE COMPRA
+//
+// GET /slaughterhouse/admin/reports/final-lots/:id
+//
+// SOLO LECTURA.
+// Devuelve el expediente operativo del lote.
+// =====================================================
+
+exports.getFinalLotDetail =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+      const purchaseLotId =
+        Number(
+          req.params.id
+        );
+
+
+      if (
+        !Number.isInteger(
+          purchaseLotId
+        ) ||
+        purchaseLotId <= 0
+      ) {
+
+        return res.status(400).json({
+
+          error:
+            'ID de lote inválido',
+
+        });
+
+      }
+
+
+      // =================================================
+      // LOTE PRINCIPAL
+      // =================================================
+
+      const lotResult =
+        await pool.query(
+          `
+            SELECT
+
+              spl.id
+                AS purchase_lot_id,
+
+              spl.purchase_date,
+
+              spl.external_order_number,
+
+              spl.lot_number,
+
+              spl.status,
+
+              spl.purchase_type,
+
+              spl.pricing_basis,
+
+              spl.weight_source,
+
+              spl.expected_quantity,
+
+              spl.price_per_unit,
+
+              spl.currency,
+
+              spl.shrink_percent,
+
+              spl.commission_type,
+
+              spl.commission_value,
+
+              spl.planned_date,
+
+              spl.planned_payment_date,
+
+              spl.payment_terms,
+
+              spl.notes,
+
+
+              seller.id
+                AS seller_person_id,
+
+              seller.full_name
+                AS seller_name,
+
+              seller.document_type
+                AS seller_document_type,
+
+              seller.document_number
+                AS seller_document_number,
+
+              seller.phone
+                AS seller_phone,
+
+              seller.email
+                AS seller_email,
+
+              seller.export_enabled
+                AS seller_export_enabled,
+
+
+              estate.id
+                AS estate_id,
+
+              estate.name
+                AS estate_name,
+
+              estate.senasag_predio_number
+                AS estate_senasag_predio_number,
+
+
+              captador.id
+                AS captador_person_id,
+
+              captador.full_name
+                AS captador_name,
+
+              captador.document_number
+                AS captador_document_number,
+
+              captador.phone
+                AS captador_phone,
+
+
+              commissioner.id
+                AS commissioner_person_id,
+
+              commissioner.full_name
+                AS commissioner_name,
+
+              commissioner.document_number
+                AS commissioner_document_number,
+
+              commissioner.phone
+                AS commissioner_phone,
+
+
+              classification.id
+                AS classification_id,
+
+              classification.generated_code
+                AS classification_code,
+
+              classification.display_name
+                AS classification_name
+
+            FROM
+              slaughterhouse_purchase_lots spl
+
+            JOIN
+              slaughterhouse_people seller
+
+              ON seller.id =
+                spl.seller_person_id
+
+              AND seller.company_id =
+                spl.company_id
+
+            LEFT JOIN
+              slaughterhouse_estates estate
+
+              ON estate.id =
+                spl.estate_id
+
+              AND estate.company_id =
+                spl.company_id
+
+            LEFT JOIN
+              slaughterhouse_people captador
+
+              ON captador.id =
+                spl.captador_person_id
+
+              AND captador.company_id =
+                spl.company_id
+
+            LEFT JOIN
+              slaughterhouse_people commissioner
+
+              ON commissioner.id =
+                spl.commissioner_person_id
+
+              AND commissioner.company_id =
+                spl.company_id
+
+            LEFT JOIN
+              slaughterhouse_animal_classifications
+                classification
+
+              ON classification.id =
+                spl.classification_id
+
+              AND classification.company_id =
+                spl.company_id
+
+            WHERE
+              spl.company_id = $1
+
+              AND spl.id = $2
+
+            LIMIT 1
+          `,
+          [
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+
+      if (
+        lotResult.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+
+          error:
+            'Lote no encontrado',
+
+        });
+
+      }
+
+
+      // =================================================
+      // CONSULTAS DEL EXPEDIENTE
+      // =================================================
+
+      const [
+
+        fieldResult,
+
+        troopsResult,
+
+        carcassesResult,
+
+        preliqResult,
+
+      ] =
+        await Promise.all([
+
+
+          // =============================================
+          // CERTIFICACIONES / PESAJES DE CAMPO
+          // =============================================
+
+          pool.query(
+            `
+              SELECT
+
+                slw.id,
+
+                slw.troop_id,
+
+                slw.weighing_number,
+
+                slw.quantity,
+
+                slw.gross_weight_kg,
+
+                slw.shrink_percent,
+
+                slw.shrink_weight_kg,
+
+                slw.net_weight_kg,
+
+                slw.price_per_kg,
+
+                slw.total_amount,
+
+                slw.status,
+
+                slw.original_weighing_id,
+
+                slw.event_lat,
+
+                slw.event_lng,
+
+                slw.event_time,
+
+                slw.created_at,
+
+                slw.updated_at
+
+              FROM
+                slaughterhouse_live_weighings slw
+
+              WHERE
+                slw.company_id = $1
+
+                AND slw.purchase_lot_id = $2
+
+              ORDER BY
+                slw.created_at ASC,
+                slw.id ASC
+            `,
+            [
+              companyId,
+              purchaseLotId,
+            ],
+          ),
+
+
+          // =============================================
+          // TROPAS + TRANSPORTE + RECEPCIÓN
+          // =============================================
+
+          pool.query(
+            `
+              SELECT
+
+                st.id
+                  AS troop_id,
+
+                st.troop_number,
+
+                st.expected_quantity,
+
+                st.dispatched_quantity,
+
+                st.received_quantity,
+
+                st.status
+                  AS troop_status,
+
+                st.notes
+                  AS troop_notes,
+
+                st.created_at
+                  AS troop_created_at,
+
+                st.updated_at
+                  AS troop_updated_at,
+
+
+                st.transport_request_id,
+
+                st.transport_negotiation_id,
+
+                st.transport_guide_id,
+
+                st.truck_id,
+
+                st.transporter_user_id,
+
+                st.reception_id,
+
+                st.reception_truck_id,
+
+
+                tr.origin,
+
+                tr.destination,
+
+                tr.quantity
+                  AS transport_request_quantity,
+
+                tr.animal_type,
+
+                tr.travel_date,
+
+                tr.status
+                  AS transport_request_status,
+
+
+                tn.status
+                  AS negotiation_status,
+
+                tn.trip_price,
+
+                tn.trip_started_at,
+
+                tn.delivered_at,
+
+
+                truck.plate,
+
+                truck.brand,
+
+                truck.model,
+
+                truck.year,
+
+                truck.truck_type,
+
+
+                tg.driver_name,
+
+                tg.driver_ci,
+
+                tg.origin
+                  AS guide_origin,
+
+                tg.destination
+                  AS guide_destination,
+
+                tg.status
+                  AS guide_status,
+
+                tg.official_guide_photo_url,
+
+                tg.official_uploaded_at,
+
+
+                srt.received_quantity
+                  AS reception_truck_received_quantity,
+
+                srt.live_weight_kg
+                  AS reception_live_weight_kg,
+
+                srt.received_at,
+
+                srt.plate_snapshot,
+
+                srt.official_guide_number_snapshot,
+
+
+                sr.reception_number,
+
+                sr.plant_lot_number,
+
+                sr.status
+                  AS reception_status,
+
+                sr.opened_at,
+
+                sr.closed_at,
+
+                sr.slaughter_started_at,
+
+                sr.completed_at
+                  AS slaughter_completed_at
+
+              FROM
+                slaughterhouse_troops st
+
+              LEFT JOIN
+                transport_requests tr
+
+                ON tr.id =
+                  st.transport_request_id
+
+              LEFT JOIN
+                transport_negotiations tn
+
+                ON tn.id =
+                  st.transport_negotiation_id
+
+              LEFT JOIN
+                transporter_trucks truck
+
+                ON truck.id =
+                  st.truck_id
+
+              LEFT JOIN
+                transport_guides tg
+
+                ON tg.id =
+                  st.transport_guide_id
+
+              LEFT JOIN
+                slaughterhouse_reception_trucks srt
+
+                ON srt.id =
+                  st.reception_truck_id
+
+              LEFT JOIN
+                slaughterhouse_receptions sr
+
+                ON sr.id =
+                  st.reception_id
+
+                AND sr.company_id =
+                  st.company_id
+
+              WHERE
+                st.company_id = $1
+
+                AND st.purchase_lot_id = $2
+
+              ORDER BY
+                st.id ASC
+            `,
+            [
+              companyId,
+              purchaseLotId,
+            ],
+          ),
+
+
+          // =============================================
+          // MEDIAS RESES / FAENA
+          // =============================================
+
+          pool.query(
+            `
+              SELECT
+
+                sc.id,
+
+                sc.troop_id,
+
+                sc.reception_id,
+
+                sc.sequence_number,
+
+                sc.plant_carcass_number,
+
+                sc.animal_sequence_number,
+
+                sc.half_number,
+
+                sc.hook_weight_kg,
+
+                sc.notes,
+
+                sc.recorded_by,
+
+                sc.recorded_at,
+
+                sc.created_at,
+
+                sc.updated_at
+
+              FROM
+                slaughterhouse_carcasses sc
+
+              JOIN
+                slaughterhouse_troops st
+
+                ON st.id =
+                  sc.troop_id
+
+                AND st.company_id = $1
+
+                AND st.purchase_lot_id = $2
+
+              WHERE
+                st.status <>
+                  'cancelled'
+
+              ORDER BY
+
+                sc.troop_id ASC,
+
+                sc.animal_sequence_number ASC
+                  NULLS LAST,
+
+                sc.half_number ASC
+                  NULLS LAST,
+
+                sc.id ASC
+            `,
+            [
+              companyId,
+              purchaseLotId,
+            ],
+          ),
+
+
+          // =============================================
+          // ÚLTIMA PRELIQUIDACIÓN
+          // =============================================
+
+          pool.query(
+            `
+              SELECT
+
+                sp.id,
+
+                sp.version,
+
+                sp.status,
+
+                sp.pricing_basis,
+
+                sp.weight_source,
+
+                sp.quantity,
+
+                sp.unit_price,
+
+                sp.gross_weight_kg,
+
+                sp.shrink_percent,
+
+                sp.shrink_weight_kg,
+
+                sp.net_weight_kg,
+
+                sp.live_weight_kg,
+
+                sp.hook_weight_kg,
+
+                sp.price_per_kg,
+
+                sp.base_amount,
+
+                sp.discounts_total,
+
+                sp.additions_total,
+
+                sp.total_payable,
+
+                sp.generated_by,
+
+                sp.approved_by,
+
+                sp.generated_at,
+
+                sp.approved_at,
+
+                sp.exported_at,
+
+                sp.created_at,
+
+                sp.updated_at
+
+              FROM
+                slaughterhouse_preliquidations sp
+
+              WHERE
+                sp.company_id = $1
+
+                AND sp.purchase_lot_id = $2
+
+              ORDER BY
+                sp.version DESC,
+                sp.id DESC
+
+              LIMIT 1
+            `,
+            [
+              companyId,
+              purchaseLotId,
+            ],
+          ),
+
+        ]);
+
+
+      // =================================================
+      // RESUMEN DEL EXPEDIENTE
+      // =================================================
+
+      const currentFieldRows =
+        fieldResult.rows.filter(
+          (row) =>
+            row.status ===
+            'certified',
+        );
+
+
+      const fieldQuantity =
+        currentFieldRows.reduce(
+          (
+            total,
+            row
+          ) =>
+            total +
+            Number(
+              row.quantity ||
+              0
+            ),
+          0
+        );
+
+
+      const receivedQuantity =
+        troopsResult.rows.reduce(
+          (
+            total,
+            row
+          ) =>
+            total +
+            Number(
+              row.received_quantity ||
+              0
+            ),
+          0
+        );
+
+
+      const hookWeightKg =
+        carcassesResult.rows.reduce(
+          (
+            total,
+            row
+          ) =>
+            total +
+            Number(
+              row.hook_weight_kg ||
+              0
+            ),
+          0
+        );
+
+
+      const modernAnimals =
+        new Map();
+
+
+      let legacyAnimals =
+        0;
+
+
+      for (
+        const carcass
+        of carcassesResult.rows
+      ) {
+
+        if (
+          carcass.animal_sequence_number ==
+            null ||
+          carcass.half_number ==
+            null
+        ) {
+
+          legacyAnimals += 1;
+
+          continue;
+
+        }
+
+
+        const key =
+          `${carcass.troop_id}:` +
+          `${carcass.animal_sequence_number}`;
+
+
+        if (
+          !modernAnimals.has(
+            key
+          )
+        ) {
+
+          modernAnimals.set(
+            key,
+            new Set()
+          );
+
+        }
+
+
+        modernAnimals
+          .get(key)
+          .add(
+            Number(
+              carcass.half_number
+            )
+          );
+
+      }
+
+
+      let completedModernAnimals =
+        0;
+
+      let incompleteAnimals =
+        0;
+
+
+      for (
+        const halves
+        of modernAnimals.values()
+      ) {
+
+        if (
+          halves.size >= 2
+        ) {
+
+          completedModernAnimals += 1;
+
+        } else {
+
+          incompleteAnimals += 1;
+
+        }
+
+      }
+
+
+      const slaughteredAnimals =
+        legacyAnimals +
+        completedModernAnimals;
+
+
+      return res.json({
+
+        success:
+          true,
+
+        lot:
+          lotResult.rows[0],
+
+        summary: {
+
+          field_quantity:
+            fieldQuantity,
+
+          received_quantity:
+            receivedQuantity,
+
+          slaughtered_animals:
+            slaughteredAnimals,
+
+          half_carcasses_count:
+            carcassesResult.rows.length,
+
+          incomplete_animals:
+            incompleteAnimals,
+
+          hook_weight_kg:
+            hookWeightKg,
+
+        },
+
+        field_weighings:
+          fieldResult.rows,
+
+        troops:
+          troopsResult.rows,
+
+        carcasses:
+          carcassesResult.rows,
+
+        preliquidation:
+          preliqResult.rows[0] ||
+          null,
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        'GET FINAL LOT DETAIL ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+
+        error:
+          'Error obteniendo detalle final del lote',
+
+      });
+
+    }
+
+  };

@@ -224,6 +224,8 @@ const {
 
   getFinalLotsReport,
 
+  getFinalLotDetail,
+
 } = require(
 
   '../controllers/slaughterhouseAdminController'
@@ -2024,6 +2026,20 @@ router.get(
   ),
 
   getFinalLotsReport,
+);
+
+router.get(
+  '/reports/final-lots/:id',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'reports.view'
+  ),
+
+  getFinalLotDetail,
 );
 
 // =====================================================
