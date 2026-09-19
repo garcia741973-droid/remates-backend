@@ -2,6 +2,10 @@ const { pool } = require('../config/db');
 
 const admin = require('firebase-admin');
 
+const ExcelJS = require(
+  'exceljs'
+);
+
 const {
   sendUserNotification,
 } = require('../services/notificationService');
@@ -47287,6 +47291,2225 @@ exports.getFinalLotDetail =
 
         error:
           'Error obteniendo detalle final del lote',
+
+      });
+
+    }
+
+  };
+
+// =====================================================
+// 📊 EXPORTAR EXPEDIENTE FINAL DE LOTE A EXCEL
+//
+// GET /slaughterhouse/admin/reports/final-lots/:id/xlsx
+//
+// SOLO LECTURA.
+// =====================================================
+
+exports.exportFinalLotXlsx =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+      const purchaseLotId =
+        Number(
+          req.params.id
+        );
+
+
+      if (
+        !Number.isInteger(
+          purchaseLotId
+        ) ||
+        purchaseLotId <= 0
+      ) {
+
+        return res.status(400).json({
+
+          error:
+            'ID de lote inválido',
+
+        });
+
+      }
+
+
+      const [
+
+        lotResult,
+
+        fieldResult,
+
+        troopsResult,
+
+        carcassesResult,
+
+        preliqResult,
+
+      ] =
+        await Promise.all([
+
+          pool.query(
+            `
+              SELECT
+
+                spl.id
+                  AS purchase_lot_id,
+
+                spl.purchase_date,
+
+                spl.external_order_number,
+
+                spl.lot_number,
+
+                spl.status,
+
+                spl.purchase_type,
+
+                spl.pricing_basis,
+
+                spl.weight_source,
+
+                spl.expected_quantity,
+
+                spl.price_per_unit,
+
+                spl.currency,
+
+                spl.shrink_percent,
+
+                spl.planned_payment_date,
+
+                spl.payment_terms,
+
+                seller.full_name
+                  AS seller_name,
+
+                seller.document_type
+                  AS seller_document_type,
+
+                seller.document_number
+                  AS seller_document_number,
+
+                seller.phone
+                  AS seller_phone,
+
+                estate.name
+                  AS estate_name,
+
+                estate.senasag_predio_number
+                  AS estate_senasag_predio_number,
+
+                captador.full_name
+                  AS captador_name,
+
+                commissioner.full_name
+                  AS commissioner_name,
+
+                classification.generated_code
+                  AS classification_code,
+
+                classification.display_name
+                  AS classification_name
+
+              FROM
+                slaughterhouse_purchase_lots spl
+
+              JOIN
+                slaughterhouse_people seller
+
+                ON seller.id =
+                  spl.seller_person_id
+
+                AND seller.company_id =
+                  spl.company_id
+
+              LEFT JOIN
+                slaughterhouse_estates estate
+
+                ON estate.id =
+                  spl.estate_id
+
+                AND estate.company_id =
+                  spl.company_id
+
+              LEFT JOIN
+                slaughterhouse_people captador
+
+                ON captador.id =
+                  spl.captador_person_id
+
+                AND captador.company_id =
+                  spl.company_id
+
+              LEFT JOIN
+                slaughterhouse_people commissioner
+
+                ON commissioner.id =
+                  spl.commissioner_person_id
+
+                AND commissioner.company_id =
+                  spl.company_id
+
+              LEFT JOIN
+                slaughterhouse_animal_classifications
+                  classification
+
+                ON classification.id =
+                  spl.classification_id
+
+                AND classification.company_id =
+                  spl.company_id
+
+              WHERE
+                spl.company_id = $1
+
+                AND spl.id = $2
+
+              LIMIT 1
+            `,
+            [
+              companyId,
+              purchaseLotId,
+            ],
+          ),
+
+
+          pool.query(
+            `
+              SELECT
+
+                slw.id,
+
+                slw.troop_id,
+
+                slw.weighing_number,
+
+                slw.quantity,
+
+                slw.gross_weight_kg,
+
+                slw.shrink_percent,
+
+                slw.shrink_weight_kg,
+
+                slw.net_weight_kg,
+
+                slw.price_per_kg,
+
+                slw.total_amount,
+
+                slw.status,
+
+                slw.original_weighing_id,
+
+                slw.created_at
+
+              FROM
+                slaughterhouse_live_weighings slw
+
+              WHERE
+                slw.company_id = $1
+
+                AND slw.purchase_lot_id = $2
+
+              ORDER BY
+                slw.created_at ASC,
+                slw.id ASC
+            `,
+            [
+              companyId,
+              purchaseLotId,
+            ],
+          ),
+
+
+          pool.query(
+            `
+              SELECT
+
+                st.id
+                  AS troop_id,
+
+                st.troop_number,
+
+                st.expected_quantity,
+
+                st.dispatched_quantity,
+
+                st.received_quantity,
+
+                st.status
+                  AS troop_status,
+
+                st.transport_request_id,
+
+                st.transport_negotiation_id,
+
+                tr.origin,
+
+                tr.destination,
+
+                tr.travel_date,
+
+                tn.status
+                  AS negotiation_status,
+
+                tn.trip_price,
+
+                tn.trip_started_at,
+
+                tn.delivered_at,
+
+                truck.plate,
+
+                truck.brand,
+
+                truck.model,
+
+                tg.driver_name,
+
+                tg.driver_ci,
+
+                tg.status
+                  AS guide_status,
+
+                tg.official_guide_photo_url,
+
+                srt.live_weight_kg
+                  AS reception_live_weight_kg,
+
+                srt.received_at,
+
+                srt.plate_snapshot,
+
+                srt.official_guide_number_snapshot,
+
+                sr.reception_number,
+
+                sr.plant_lot_number,
+
+                sr.status
+                  AS reception_status,
+
+                sr.slaughter_started_at,
+
+                sr.completed_at
+                  AS slaughter_completed_at
+
+              FROM
+                slaughterhouse_troops st
+
+              LEFT JOIN
+                transport_requests tr
+
+                ON tr.id =
+                  st.transport_request_id
+
+              LEFT JOIN
+                transport_negotiations tn
+
+                ON tn.id =
+                  st.transport_negotiation_id
+
+              LEFT JOIN
+                transporter_trucks truck
+
+                ON truck.id =
+                  st.truck_id
+
+              LEFT JOIN
+                transport_guides tg
+
+                ON tg.id =
+                  st.transport_guide_id
+
+              LEFT JOIN
+                slaughterhouse_reception_trucks srt
+
+                ON srt.id =
+                  st.reception_truck_id
+
+              LEFT JOIN
+                slaughterhouse_receptions sr
+
+                ON sr.id =
+                  st.reception_id
+
+                AND sr.company_id =
+                  st.company_id
+
+              WHERE
+                st.company_id = $1
+
+                AND st.purchase_lot_id = $2
+
+              ORDER BY
+                st.id ASC
+            `,
+            [
+              companyId,
+              purchaseLotId,
+            ],
+          ),
+
+
+          pool.query(
+            `
+              SELECT
+
+                sc.id,
+
+                sc.troop_id,
+
+                sc.sequence_number,
+
+                sc.plant_carcass_number,
+
+                sc.animal_sequence_number,
+
+                sc.half_number,
+
+                sc.hook_weight_kg,
+
+                sc.recorded_at
+
+              FROM
+                slaughterhouse_carcasses sc
+
+              JOIN
+                slaughterhouse_troops st
+
+                ON st.id =
+                  sc.troop_id
+
+                AND st.company_id = $1
+
+                AND st.purchase_lot_id = $2
+
+              WHERE
+                st.status <>
+                  'cancelled'
+
+              ORDER BY
+
+                sc.troop_id ASC,
+
+                sc.animal_sequence_number ASC
+                  NULLS LAST,
+
+                sc.half_number ASC
+                  NULLS LAST,
+
+                sc.id ASC
+            `,
+            [
+              companyId,
+              purchaseLotId,
+            ],
+          ),
+
+
+          pool.query(
+            `
+              SELECT
+
+                sp.id,
+
+                sp.version,
+
+                sp.status,
+
+                sp.pricing_basis,
+
+                sp.weight_source,
+
+                sp.quantity,
+
+                sp.unit_price,
+
+                sp.live_weight_kg,
+
+                sp.hook_weight_kg,
+
+                sp.gross_weight_kg,
+
+                sp.shrink_percent,
+
+                sp.shrink_weight_kg,
+
+                sp.net_weight_kg,
+
+                sp.price_per_kg,
+
+                sp.base_amount,
+
+                sp.discounts_total,
+
+                sp.additions_total,
+
+                sp.total_payable,
+
+                sp.generated_at,
+
+                sp.approved_at,
+
+                sp.exported_at
+
+              FROM
+                slaughterhouse_preliquidations sp
+
+              WHERE
+                sp.company_id = $1
+
+                AND sp.purchase_lot_id = $2
+
+              ORDER BY
+                sp.version DESC,
+                sp.id DESC
+
+              LIMIT 1
+            `,
+            [
+              companyId,
+              purchaseLotId,
+            ],
+          ),
+
+        ]);
+
+
+      if (
+        lotResult.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+
+          error:
+            'Lote no encontrado',
+
+        });
+
+      }
+
+
+      const lot =
+        lotResult.rows[0];
+
+      const fieldRows =
+        fieldResult.rows;
+
+      const troopRows =
+        troopsResult.rows;
+
+      const carcassRows =
+        carcassesResult.rows;
+
+      const preliq =
+        preliqResult.rows[0] ||
+        null;
+
+
+      const number =
+        (value) => {
+
+          const parsed =
+            Number(value);
+
+          return Number.isFinite(parsed)
+            ? parsed
+            : 0;
+
+        };
+
+
+      const text =
+        (value) => {
+
+          if (
+            value === null ||
+            value === undefined
+          ) {
+
+            return '';
+
+          }
+
+          return String(value);
+
+        };
+
+
+      const dateText =
+        (value) => {
+
+          if (!value) {
+            return '';
+          }
+
+          const date =
+            new Date(value);
+
+          if (
+            Number.isNaN(
+              date.getTime()
+            )
+          ) {
+
+            return text(value);
+
+          }
+
+          return new Intl.DateTimeFormat(
+            'es-BO',
+            {
+              day:
+                '2-digit',
+
+              month:
+                '2-digit',
+
+              year:
+                'numeric',
+
+              hour:
+                '2-digit',
+
+              minute:
+                '2-digit',
+
+              hour12:
+                false,
+            }
+          ).format(date);
+
+        };
+
+
+      const certifiedFieldRows =
+        fieldRows.filter(
+          (row) =>
+            row.status ===
+            'certified'
+        );
+
+
+      const fieldQuantity =
+        certifiedFieldRows.reduce(
+          (
+            total,
+            row
+          ) =>
+            total +
+            number(
+              row.quantity
+            ),
+          0
+        );
+
+
+      const dispatchedQuantity =
+        troopRows.reduce(
+          (
+            total,
+            row
+          ) =>
+            row.troop_status ===
+            'cancelled'
+              ? total
+              : total +
+                number(
+                  row.dispatched_quantity
+                ),
+          0
+        );
+
+
+      const receivedQuantity =
+        troopRows.reduce(
+          (
+            total,
+            row
+          ) =>
+            row.troop_status ===
+            'cancelled'
+              ? total
+              : total +
+                number(
+                  row.received_quantity
+                ),
+          0
+        );
+
+
+      // =================================================
+      // FAENA AGRUPADA POR ANIMAL
+      // =================================================
+
+      const animalMap =
+        new Map();
+
+      const legacyAnimals =
+        [];
+
+
+      for (
+        const row
+        of carcassRows
+      ) {
+
+        if (
+          row.animal_sequence_number ==
+            null ||
+          row.half_number ==
+            null
+        ) {
+
+          legacyAnimals.push({
+
+            troop_id:
+              row.troop_id,
+
+            animal:
+              row.sequence_number ||
+              row.plant_carcass_number ||
+              row.id,
+
+            half_1:
+              null,
+
+            half_2:
+              null,
+
+            total_kg:
+              number(
+                row.hook_weight_kg
+              ),
+
+            complete:
+              true,
+
+          });
+
+          continue;
+
+        }
+
+
+        const key =
+          `${row.troop_id}:` +
+          `${row.animal_sequence_number}`;
+
+
+        if (
+          !animalMap.has(
+            key
+          )
+        ) {
+
+          animalMap.set(
+            key,
+            {
+
+              troop_id:
+                row.troop_id,
+
+              animal:
+                row.animal_sequence_number,
+
+              half_1:
+                null,
+
+              half_2:
+                null,
+
+            }
+          );
+
+        }
+
+
+        const animal =
+          animalMap.get(
+            key
+          );
+
+
+        if (
+          Number(
+            row.half_number
+          ) === 1
+        ) {
+
+          animal.half_1 =
+            number(
+              row.hook_weight_kg
+            );
+
+        }
+
+
+        if (
+          Number(
+            row.half_number
+          ) === 2
+        ) {
+
+          animal.half_2 =
+            number(
+              row.hook_weight_kg
+            );
+
+        }
+
+      }
+
+
+      const modernAnimals =
+        Array.from(
+          animalMap.values()
+        )
+          .map(
+            (animal) => {
+
+              const hasHalf1 =
+                animal.half_1 !== null;
+
+              const hasHalf2 =
+                animal.half_2 !== null;
+
+              return {
+
+                ...animal,
+
+                total_kg:
+                  number(
+                    animal.half_1
+                  ) +
+                  number(
+                    animal.half_2
+                  ),
+
+                complete:
+                  hasHalf1 &&
+                  hasHalf2,
+
+              };
+
+            }
+          );
+
+
+      const animals = [
+
+        ...legacyAnimals,
+
+        ...modernAnimals,
+
+      ];
+
+
+      const completedAnimals =
+        animals.filter(
+          (animal) =>
+            animal.complete
+        );
+
+
+      const slaughteredAnimals =
+        completedAnimals.length;
+
+
+      const incompleteAnimals =
+        animals.filter(
+          (animal) =>
+            !animal.complete
+        ).length;
+
+
+      const hookWeightKg =
+        carcassRows.reduce(
+          (
+            total,
+            row
+          ) =>
+            total +
+            number(
+              row.hook_weight_kg
+            ),
+          0
+        );
+
+
+      const animalWeights =
+        completedAnimals
+          .map(
+            (animal) =>
+              number(
+                animal.total_kg
+              )
+          )
+          .filter(
+            (value) =>
+              value > 0
+          );
+
+
+      const averageHookWeight =
+        animalWeights.length > 0
+          ? animalWeights.reduce(
+              (
+                total,
+                value
+              ) =>
+                total +
+                value,
+              0
+            ) /
+            animalWeights.length
+          : 0;
+
+
+      const minHookWeight =
+        animalWeights.length > 0
+          ? Math.min(
+              ...animalWeights
+            )
+          : 0;
+
+
+      const maxHookWeight =
+        animalWeights.length > 0
+          ? Math.max(
+              ...animalWeights
+            )
+          : 0;
+
+
+      // =================================================
+      // WORKBOOK
+      // =================================================
+
+      const workbook =
+        new ExcelJS.Workbook();
+
+
+      workbook.creator =
+        'Plaza Ganadera - FRIGOSI';
+
+      workbook.created =
+        new Date();
+
+
+      const titleStyle = {
+
+        font: {
+
+          bold:
+            true,
+
+          size:
+            16,
+
+          color: {
+            argb:
+              'FFFFFFFF',
+          },
+
+        },
+
+        fill: {
+
+          type:
+            'pattern',
+
+          pattern:
+            'solid',
+
+          fgColor: {
+            argb:
+              'FF111827',
+          },
+
+        },
+
+        alignment: {
+
+          vertical:
+            'middle',
+
+        },
+
+      };
+
+
+      const sectionStyle = {
+
+        font: {
+
+          bold:
+            true,
+
+          color: {
+            argb:
+              'FFFFFFFF',
+          },
+
+        },
+
+        fill: {
+
+          type:
+            'pattern',
+
+          pattern:
+            'solid',
+
+          fgColor: {
+            argb:
+              'FF047857',
+          },
+
+        },
+
+      };
+
+
+      const headerStyle = {
+
+        font: {
+
+          bold:
+            true,
+
+          color: {
+            argb:
+              'FFFFFFFF',
+          },
+
+        },
+
+        fill: {
+
+          type:
+            'pattern',
+
+          pattern:
+            'solid',
+
+          fgColor: {
+            argb:
+              'FF374151',
+          },
+
+        },
+
+        alignment: {
+
+          vertical:
+            'middle',
+
+          horizontal:
+            'center',
+
+          wrapText:
+            true,
+
+        },
+
+      };
+
+
+      const applyHeader =
+        (row) => {
+
+          row.eachCell(
+            (cell) => {
+
+              cell.style =
+                headerStyle;
+
+            }
+          );
+
+        };
+
+
+      const addTitle =
+        (
+          sheet,
+          title,
+          endColumn
+        ) => {
+
+          sheet.mergeCells(
+            `A1:${endColumn}1`
+          );
+
+          const cell =
+            sheet.getCell(
+              'A1'
+            );
+
+          cell.value =
+            title;
+
+          cell.style =
+            titleStyle;
+
+          sheet.getRow(
+            1
+          ).height =
+            28;
+
+        };
+
+
+      // =================================================
+      // HOJA 1 — RESUMEN
+      // =================================================
+
+      const summarySheet =
+        workbook.addWorksheet(
+          'RESUMEN'
+        );
+
+
+      summarySheet.columns = [
+
+        {
+          width:
+            28,
+        },
+
+        {
+          width:
+            32,
+        },
+
+        {
+          width:
+            28,
+        },
+
+        {
+          width:
+            32,
+        },
+
+      ];
+
+
+      addTitle(
+        summarySheet,
+        `EXPEDIENTE DEL LOTE ${text(
+          lot.lot_number
+        )}`,
+        'D'
+      );
+
+
+      summarySheet
+        .addRow([]);
+
+
+      const compraHeader =
+        summarySheet.addRow([
+
+          'COMPRA',
+
+        ]);
+
+
+      compraHeader
+        .getCell(1)
+        .style =
+          sectionStyle;
+
+
+      summarySheet
+        .mergeCells(
+          `A${compraHeader.number}:D${compraHeader.number}`
+        );
+
+
+      const summaryRows = [
+
+        [
+          'Nº pedido',
+          text(
+            lot.external_order_number
+          ),
+          'Fecha compra',
+          dateText(
+            lot.purchase_date
+          ),
+        ],
+
+        [
+          'Lote',
+          text(
+            lot.lot_number
+          ),
+          'Estado',
+          text(
+            lot.status
+          ),
+        ],
+
+        [
+          'Ganadero',
+          text(
+            lot.seller_name
+          ),
+          'Documento',
+          text(
+            lot.seller_document_number
+          ),
+        ],
+
+        [
+          'Hacienda',
+          text(
+            lot.estate_name
+          ),
+          'SENASAG predio',
+          text(
+            lot.estate_senasag_predio_number
+          ),
+        ],
+
+        [
+          'Captador',
+          text(
+            lot.captador_name
+          ),
+          'Comisionista',
+          text(
+            lot.commissioner_name
+          ),
+        ],
+
+        [
+          'Clasificación',
+          text(
+            lot.classification_name
+          ),
+          'Código',
+          text(
+            lot.classification_code
+          ),
+        ],
+
+        [
+          'Base precio',
+          text(
+            lot.pricing_basis
+          ),
+          'Origen peso',
+          text(
+            lot.weight_source
+          ),
+        ],
+
+        [
+          'Precio unitario',
+          number(
+            lot.price_per_unit
+          ),
+          'Moneda',
+          text(
+            lot.currency
+          ),
+        ],
+
+        [
+          'Merma %',
+          number(
+            lot.shrink_percent
+          ),
+          'Condición pago',
+          text(
+            lot.payment_terms
+          ),
+        ],
+
+        [
+          'Pago previsto',
+          dateText(
+            lot.planned_payment_date
+          ),
+          '',
+          '',
+        ],
+
+      ];
+
+
+      for (
+        const row
+        of summaryRows
+      ) {
+
+        const excelRow =
+          summarySheet.addRow(
+            row
+          );
+
+        excelRow.getCell(
+          1
+        ).font = {
+          bold:
+            true,
+        };
+
+        excelRow.getCell(
+          3
+        ).font = {
+          bold:
+            true,
+        };
+
+      }
+
+
+      summarySheet
+        .addRow([]);
+
+
+      const movementHeader =
+        summarySheet.addRow([
+
+          'MOVIMIENTO DEL LOTE',
+
+        ]);
+
+
+      summarySheet.mergeCells(
+        `A${movementHeader.number}:D${movementHeader.number}`
+      );
+
+
+      movementHeader
+        .getCell(1)
+        .style =
+          sectionStyle;
+
+
+      const movementTableHeader =
+        summarySheet.addRow([
+
+          'CONTRATADOS',
+
+          'CAMPO',
+
+          'DESPACHADOS',
+
+          'RECIBIDOS',
+
+      ]);
+
+
+      applyHeader(
+        movementTableHeader
+      );
+
+
+      summarySheet.addRow([
+
+        number(
+          lot.expected_quantity
+        ),
+
+        fieldQuantity,
+
+        dispatchedQuantity,
+
+        receivedQuantity,
+
+      ]);
+
+
+      summarySheet.addRow([
+
+        'DIFERENCIA CAMPO/CONTRATO',
+
+        fieldQuantity -
+          number(
+            lot.expected_quantity
+          ),
+
+        'DIFERENCIA RECIBIDO/CONTRATO',
+
+        receivedQuantity -
+          number(
+            lot.expected_quantity
+          ),
+
+      ]);
+
+
+      summarySheet
+        .addRow([]);
+
+
+      const slaughterHeader =
+        summarySheet.addRow([
+
+          'RESUMEN DE FAENA',
+
+        ]);
+
+
+      summarySheet.mergeCells(
+        `A${slaughterHeader.number}:D${slaughterHeader.number}`
+      );
+
+
+      slaughterHeader
+        .getCell(1)
+        .style =
+          sectionStyle;
+
+
+      summarySheet.addRow([
+
+        'Faenados',
+        slaughteredAnimals,
+        'Medias reses',
+        carcassRows.length,
+
+      ]);
+
+
+      summarySheet.addRow([
+
+        'Incompletos',
+        incompleteAnimals,
+        'Peso gancho kg',
+        hookWeightKg,
+
+      ]);
+
+
+      summarySheet.addRow([
+
+        'Promedio animal kg',
+        averageHookWeight,
+        'Mínimo animal kg',
+        minHookWeight,
+
+      ]);
+
+
+      summarySheet.addRow([
+
+        'Máximo animal kg',
+        maxHookWeight,
+        '',
+        '',
+
+      ]);
+
+
+      // =================================================
+      // HOJA 2 — CAMPO
+      // =================================================
+
+      const fieldSheet =
+        workbook.addWorksheet(
+          'CAMPO'
+        );
+
+
+      addTitle(
+        fieldSheet,
+        `CAMPO · ${text(
+          lot.lot_number
+        )}`,
+        'K'
+      );
+
+
+      fieldSheet.addRow([]);
+
+
+      const fieldHeader =
+        fieldSheet.addRow([
+
+          'ID',
+
+          'Tropa',
+
+          'Certificación',
+
+          'Cantidad',
+
+          'Peso bruto kg',
+
+          'Merma %',
+
+          'Merma kg',
+
+          'Peso neto kg',
+
+          'Precio/kg',
+
+          'Total',
+
+          'Estado',
+
+          'Fecha',
+
+        ]);
+
+
+      applyHeader(
+        fieldHeader
+      );
+
+
+      for (
+        const row
+        of fieldRows
+      ) {
+
+        fieldSheet.addRow([
+
+          row.id,
+
+          row.troop_id,
+
+          text(
+            row.weighing_number
+          ),
+
+          number(
+            row.quantity
+          ),
+
+          number(
+            row.gross_weight_kg
+          ),
+
+          number(
+            row.shrink_percent
+          ),
+
+          number(
+            row.shrink_weight_kg
+          ),
+
+          number(
+            row.net_weight_kg
+          ),
+
+          number(
+            row.price_per_kg
+          ),
+
+          number(
+            row.total_amount
+          ),
+
+          text(
+            row.status
+          ),
+
+          dateText(
+            row.created_at
+          ),
+
+        ]);
+
+      }
+
+
+      fieldSheet.columns.forEach(
+        (column) => {
+
+          column.width =
+            16;
+
+        }
+      );
+
+
+      fieldSheet.getColumn(
+        3
+      ).width =
+        22;
+
+      fieldSheet.getColumn(
+        12
+      ).width =
+        20;
+
+
+      fieldSheet.views = [
+
+        {
+          state:
+            'frozen',
+
+          ySplit:
+            3,
+        },
+
+      ];
+
+
+      // =================================================
+      // HOJA 3 — TROPAS / TRANSPORTE
+      // =================================================
+
+      const troopSheet =
+        workbook.addWorksheet(
+          'TROPAS_TRANSPORTE'
+        );
+
+
+      addTitle(
+        troopSheet,
+        `TROPAS Y TRANSPORTE · ${text(
+          lot.lot_number
+        )}`,
+        'U'
+      );
+
+
+      troopSheet.addRow([]);
+
+
+      const troopHeader =
+        troopSheet.addRow([
+
+          'Tropa',
+
+          'Esperados',
+
+          'Despachados',
+
+          'Recibidos',
+
+          'Estado tropa',
+
+          'Origen',
+
+          'Destino',
+
+          'Fecha viaje',
+
+          'Precio viaje Bs',
+
+          'Camión',
+
+          'Marca',
+
+          'Modelo',
+
+          'Chofer',
+
+          'CI chofer',
+
+          'SENASAG',
+
+          'Llegada',
+
+          'Recepción',
+
+          'Lote planta',
+
+          'Estado recepción',
+
+          'Inicio faena',
+
+          'Fin faena',
+
+        ]);
+
+
+      applyHeader(
+        troopHeader
+      );
+
+
+      for (
+        const row
+        of troopRows
+      ) {
+
+        troopSheet.addRow([
+
+          row.troop_number ||
+          `Tropa #${row.troop_id}`,
+
+          number(
+            row.expected_quantity
+          ),
+
+          number(
+            row.dispatched_quantity
+          ),
+
+          number(
+            row.received_quantity
+          ),
+
+          text(
+            row.troop_status
+          ),
+
+          text(
+            row.origin
+          ),
+
+          text(
+            row.destination
+          ),
+
+          dateText(
+            row.travel_date
+          ),
+
+          number(
+            row.trip_price
+          ),
+
+          text(
+            row.plate ||
+            row.plate_snapshot
+          ),
+
+          text(
+            row.brand
+          ),
+
+          text(
+            row.model
+          ),
+
+          text(
+            row.driver_name
+          ),
+
+          text(
+            row.driver_ci
+          ),
+
+          text(
+            row.official_guide_number_snapshot
+          ),
+
+          dateText(
+            row.received_at
+          ),
+
+          text(
+            row.reception_number
+          ),
+
+          text(
+            row.plant_lot_number
+          ),
+
+          text(
+            row.reception_status
+          ),
+
+          dateText(
+            row.slaughter_started_at
+          ),
+
+          dateText(
+            row.slaughter_completed_at
+          ),
+
+        ]);
+
+      }
+
+
+      troopSheet.columns.forEach(
+        (column) => {
+
+          column.width =
+            16;
+
+        }
+      );
+
+
+      troopSheet.getColumn(
+        6
+      ).width =
+        28;
+
+      troopSheet.getColumn(
+        7
+      ).width =
+        28;
+
+      troopSheet.getColumn(
+        13
+      ).width =
+        22;
+
+
+      troopSheet.views = [
+
+        {
+          state:
+            'frozen',
+
+          ySplit:
+            3,
+        },
+
+      ];
+
+
+      // =================================================
+      // HOJA 4 — FAENA
+      // =================================================
+
+      const slaughterSheet =
+        workbook.addWorksheet(
+          'FAENA'
+        );
+
+
+      addTitle(
+        slaughterSheet,
+        `FAENA · ${text(
+          lot.lot_number
+        )}`,
+        'F'
+      );
+
+
+      slaughterSheet.addRow([]);
+
+
+      const slaughterTableHeader =
+        slaughterSheet.addRow([
+
+          'Tropa',
+
+          'Animal',
+
+          'Media 1 kg',
+
+          'Media 2 kg',
+
+          'Total animal kg',
+
+          'Estado',
+
+        ]);
+
+
+      applyHeader(
+        slaughterTableHeader
+      );
+
+
+      for (
+        const animal
+        of animals
+      ) {
+
+        slaughterSheet.addRow([
+
+          `Tropa #${animal.troop_id}`,
+
+          animal.animal,
+
+          animal.half_1,
+
+          animal.half_2,
+
+          animal.total_kg,
+
+          animal.complete
+            ? 'COMPLETO'
+            : 'INCOMPLETO',
+
+        ]);
+
+      }
+
+
+      slaughterSheet.columns = [
+
+        {
+          width:
+            16,
+        },
+
+        {
+          width:
+            14,
+        },
+
+        {
+          width:
+            16,
+        },
+
+        {
+          width:
+            16,
+        },
+
+        {
+          width:
+            20,
+        },
+
+        {
+          width:
+            16,
+        },
+
+      ];
+
+
+      slaughterSheet.views = [
+
+        {
+          state:
+            'frozen',
+
+          ySplit:
+            3,
+        },
+
+      ];
+
+
+      // =================================================
+      // HOJA 5 — PRELIQUIDACIÓN
+      // =================================================
+
+      const preliqSheet =
+        workbook.addWorksheet(
+          'PRELIQUIDACION'
+        );
+
+
+      addTitle(
+        preliqSheet,
+        `PRELIQUIDACIÓN · ${text(
+          lot.lot_number
+        )}`,
+        'B'
+      );
+
+
+      preliqSheet.columns = [
+
+        {
+          width:
+            32,
+        },
+
+        {
+          width:
+            28,
+        },
+
+      ];
+
+
+      preliqSheet.addRow([]);
+
+
+      const preliqHeader =
+        preliqSheet.addRow([
+
+          'CONCEPTO',
+
+          'VALOR',
+
+        ]);
+
+
+      applyHeader(
+        preliqHeader
+      );
+
+
+      if (!preliq) {
+
+        preliqSheet.addRow([
+
+          'Estado',
+
+          'Todavía no existe preliquidación',
+
+        ]);
+
+      } else {
+
+        const preliqRows = [
+
+          [
+            'Versión',
+            preliq.version,
+          ],
+
+          [
+            'Estado',
+            text(
+              preliq.status
+            ),
+          ],
+
+          [
+            'Base de precio',
+            text(
+              preliq.pricing_basis
+            ),
+          ],
+
+          [
+            'Origen de peso',
+            text(
+              preliq.weight_source
+            ),
+          ],
+
+          [
+            'Cantidad',
+            number(
+              preliq.quantity
+            ),
+          ],
+
+          [
+            'Precio unitario',
+            number(
+              preliq.unit_price
+            ),
+          ],
+
+          [
+            'Peso vivo kg',
+            number(
+              preliq.live_weight_kg
+            ),
+          ],
+
+          [
+            'Peso gancho kg',
+            number(
+              preliq.hook_weight_kg
+            ),
+          ],
+
+          [
+            'Peso bruto kg',
+            number(
+              preliq.gross_weight_kg
+            ),
+          ],
+
+          [
+            'Merma %',
+            number(
+              preliq.shrink_percent
+            ),
+          ],
+
+          [
+            'Merma kg',
+            number(
+              preliq.shrink_weight_kg
+            ),
+          ],
+
+          [
+            'Peso neto kg',
+            number(
+              preliq.net_weight_kg
+            ),
+          ],
+
+          [
+            'Precio/kg',
+            number(
+              preliq.price_per_kg
+            ),
+          ],
+
+          [
+            'Monto base',
+            number(
+              preliq.base_amount
+            ),
+          ],
+
+          [
+            'Descuentos',
+            number(
+              preliq.discounts_total
+            ),
+          ],
+
+          [
+            'Ajustes / adiciones',
+            number(
+              preliq.additions_total
+            ),
+          ],
+
+          [
+            'TOTAL A PAGAR',
+            number(
+              preliq.total_payable
+            ),
+          ],
+
+          [
+            'Generada',
+            dateText(
+              preliq.generated_at
+            ),
+          ],
+
+          [
+            'Aprobada',
+            dateText(
+              preliq.approved_at
+            ),
+          ],
+
+          [
+            'Exportada',
+            dateText(
+              preliq.exported_at
+            ),
+          ],
+
+        ];
+
+
+        for (
+          const row
+          of preliqRows
+        ) {
+
+          preliqSheet.addRow(
+            row
+          );
+
+        }
+
+      }
+
+
+      // =================================================
+      // FORMATOS NUMÉRICOS GENERALES
+      // =================================================
+
+      summarySheet
+        .getColumn(2)
+        .numFmt =
+          '#,##0.00';
+
+      summarySheet
+        .getColumn(4)
+        .numFmt =
+          '#,##0.00';
+
+
+      for (
+        const sheet
+        of workbook.worksheets
+      ) {
+
+        sheet.eachRow(
+          (row) => {
+
+            row.eachCell(
+              (cell) => {
+
+                cell.alignment = {
+
+                  ...cell.alignment,
+
+                  vertical:
+                    'middle',
+
+                  wrapText:
+                    true,
+
+                };
+
+              }
+            );
+
+          }
+        );
+
+      }
+
+
+      const safeLotNumber =
+        text(
+          lot.lot_number ||
+          purchaseLotId
+        )
+          .replace(
+            /[^a-zA-Z0-9_-]/g,
+            '_'
+          );
+
+
+      const fileName =
+        `FRIGOSI_${safeLotNumber}.xlsx`;
+
+
+      const buffer =
+        await workbook.xlsx.writeBuffer();
+
+
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+
+
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${fileName}"`
+      );
+
+
+      return res.send(
+        Buffer.from(
+          buffer
+        )
+      );
+
+    } catch (error) {
+
+      console.error(
+        'EXPORT FINAL LOT XLSX ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+
+        error:
+          'Error generando Excel del expediente del lote',
 
       });
 

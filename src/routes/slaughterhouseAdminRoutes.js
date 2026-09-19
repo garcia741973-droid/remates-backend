@@ -226,6 +226,8 @@ const {
 
   getFinalLotDetail,
 
+  exportFinalLotXlsx,
+
 } = require(
 
   '../controllers/slaughterhouseAdminController'
@@ -2040,6 +2042,20 @@ router.get(
   ),
 
   getFinalLotDetail,
+);
+
+router.get(
+  '/reports/final-lots/:id/xlsx',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'reports.view'
+  ),
+
+  exportFinalLotXlsx,
 );
 
 // =====================================================
