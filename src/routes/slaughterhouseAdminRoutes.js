@@ -218,6 +218,8 @@ const {
 
   getSellerPaymentsReport,
 
+  getCaptadorPaymentsReport,
+
 } = require(
 
   '../controllers/slaughterhouseAdminController'
@@ -1976,6 +1978,20 @@ router.get(
   ),
 
   getSellerPaymentsReport,
+);
+
+router.get(
+  '/reports/captador-payments',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'reports.view'
+  ),
+
+  getCaptadorPaymentsReport,
 );
 
 // =====================================================

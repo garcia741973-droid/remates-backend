@@ -44425,3 +44425,492 @@ exports.getSellerPaymentsReport =
     }
 
   };
+
+// =====================================================
+// 📊 INFORME — CAPTADORES / COMISIONISTAS
+//
+// GET /slaughterhouse/admin/reports/captador-payments
+//
+// SOLO LECTURA.
+// No registra pagos.
+// =====================================================
+
+exports.getCaptadorPaymentsReport =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const from =
+        req.query.from
+          ?.toString()
+          .trim() ||
+        null;
+
+      const to =
+        req.query.to
+          ?.toString()
+          .trim() ||
+        null;
+
+      const status =
+        req.query.status
+          ?.toString()
+          .trim() ||
+        null;
+
+      const q =
+        req.query.q
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const result =
+        await pool.query(
+          `
+            SELECT
+
+              spl.id
+                AS purchase_lot_id,
+
+              spl.purchase_date,
+
+              spl.lot_number,
+
+              spl.external_order_number,
+
+              spl.status
+                AS lot_status,
+
+
+              captador.id
+                AS captador_person_id,
+
+              captador.full_name
+                AS captador_name,
+
+              captador.document_number
+                AS captador_document_number,
+
+
+              seller.id
+                AS seller_person_id,
+
+              seller.full_name
+                AS seller_name,
+
+
+              estate.id
+                AS estate_id,
+
+              estate.name
+                AS estate_name,
+
+
+              spl.commission_type,
+
+              CASE
+
+                WHEN spl.commission_type =
+                  'per_head'
+                THEN
+                  'POR CABEZA'
+
+                WHEN spl.commission_type =
+                  'percent'
+                THEN
+                  'PORCENTAJE'
+
+                WHEN spl.commission_type =
+                  'fixed'
+                THEN
+                  'MONTO FIJO'
+
+                ELSE
+                  NULL
+
+              END
+                AS commission_type_label,
+
+              spl.commission_value,
+
+
+              COALESCE(
+                troop_summary.received_quantity,
+                0
+              )::int
+                AS received_quantity,
+
+
+              preliq.id
+                AS preliquidation_id,
+
+              preliq.status
+                AS preliquidation_status,
+
+              preliq.total_payable
+                AS purchase_total_payable,
+
+
+              CASE
+
+                WHEN
+                  spl.commission_type =
+                    'fixed'
+                  AND
+                  spl.commission_value
+                    IS NOT NULL
+
+                THEN
+                  spl.commission_value
+
+
+                WHEN
+                  spl.commission_type =
+                    'per_head'
+                  AND
+                  spl.commission_value
+                    IS NOT NULL
+
+                THEN
+                  COALESCE(
+                    troop_summary.received_quantity,
+                    0
+                  )
+                  *
+                  spl.commission_value
+
+
+                WHEN
+                  spl.commission_type =
+                    'percent'
+                  AND
+                  spl.commission_value
+                    IS NOT NULL
+                  AND
+                  preliq.total_payable
+                    IS NOT NULL
+
+                THEN
+                  (
+                    preliq.total_payable
+                    *
+                    spl.commission_value
+                  )
+                  /
+                  100
+
+
+                ELSE
+                  NULL
+
+              END
+                AS commission_amount,
+
+
+              payment_method.id
+                AS payment_method_id,
+
+              payment_method.method_type
+                AS payment_method_type,
+
+              CASE
+
+                WHEN payment_method.method_type =
+                  'bank_account'
+                THEN
+                  'CUENTA BANCARIA'
+
+                WHEN payment_method.method_type =
+                  'qr'
+                THEN
+                  'QR'
+
+                WHEN payment_method.method_type =
+                  'mobile_wallet'
+                THEN
+                  'BILLETERA MÓVIL'
+
+                WHEN payment_method.method_type =
+                  'check'
+                THEN
+                  'CHEQUE'
+
+                WHEN payment_method.method_type =
+                  'other'
+                THEN
+                  'OTRO'
+
+                ELSE
+                  NULL
+
+              END
+                AS payment_method_label,
+
+
+              bank.name
+                AS bank_name,
+
+              payment_method.account_number,
+
+              payment_method.account_type,
+
+              payment_method.account_holder,
+
+              payment_method.wallet_phone,
+
+              payment_method.wallet_name
+
+
+            FROM
+              slaughterhouse_purchase_lots spl
+
+
+            JOIN
+              slaughterhouse_people seller
+
+              ON seller.id =
+                spl.seller_person_id
+
+              AND seller.company_id =
+                spl.company_id
+
+
+            JOIN
+              slaughterhouse_people captador
+
+              ON captador.id =
+                spl.captador_person_id
+
+              AND captador.company_id =
+                spl.company_id
+
+
+            LEFT JOIN
+              slaughterhouse_estates estate
+
+              ON estate.id =
+                spl.estate_id
+
+              AND estate.company_id =
+                spl.company_id
+
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+                spp.*
+
+              FROM
+                slaughterhouse_person_payment_methods spp
+
+              WHERE
+                spp.person_id =
+                  captador.id
+
+                AND spp.is_active =
+                  true
+
+              ORDER BY
+                spp.is_default DESC,
+                spp.id DESC
+
+              LIMIT 1
+
+            ) payment_method
+              ON true
+
+
+            LEFT JOIN
+              slaughterhouse_banks bank
+
+              ON bank.id =
+                payment_method.bank_id
+
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+
+                SUM(
+                  COALESCE(
+                    st.received_quantity,
+                    0
+                  )
+                )::int
+                  AS received_quantity
+
+              FROM
+                slaughterhouse_troops st
+
+              WHERE
+                st.company_id =
+                  spl.company_id
+
+                AND st.purchase_lot_id =
+                  spl.id
+
+                AND st.status <>
+                  'cancelled'
+
+            ) troop_summary
+              ON true
+
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+                sp.*
+
+              FROM
+                slaughterhouse_preliquidations sp
+
+              WHERE
+                sp.company_id =
+                  spl.company_id
+
+                AND sp.purchase_lot_id =
+                  spl.id
+
+              ORDER BY
+                sp.version DESC,
+                sp.id DESC
+
+              LIMIT 1
+
+            ) preliq
+              ON true
+
+
+            WHERE
+
+              spl.company_id = $1
+
+              AND spl.captador_person_id
+                IS NOT NULL
+
+              AND (
+                $2::DATE IS NULL
+                OR spl.purchase_date >=
+                  $2::DATE
+              )
+
+              AND (
+                $3::DATE IS NULL
+                OR spl.purchase_date <=
+                  $3::DATE
+              )
+
+              AND (
+                $4::TEXT IS NULL
+
+                OR spl.status =
+                  $4
+
+                OR preliq.status =
+                  $4
+              )
+
+              AND (
+                $5::TEXT IS NULL
+
+                OR captador.full_name
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR seller.full_name
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR estate.name
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR spl.lot_number
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR spl.external_order_number
+                  ILIKE
+                  '%' || $5 || '%'
+              )
+
+
+            ORDER BY
+
+              spl.purchase_date DESC
+                NULLS LAST,
+
+              spl.id DESC
+          `,
+          [
+            companyId,
+            from,
+            to,
+            status === 'all'
+              ? null
+              : status,
+            q,
+          ],
+        );
+
+
+      const totalCommission =
+        result.rows.reduce(
+          (
+            total,
+            row
+          ) =>
+            total +
+            Number(
+              row.commission_amount ||
+              0
+            ),
+          0
+        );
+
+
+      return res.json({
+
+        success:
+          true,
+
+        rows:
+          result.rows,
+
+        summary: {
+
+          count:
+            result.rows.length,
+
+          total_amount:
+            totalCommission,
+
+        },
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        'GET CAPTADOR PAYMENTS REPORT ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+
+        error:
+          'Error obteniendo informe de captadores',
+
+      });
+
+    }
+
+  };
