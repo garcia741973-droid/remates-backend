@@ -5791,6 +5791,12 @@ exports.updateLastSlaughterhouseCarcass =
           req.body.hook_weight_kg,
         );
 
+      let troopId =
+        req.body.troop_id == null
+          ? null
+          : Number(
+              req.body.troop_id,
+            );
 
       // =================================================
       // VALIDACIONES
@@ -5889,6 +5895,110 @@ exports.updateLastSlaughterhouseCarcass =
         });
       }
 
+      // =================================================
+      // RESOLVER TROPA
+      // =================================================
+
+      if (troopId != null) {
+
+        if (
+          !Number.isInteger(troopId) ||
+          troopId <= 0
+        ) {
+
+          await client.query(
+            'ROLLBACK',
+          );
+
+          return res.status(400).json({
+            error:
+              'Tropa inválida',
+          });
+        }
+
+        const troopResult =
+          await client.query(
+            `
+            SELECT
+              id,
+              status
+
+            FROM slaughterhouse_troops
+
+            WHERE
+              id = $1
+              AND reception_id = $2
+              AND company_id = $3
+
+            LIMIT 1
+            `,
+            [
+              troopId,
+              receptionId,
+              companyId,
+            ],
+          );
+
+        if (
+          troopResult.rows.length === 0
+        ) {
+
+          await client.query(
+            'ROLLBACK',
+          );
+
+          return res.status(404).json({
+            error:
+              'La tropa no pertenece a esta recepción',
+          });
+        }
+
+      } else {
+
+        const activeTroopsResult =
+          await client.query(
+            `
+            SELECT
+              id
+
+            FROM slaughterhouse_troops
+
+            WHERE
+              reception_id = $1
+              AND company_id = $2
+              AND status = 'in_slaughter'
+
+            ORDER BY id ASC
+            `,
+            [
+              receptionId,
+              companyId,
+            ],
+          );
+
+        if (
+          activeTroopsResult.rows.length === 1
+        ) {
+
+          troopId =
+            Number(
+              activeTroopsResult.rows[0].id,
+            );
+
+        } else if (
+          activeTroopsResult.rows.length > 1
+        ) {
+
+          await client.query(
+            'ROLLBACK',
+          );
+
+          return res.status(409).json({
+            error:
+              'Existe más de una tropa en faena. Debes indicar troop_id.',
+          });
+        }
+      }
 
       // =================================================
       // ÚLTIMA MEDIA CARCASA
@@ -5903,6 +6013,10 @@ exports.updateLastSlaughterhouseCarcass =
 
           WHERE
             reception_id = $1
+            AND (
+              $2::int IS NULL
+              OR troop_id = $2
+            )
 
           ORDER BY
             sequence_number DESC,
@@ -5914,6 +6028,7 @@ exports.updateLastSlaughterhouseCarcass =
           `,
           [
             receptionId,
+            troopId,
           ],
         );
 
@@ -6020,11 +6135,13 @@ exports.updateLastSlaughterhouseCarcass =
 
             WHERE
               reception_id = $1
-
+              AND (
+                $2::int IS NULL
+                OR troop_id = $2
+              )
               AND (
                 animal_sequence_number
                   IS NULL
-
                 OR half_number
                   IS NULL
               )
@@ -6052,10 +6169,12 @@ exports.updateLastSlaughterhouseCarcass =
 
             WHERE
               reception_id = $1
-
+              AND (
+                $2::int IS NULL
+                OR troop_id = $2
+              )
               AND animal_sequence_number
                 IS NOT NULL
-
               AND half_number
                 IS NOT NULL
 
@@ -6121,6 +6240,10 @@ exports.updateLastSlaughterhouseCarcass =
 
             WHERE
               reception_id = $1
+              AND (
+                $2::int IS NULL
+                OR troop_id = $2
+              )
 
           )
 
@@ -6159,6 +6282,7 @@ exports.updateLastSlaughterhouseCarcass =
           `,
           [
             receptionId,
+            troopId,
           ],
         );
 
