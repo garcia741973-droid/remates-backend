@@ -35774,14 +35774,7 @@ exports.receiveTroop =
             'live_weight_kg inválido',
         });
 
-      }
-
-      if (!officialGuideNumber) {
-        return res.status(400).json({
-          error:
-            'El número de guía SENASAG es obligatorio',
-        });
-      }      
+      }   
 
       await client.query(
         'BEGIN'
@@ -35980,9 +35973,24 @@ exports.receiveTroop =
 
               tg.guide_image_url,
               tg.official_guide_photo_url,
-              tg.official_guide_number
+              tg.official_guide_number,
 
-            FROM transport_negotiations tn
+              sga.id
+                AS gate_arrival_id,
+
+              sga.official_guide_number
+                AS gate_official_guide_number,
+
+              sga.official_guide_photo_url
+                AS gate_official_guide_photo_url,
+
+              sga.plate_photo_url
+                AS gate_plate_photo_url,
+
+              sga.driver_license_photo_url
+                AS gate_driver_license_photo_url
+
+              FROM transport_negotiations tn
 
             JOIN transport_requests tr
               ON tr.id =
@@ -36011,10 +36019,15 @@ exports.receiveTroop =
 
               LIMIT 1
 
-            ) tg
-              ON true
+              ) tg
+                ON true
 
-            WHERE
+              LEFT JOIN slaughterhouse_gate_arrivals sga
+                ON sga.company_id = $5
+                AND sga.transport_negotiation_id =
+                  tn.id
+
+              WHERE
               tn.id = $1
               AND tn.request_id = $2
               AND tn.truck_id = $3
@@ -36056,6 +36069,66 @@ exports.receiveTroop =
       const transport =
         transportResult.rows[0];
 
+      // =================================================
+      // PORTERÍA
+      // =================================================
+
+      if (
+        transport.gate_arrival_id === null
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El camión todavía no registra llegada en Portería',
+        });
+      }
+
+
+      const gateOfficialGuideNumber =
+        transport.gate_official_guide_number
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const gateOfficialGuidePhotoUrl =
+        transport.gate_official_guide_photo_url
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const gatePlatePhotoUrl =
+        transport.gate_plate_photo_url
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const gateDriverLicensePhotoUrl =
+        transport.gate_driver_license_photo_url
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      // =================================================
+      // SENASAG OBLIGATORIO
+      // =================================================
+
+      if (!gateOfficialGuideNumber) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El número de guía SENASAG es obligatorio en Portería',
+        });
+      }
 
       // =================================================
       // NEGOCIACIÓN NO CANCELADA
@@ -36379,24 +36452,17 @@ exports.receiveTroop =
               female_36_plus,
 
               guide_image_url,
-
               live_weight_kg,
-
               transport_delivered_at,
-
               received_at,
               received_by,
-
               reception_notes,
-
               official_guide_number_snapshot,
-
+              official_guide_photo_url,
               truck_brand_snapshot,
               truck_model_snapshot,
-
               driver_name_snapshot,
               driver_ci_snapshot,
-
               driver_license_photo_url
             )
 
@@ -36432,25 +36498,18 @@ exports.receiveTroop =
               $21,
 
               $22,
-
               $23,
-
               $24,
-
               NOW(),
               $25,
-
               $26,
-
               $27,
-
               $28,
               $29,
-
               $30,
               $31,
-
-              $32
+              $32,
+              $33
             )
 
             RETURNING *
@@ -36466,8 +36525,7 @@ exports.receiveTroop =
             transport.transporter_id,
 
             transport.plate,
-            platePhotoUrl,
-
+            gatePlatePhotoUrl,
             transport.animal_type,
             transport.origin,
             transport.destination,
@@ -36507,7 +36565,6 @@ exports.receiveTroop =
               transport.female_36_plus || 0
             ),
 
-            transport.official_guide_photo_url ||
             transport.guide_image_url,
 
             liveWeightKg,
@@ -36518,15 +36575,19 @@ exports.receiveTroop =
 
             receptionNotes,
 
-            transport.official_guide_number,
+            gateOfficialGuideNumber,
+
+            gateOfficialGuidePhotoUrl,
 
             transport.brand,
+
             transport.model,
 
             transport.driver_name,
+
             transport.driver_ci,
 
-            driverLicensePhotoUrl,
+            gateDriverLicensePhotoUrl,
           ],
         );
 
