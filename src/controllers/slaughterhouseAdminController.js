@@ -46723,8 +46723,6 @@ exports.getFinalLotDetail =
 
                 slw.event_lng,
 
-                slw.event_time,
-
                 slw.created_at,
 
                 slw.updated_at
