@@ -45595,9 +45595,9 @@ exports.getFinalLotsReport =
               field_summary.field_net_weight_kg,
 
 
-              // ==========================================
-              // TROPAS / RECEPCIÓN
-              // ==========================================
+              -- ==========================================
+              -- TROPAS / RECEPCIÓN
+              -- ==========================================
 
               COALESCE(
                 troop_summary.troops_count,
@@ -45624,9 +45624,9 @@ exports.getFinalLotsReport =
                 AS completed_troops,
 
 
-              // ==========================================
-              // FAENA
-              // ==========================================
+              -- ==========================================
+              -- FAENA
+              -- ==========================================
 
               COALESCE(
                 carcass_summary.slaughtered_animals,
@@ -45655,9 +45655,9 @@ exports.getFinalLotsReport =
               carcass_summary.max_hook_weight_kg,
 
 
-              // ==========================================
-              // PRELIQUIDACIÓN
-              // ==========================================
+              -- ==========================================
+              -- PRELIQUIDACIÓN
+              -- ==========================================
 
               preliq.id
                 AS preliquidation_id,
@@ -45732,9 +45732,9 @@ exports.getFinalLotsReport =
                 AS carcass_yield_percent,
 
 
-              // ==========================================
-              // FECHAS OPERATIVAS
-              // ==========================================
+              -- ==========================================
+              -- FECHAS OPERATIVAS
+              -- ==========================================
 
               reception_summary.first_received_at,
 
@@ -45743,9 +45743,9 @@ exports.getFinalLotsReport =
               reception_summary.slaughter_completed_at,
 
 
-              // ==========================================
-              // ESTADO DESCRIPTIVO DEL EXPEDIENTE
-              // ==========================================
+              -- ==========================================
+              -- ESTADO DESCRIPTIVO DEL EXPEDIENTE
+              -- ==========================================
 
               CASE
 
@@ -45895,12 +45895,12 @@ exports.getFinalLotsReport =
                 spl.company_id
 
 
-            // ============================================
-            // CAMPO CERTIFICADO
-            //
-            // Rectificaciones anteriores quedan status
-            // rectified y no se duplican.
-            // ============================================
+            -- ============================================
+            -- CAMPO CERTIFICADO
+            --
+            -- Rectificaciones anteriores quedan status
+            -- rectified y no se duplican.
+            -- ============================================
 
             LEFT JOIN LATERAL (
 
@@ -45941,9 +45941,9 @@ exports.getFinalLotsReport =
               ON true
 
 
-            // ============================================
-            // TROPAS
-            // ============================================
+            -- ============================================
+            -- TROPAS
+            -- ============================================
 
             LEFT JOIN LATERAL (
 
@@ -46001,16 +46001,16 @@ exports.getFinalLotsReport =
               ON true
 
 
-            // ============================================
-            // FAENA / MEDIAS RESES
-            //
-            // LEGACY:
-            // fila sin animal_sequence_number/half_number
-            // = 1 animal.
-            //
-            // NUEVO:
-            // 2 medias distintas = 1 animal completo.
-            // ============================================
+            -- ============================================
+            -- FAENA / MEDIAS RESES
+            --
+            -- LEGACY:
+            -- fila sin animal_sequence_number/half_number
+            -- = 1 animal.
+            --
+            -- NUEVO:
+            -- 2 medias distintas = 1 animal completo.
+            -- ============================================
 
             LEFT JOIN LATERAL (
 
@@ -46192,9 +46192,9 @@ exports.getFinalLotsReport =
               ON true
 
 
-            // ============================================
-            // ÚLTIMA PRELIQUIDACIÓN DEL LOTE
-            // ============================================
+            -- ============================================
+            -- ÚLTIMA PRELIQUIDACIÓN DEL LOTE
+            -- ============================================
 
             LEFT JOIN LATERAL (
 
@@ -46221,9 +46221,9 @@ exports.getFinalLotsReport =
               ON true
 
 
-            // ============================================
-            // FECHAS DE RECEPCIÓN / FAENA
-            // ============================================
+            -- ============================================
+            -- FECHAS DE RECEPCIÓN / FAENA
+            -- ============================================
 
             LEFT JOIN LATERAL (
 
