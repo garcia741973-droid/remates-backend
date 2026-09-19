@@ -36265,7 +36265,10 @@ exports.receiveTroop =
               AND other_troop.company_id = $2
 
               AND sr.company_id = $2
-              AND sr.status = 'open'
+              AND sr.status IN (
+                'open',
+                'in_slaughter'
+              )
 
             ORDER BY
               sr.opened_at ASC,
@@ -37788,8 +37791,6 @@ exports.getAdminReceptionById =
 // - debe existir al menos un camión recibido
 // - todas las tropas activas del/los lote(s)
 //   asociados deben haber llegado
-// - todas las tropas recibidas deben tener
-//   troop_number asignado
 // - NO inicia faena
 //
 // Resultado:
@@ -37923,13 +37924,10 @@ exports.closeAdminReception =
         await client.query(
           `
             SELECT
-
               (
                 SELECT
                   COUNT(*)::int
-
                 FROM slaughterhouse_troops st
-
                 WHERE
                   st.reception_id = $1
                   AND st.company_id = $2
@@ -37940,9 +37938,7 @@ exports.closeAdminReception =
               (
                 SELECT
                   COUNT(*)::int
-
                 FROM slaughterhouse_reception_trucks srt
-
                 WHERE
                   srt.reception_id = $1
               )
@@ -37957,34 +37953,13 @@ exports.closeAdminReception =
                     ),
                     0
                   )::int
-
                 FROM slaughterhouse_troops st
-
                 WHERE
                   st.reception_id = $1
                   AND st.company_id = $2
               )
-                AS received_quantity_total,
+                AS received_quantity_total
 
-
-              (
-                SELECT
-                  COUNT(*)::int
-
-                FROM slaughterhouse_troops st
-
-                WHERE
-                  st.reception_id = $1
-                  AND st.company_id = $2
-
-                  AND (
-                    st.troop_number IS NULL
-                    OR BTRIM(
-                      st.troop_number
-                    ) = ''
-                  )
-              )
-                AS missing_troop_number_count
           `,
           [
             receptionId,
@@ -38012,12 +37987,6 @@ exports.closeAdminReception =
       const receivedQuantityTotal =
         Number(
           summary.received_quantity_total
-        );
-
-
-      const missingTroopNumberCount =
-        Number(
-          summary.missing_troop_number_count
         );
 
 
@@ -38112,32 +38081,6 @@ exports.closeAdminReception =
         return res.status(409).json({
           error:
             'La recepción no tiene animales recibidos',
-        });
-
-      }
-
-
-      // =================================================
-      // TODA TROPA DEBE TENER NÚMERO DEFINITIVO
-      // =================================================
-
-      if (
-        missingTroopNumberCount > 0
-      ) {
-
-        await client.query(
-          'ROLLBACK'
-        );
-
-
-        return res.status(409).json({
-
-          error:
-            'Hay tropas recibidas sin número de tropa asignado',
-
-          missing_troop_number_count:
-            missingTroopNumberCount,
-
         });
 
       }

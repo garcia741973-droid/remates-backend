@@ -372,9 +372,34 @@ exports.getSlaughterhouseReceptionCandidates =
         await pool.query(
           `
           SELECT
-
             tn.id
               AS negotiation_id,
+
+            st.id
+              AS troop_id,
+
+            st.purchase_lot_id,
+
+            st.status
+              AS troop_status,
+
+            st.expected_quantity
+              AS troop_expected_quantity,
+
+            st.dispatched_quantity
+              AS troop_dispatched_quantity,
+
+            st.field_captured_quantity
+              AS troop_field_captured_quantity,
+
+            spl.lot_number
+              AS purchase_lot_number,
+
+            spl.expected_quantity
+              AS purchase_lot_expected_quantity,
+
+            spl.status
+              AS purchase_lot_status,
 
             tn.status,
 
@@ -556,15 +581,38 @@ exports.getSlaughterhouseReceptionCandidates =
               END
                 AS blocked_reason
 
-          FROM transport_negotiations tn
+              FROM transport_negotiations tn
 
-          JOIN transport_requests tr
-            ON tr.id =
-              tn.request_id
+              JOIN transport_requests tr
+                ON tr.id =
+                  tn.request_id
 
-          JOIN transporter_trucks tt
-            ON tt.id =
-              tn.truck_id
+              JOIN slaughterhouse_troops st
+                ON st.transport_negotiation_id =
+                  tn.id
+
+                AND st.transport_request_id =
+                  tn.request_id
+
+                AND st.truck_id =
+                  tn.truck_id
+
+                AND st.transporter_user_id =
+                  tn.transporter_id
+
+                AND st.company_id =
+                  $1
+
+              JOIN slaughterhouse_purchase_lots spl
+                ON spl.id =
+                  st.purchase_lot_id
+
+                AND spl.company_id =
+                  st.company_id
+
+              JOIN transporter_trucks tt
+                ON tt.id =
+                  tn.truck_id
 
           JOIN users transporter
             ON transporter.id =
