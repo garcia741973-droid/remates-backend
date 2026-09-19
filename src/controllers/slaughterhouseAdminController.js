@@ -45911,7 +45911,21 @@ exports.getFinalLotsReport =
               SELECT
 
                 COALESCE(
-                  SUM(slw.quantity),
+                  SUM(
+                    st.field_captured_quantity
+                  ) FILTER (
+                    WHERE
+                      st.status <>
+                        'cancelled'
+
+                      AND
+                      st.field_capture_status =
+                        'certified'
+
+                      AND
+                      st.field_captured_quantity
+                        IS NOT NULL
+                  ),
                   0
                 )::int
                   AS field_quantity,
@@ -45929,17 +45943,47 @@ exports.getFinalLotsReport =
                   AS field_net_weight_kg
 
               FROM
-                slaughterhouse_live_weighings slw
+                slaughterhouse_troops st
+
+              LEFT JOIN LATERAL (
+
+                SELECT
+
+                  lw.gross_weight_kg,
+
+                  lw.net_weight_kg
+
+                FROM
+                  slaughterhouse_live_weighings lw
+
+                WHERE
+                  lw.company_id =
+                    st.company_id
+
+                  AND lw.purchase_lot_id =
+                    st.purchase_lot_id
+
+                  AND lw.troop_id =
+                    st.id
+
+                  AND lw.status =
+                    'certified'
+
+                ORDER BY
+                  lw.created_at DESC,
+                  lw.id DESC
+
+                LIMIT 1
+
+              ) slw
+                ON true
 
               WHERE
-                slw.company_id =
+                st.company_id =
                   spl.company_id
 
-                AND slw.purchase_lot_id =
+                AND st.purchase_lot_id =
                   spl.id
-
-                AND slw.status =
-                  'certified'
 
             ) field_summary
               ON true
