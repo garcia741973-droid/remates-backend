@@ -44914,3 +44914,539 @@ exports.getCaptadorPaymentsReport =
     }
 
   };
+
+// =====================================================
+// 📊 INFORME — TRANSPORTISTAS / CAMIONES
+//
+// GET /slaughterhouse/admin/reports/transporter-payments
+//
+// SOLO LECTURA.
+// No registra ni modifica pagos.
+// =====================================================
+
+exports.getTransporterPaymentsReport =
+  async (req, res) => {
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      // =================================================
+      // FILTROS
+      // =================================================
+
+      const from =
+        req.query.from
+          ?.toString()
+          .trim() ||
+        null;
+
+      const to =
+        req.query.to
+          ?.toString()
+          .trim() ||
+        null;
+
+      const status =
+        req.query.status
+          ?.toString()
+          .trim() ||
+        null;
+
+      const q =
+        req.query.q
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      // =================================================
+      // CONSULTA
+      // =================================================
+
+      const result =
+        await pool.query(
+          `
+            SELECT
+
+              st.id
+                AS troop_id,
+
+              CASE
+                WHEN
+                  st.troop_number IS NOT NULL
+                  AND TRIM(st.troop_number) <> ''
+                THEN
+                  st.troop_number
+                ELSE
+                  'Tropa #' || st.id
+              END
+                AS troop_label,
+
+              st.status
+                AS troop_status,
+
+              st.expected_quantity,
+
+              st.dispatched_quantity,
+
+              st.received_quantity,
+
+
+              spl.id
+                AS purchase_lot_id,
+
+              spl.lot_number,
+
+              spl.external_order_number,
+
+              spl.purchase_date,
+
+
+              tr.id
+                AS transport_request_id,
+
+              tr.travel_date,
+
+              tr.origin
+                AS request_origin,
+
+              tr.destination
+                AS request_destination,
+
+              tr.quantity
+                AS request_quantity,
+
+              tr.animal_type,
+
+              tr.status
+                AS request_status,
+
+
+              tn.id
+                AS negotiation_id,
+
+              tn.status
+                AS negotiation_status,
+
+              tn.transporter_id
+                AS transporter_user_id,
+
+              tn.truck_id,
+
+              tn.trip_price,
+
+              tn.created_at
+                AS negotiation_created_at,
+
+              tn.trip_started_at,
+
+              tn.delivered_at,
+
+
+              COALESCE(
+                transporter_person.full_name,
+                transporter_user.full_name,
+                transporter_user.name,
+                transporter_user.email
+              )
+                AS transporter_name,
+
+              transporter_person.document_number
+                AS transporter_document_number,
+
+              transporter_person.phone
+                AS transporter_phone,
+
+
+              truck.plate,
+
+              truck.brand,
+
+              truck.model,
+
+              truck.capacity_large,
+
+              truck.capacity_small,
+
+              truck.trailer_capacity,
+
+
+              guide.driver_name,
+
+              guide.driver_ci,
+
+
+              COALESCE(
+                guide.origin,
+                tr.origin
+              )
+                AS origin,
+
+              COALESCE(
+                guide.destination,
+                tr.destination
+              )
+                AS destination,
+
+
+              COALESCE(
+                st.received_quantity,
+                st.dispatched_quantity,
+                st.expected_quantity,
+                tr.quantity,
+                0
+              )::int
+                AS transported_quantity,
+
+
+              payment_method.id
+                AS payment_method_id,
+
+              payment_method.method_type
+                AS payment_method_type,
+
+              CASE
+
+                WHEN payment_method.method_type =
+                  'bank_account'
+                THEN
+                  'CUENTA BANCARIA'
+
+                WHEN payment_method.method_type =
+                  'qr'
+                THEN
+                  'QR'
+
+                WHEN payment_method.method_type =
+                  'mobile_wallet'
+                THEN
+                  'BILLETERA MÓVIL'
+
+                WHEN payment_method.method_type =
+                  'check'
+                THEN
+                  'CHEQUE'
+
+                WHEN payment_method.method_type =
+                  'other'
+                THEN
+                  'OTRO'
+
+                ELSE
+                  NULL
+
+              END
+                AS payment_method_label,
+
+              bank.name
+                AS bank_name,
+
+              payment_method.account_number,
+
+              payment_method.account_type,
+
+              payment_method.account_holder,
+
+              payment_method.wallet_phone,
+
+              payment_method.wallet_name,
+
+
+              payment_auth.id
+                AS payment_authorization_id,
+
+              payment_auth.status
+                AS authorization_status,
+
+              payment_auth.trip_price_snapshot,
+
+              payment_auth.payment_reference,
+
+              payment_auth.authorized_at,
+
+              payment_auth.paid_at
+
+
+            FROM
+              slaughterhouse_troops st
+
+
+            JOIN
+              slaughterhouse_purchase_lots spl
+
+              ON spl.id =
+                st.purchase_lot_id
+
+              AND spl.company_id =
+                st.company_id
+
+
+            JOIN
+              transport_negotiations tn
+
+              ON tn.id =
+                st.transport_negotiation_id
+
+
+            JOIN
+              transport_requests tr
+
+              ON tr.id =
+                tn.request_id
+
+
+            LEFT JOIN
+              transporter_trucks truck
+
+              ON truck.id =
+                COALESCE(
+                  st.truck_id,
+                  tn.truck_id
+                )
+
+
+            LEFT JOIN
+              users transporter_user
+
+              ON transporter_user.id =
+                tn.transporter_id
+
+
+            LEFT JOIN
+              slaughterhouse_people
+                transporter_person
+
+              ON transporter_person.company_id =
+                st.company_id
+
+              AND transporter_person.user_id =
+                tn.transporter_id
+
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+                tg.*
+
+              FROM
+                transport_guides tg
+
+              WHERE
+                tg.negotiation_id =
+                  tn.id
+
+              ORDER BY
+                tg.id DESC
+
+              LIMIT 1
+
+            ) guide
+              ON true
+
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+                spp.*
+
+              FROM
+                slaughterhouse_person_payment_methods spp
+
+              WHERE
+                transporter_person.id
+                  IS NOT NULL
+
+                AND spp.person_id =
+                  transporter_person.id
+
+                AND spp.is_active =
+                  true
+
+              ORDER BY
+                spp.is_default DESC,
+                spp.id DESC
+
+              LIMIT 1
+
+            ) payment_method
+              ON true
+
+
+            LEFT JOIN
+              slaughterhouse_banks bank
+
+              ON bank.id =
+                payment_method.bank_id
+
+
+            LEFT JOIN
+              transport_trip_payment_authorizations
+                payment_auth
+
+              ON payment_auth.company_id =
+                st.company_id
+
+              AND payment_auth.negotiation_id =
+                tn.id
+
+
+            WHERE
+
+              st.company_id = $1
+
+              AND st.status <>
+                'cancelled'
+
+              AND st.transport_negotiation_id
+                IS NOT NULL
+
+              AND (
+                $2::DATE IS NULL
+
+                OR tr.travel_date::DATE >=
+                  $2::DATE
+              )
+
+              AND (
+                $3::DATE IS NULL
+
+                OR tr.travel_date::DATE <=
+                  $3::DATE
+              )
+
+              AND (
+                $4::TEXT IS NULL
+
+                OR tn.status =
+                  $4
+
+                OR payment_auth.status =
+                  $4
+              )
+
+              AND (
+                $5::TEXT IS NULL
+
+                OR spl.lot_number
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR st.troop_number
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR transporter_person.full_name
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR transporter_user.full_name
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR transporter_user.name
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR truck.plate
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR guide.driver_name
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR guide.driver_ci
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR tr.origin
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR tr.destination
+                  ILIKE
+                  '%' || $5 || '%'
+              )
+
+
+            ORDER BY
+
+              tr.travel_date DESC
+                NULLS LAST,
+
+              st.id DESC
+          `,
+          [
+            companyId,
+            from,
+            to,
+            status === 'all'
+              ? null
+              : status,
+            q,
+          ],
+        );
+
+
+      // =================================================
+      // RESUMEN
+      // =================================================
+
+      const totalAmount =
+        result.rows.reduce(
+          (
+            total,
+            row
+          ) =>
+            total +
+            Number(
+              row.trip_price ||
+              0
+            ),
+          0
+        );
+
+
+      return res.json({
+
+        success:
+          true,
+
+        rows:
+          result.rows,
+
+        summary: {
+
+          count:
+            result.rows.length,
+
+          total_amount:
+            totalAmount,
+
+        },
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        'GET TRANSPORTER PAYMENTS REPORT ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+
+        error:
+          'Error obteniendo informe de transportistas',
+
+      });
+
+    }
+
+  };
