@@ -45694,12 +45694,12 @@ exports.getFinalLotsReport =
               preliq.exported_at,
 
 
-              // ==========================================
-              // RENDIMIENTO
-              //
-              // Solo existe cuando la preliquidación
-              // dispone de peso vivo oficial.
-              // ==========================================
+              -- ==========================================
+              -- RENDIMIENTO
+              --
+              -- Solo existe cuando la preliquidación
+              -- dispone de peso vivo oficial.
+              -- ==========================================
 
               CASE
 
