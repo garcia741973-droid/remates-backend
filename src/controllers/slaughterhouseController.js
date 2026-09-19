@@ -3710,46 +3710,131 @@ exports.getSlaughterhouseSlaughterReceptions =
           -- ==============================================
 
           LEFT JOIN LATERAL (
+
             SELECT
+
               COALESCE(
+
                 jsonb_agg(
+
                   jsonb_build_object(
+
                     'id',
                       srt.id,
+
+                    'troop_id',
+                      troop_info.troop_id,
+
+                    'troop_number',
+                      troop_info.troop_number,
+
+                    'troop_status',
+                      troop_info.troop_status,
+
+                    'purchase_lot_id',
+                      troop_info.purchase_lot_id,
+
                     'plate',
                       srt.plate_snapshot,
+
                     'received_quantity',
                       srt.received_quantity,
+
                     'live_weight_kg',
                       srt.live_weight_kg,
+
                     'requires_plant_live_weight',
                       EXISTS (
+
                         SELECT 1
-                        FROM slaughterhouse_troops st2
-                        JOIN slaughterhouse_purchase_lots spl2
+
+                        FROM
+                          slaughterhouse_troops st2
+
+                        JOIN
+                          slaughterhouse_purchase_lots spl2
+
                           ON spl2.id =
                             st2.purchase_lot_id
+
+                          AND spl2.company_id =
+                            st2.company_id
+
                         WHERE
                           st2.reception_truck_id =
                             srt.id
+
+                          AND st2.company_id =
+                            sr.company_id
+
                           AND st2.status <>
                             'cancelled'
+
                           AND spl2.pricing_basis =
                             'live_kg'
+
                           AND spl2.weight_source =
                             'plant'
+
                       )
+
                   )
+
                   ORDER BY
                     srt.id
+
                 ),
+
                 '[]'::jsonb
+
               )
                 AS items
-            FROM slaughterhouse_reception_trucks srt
+
+
+            FROM
+              slaughterhouse_reception_trucks srt
+
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+
+                st2.id
+                  AS troop_id,
+
+                st2.troop_number,
+
+                st2.status
+                  AS troop_status,
+
+                st2.purchase_lot_id
+
+              FROM
+                slaughterhouse_troops st2
+
+              WHERE
+                st2.company_id =
+                  sr.company_id
+
+                AND st2.reception_truck_id =
+                  srt.id
+
+                AND st2.status <>
+                  'cancelled'
+
+              ORDER BY
+                st2.id DESC
+
+              LIMIT 1
+
+            ) troop_info
+              ON true
+
+
             WHERE
               srt.reception_id =
                 sr.id
+
           ) truck_details
             ON true
 
