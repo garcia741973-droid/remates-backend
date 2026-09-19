@@ -3706,7 +3706,10 @@ exports.getSlaughterhouseSlaughterReceptions =
             ON true
 
           -- ==============================================
-          -- CAMIONES DE LA RECEPCIÓN
+          -- CAMIONES / TROPAS DE LA RECEPCIÓN
+          --
+          -- Cada elemento incluye además su progreso
+          -- propio de faena.
           -- ==============================================
 
           LEFT JOIN LATERAL (
@@ -3743,10 +3746,58 @@ exports.getSlaughterhouseSlaughterReceptions =
                     'live_weight_kg',
                       srt.live_weight_kg,
 
+
+                    -- ====================================
+                    -- PROGRESO DE FAENA DE ESTA TROPA
+                    -- ====================================
+
+                    'carcasses_count',
+                      COALESCE(
+                        troop_slaughter.carcasses_count,
+                        0
+                      ),
+
+                    'half_carcasses_count',
+                      COALESCE(
+                        troop_slaughter.half_carcasses_count,
+                        0
+                      ),
+
+                    'incomplete_animals_count',
+                      COALESCE(
+                        troop_slaughter.incomplete_animals_count,
+                        0
+                      ),
+
+                    'hook_weight_total_kg',
+                      COALESCE(
+                        troop_slaughter.hook_weight_total_kg,
+                        0
+                      ),
+
+                    'last_carcass_weight',
+                      troop_slaughter.last_carcass_weight,
+
+                    'last_sequence_number',
+                      troop_slaughter.last_sequence_number,
+
+                    'last_animal_sequence_number',
+                      troop_slaughter.last_animal_sequence_number,
+
+                    'last_half_number',
+                      troop_slaughter.last_half_number,
+
+
+                    -- ====================================
+                    -- PESO VIVO REQUERIDO
+                    -- ====================================
+
                     'requires_plant_live_weight',
+
                       EXISTS (
 
-                        SELECT 1
+                        SELECT
+                          1
 
                         FROM
                           slaughterhouse_troops st2
@@ -3795,6 +3846,10 @@ exports.getSlaughterhouseSlaughterReceptions =
               slaughterhouse_reception_trucks srt
 
 
+            -- ============================================
+            -- TROPA VINCULADA AL CAMIÓN RECIBIDO
+            -- ============================================
+
             LEFT JOIN LATERAL (
 
               SELECT
@@ -3829,6 +3884,262 @@ exports.getSlaughterhouseSlaughterReceptions =
 
             ) troop_info
               ON true
+
+
+            -- ============================================
+            -- PROGRESO DE FAENA DE ESA TROPA
+            -- ============================================
+
+            LEFT JOIN LATERAL (
+
+              WITH
+
+              legacy AS (
+
+                SELECT
+
+                  COUNT(*)::int
+                    AS animals_count
+
+                FROM
+                  slaughterhouse_carcasses sc
+
+                WHERE
+                  sc.reception_id =
+                    sr.id
+
+                  AND sc.troop_id =
+                    troop_info.troop_id
+
+                  AND (
+
+                    sc.animal_sequence_number
+                      IS NULL
+
+                    OR sc.half_number
+                      IS NULL
+
+                  )
+
+              ),
+
+
+              modern_animals AS (
+
+                SELECT
+
+                  sc.animal_sequence_number,
+
+                  COUNT(
+                    DISTINCT
+                    sc.half_number
+                  )::int
+                    AS halves_count
+
+                FROM
+                  slaughterhouse_carcasses sc
+
+                WHERE
+                  sc.reception_id =
+                    sr.id
+
+                  AND sc.troop_id =
+                    troop_info.troop_id
+
+                  AND sc.animal_sequence_number
+                    IS NOT NULL
+
+                  AND sc.half_number
+                    IS NOT NULL
+
+                GROUP BY
+                  sc.animal_sequence_number
+
+              ),
+
+
+              raw_progress AS (
+
+                SELECT
+
+                  COUNT(*) FILTER (
+
+                    WHERE
+                      sc.animal_sequence_number
+                        IS NOT NULL
+
+                      AND sc.half_number
+                        IS NOT NULL
+
+                  )::int
+                    AS half_carcasses_count,
+
+                  COALESCE(
+
+                    SUM(
+                      sc.hook_weight_kg
+                    ),
+
+                    0
+
+                  )::numeric
+                    AS hook_weight_total_kg
+
+                FROM
+                  slaughterhouse_carcasses sc
+
+                WHERE
+                  sc.reception_id =
+                    sr.id
+
+                  AND sc.troop_id =
+                    troop_info.troop_id
+
+              ),
+
+
+              last_row AS (
+
+                SELECT
+
+                  sc.hook_weight_kg
+                    AS last_carcass_weight,
+
+                  sc.sequence_number
+                    AS last_sequence_number,
+
+                  sc.animal_sequence_number
+                    AS last_animal_sequence_number,
+
+                  sc.half_number
+                    AS last_half_number
+
+                FROM
+                  slaughterhouse_carcasses sc
+
+                WHERE
+                  sc.reception_id =
+                    sr.id
+
+                  AND sc.troop_id =
+                    troop_info.troop_id
+
+                ORDER BY
+                  sc.sequence_number DESC,
+                  sc.id DESC
+
+                LIMIT 1
+
+              )
+
+
+              SELECT
+
+                (
+                  COALESCE(
+                    (
+                      SELECT
+                        animals_count
+                      FROM
+                        legacy
+                    ),
+                    0
+                  )
+
+                  +
+
+                  COALESCE(
+                    (
+                      SELECT
+                        COUNT(*)::int
+                      FROM
+                        modern_animals
+                      WHERE
+                        halves_count = 2
+                    ),
+                    0
+                  )
+
+                )::int
+                  AS carcasses_count,
+
+
+                COALESCE(
+                  (
+                    SELECT
+                      half_carcasses_count
+                    FROM
+                      raw_progress
+                  ),
+                  0
+                )::int
+                  AS half_carcasses_count,
+
+
+                COALESCE(
+                  (
+                    SELECT
+                      COUNT(*)::int
+                    FROM
+                      modern_animals
+                    WHERE
+                      halves_count = 1
+                  ),
+                  0
+                )::int
+                  AS incomplete_animals_count,
+
+
+                COALESCE(
+                  (
+                    SELECT
+                      hook_weight_total_kg
+                    FROM
+                      raw_progress
+                  ),
+                  0
+                )::numeric
+                  AS hook_weight_total_kg,
+
+
+                (
+                  SELECT
+                    last_carcass_weight
+                  FROM
+                    last_row
+                )
+                  AS last_carcass_weight,
+
+
+                (
+                  SELECT
+                    last_sequence_number
+                  FROM
+                    last_row
+                )
+                  AS last_sequence_number,
+
+
+                (
+                  SELECT
+                    last_animal_sequence_number
+                  FROM
+                    last_row
+                )
+                  AS last_animal_sequence_number,
+
+
+                (
+                  SELECT
+                    last_half_number
+                  FROM
+                    last_row
+                )
+                  AS last_half_number
+
+            ) troop_slaughter
+              ON troop_info.troop_id
+                IS NOT NULL
 
 
             WHERE
