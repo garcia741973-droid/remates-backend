@@ -2859,7 +2859,6 @@ exports.startSlaughterhouseSlaughter =
           summary.received_quantity_total,
         ) <= 0
       ) {
-
         await client.query(
           'ROLLBACK',
         );
@@ -2869,6 +2868,93 @@ exports.startSlaughterhouseSlaughter =
             'La recepción no tiene animales recibidos',
         });
       }
+
+
+      // =================================================
+      // LOTE / RECEPCIÓN COMPLETA
+      //
+      // Si troop_id = null, no alcanza con revisar
+      // solamente las tropas que ya llegaron a la
+      // recepción.
+      //
+      // Debemos comprobar que no exista otra tropa
+      // activa del mismo lote de compra todavía
+      // pendiente de recepción.
+      //
+      // Faena por tropa individual NO usa este bloqueo.
+      // =================================================
+
+      if (
+        troopId === null
+      ) {
+        const pendingLotTroopsResult =
+          await client.query(
+            `
+            SELECT
+              st.id,
+              st.troop_number,
+              st.purchase_lot_id,
+              st.status,
+              spl.lot_number
+
+            FROM slaughterhouse_troops st
+
+            JOIN slaughterhouse_purchase_lots spl
+              ON spl.id =
+                st.purchase_lot_id
+              AND spl.company_id =
+                st.company_id
+
+            WHERE
+              st.company_id = $2
+
+              AND st.purchase_lot_id IN (
+                SELECT DISTINCT
+                  linked.purchase_lot_id
+
+                FROM slaughterhouse_troops linked
+
+                WHERE
+                  linked.reception_id = $1
+                  AND linked.company_id = $2
+              )
+
+              AND st.status <> 'cancelled'
+
+              AND st.status NOT IN (
+                'received',
+                'in_slaughter',
+                'completed'
+              )
+
+            ORDER BY
+              st.purchase_lot_id ASC,
+              st.id ASC
+            `,
+            [
+              receptionId,
+              companyId,
+            ],
+          );
+
+
+        if (
+          pendingLotTroopsResult.rows.length > 0
+        ) {
+          await client.query(
+            'ROLLBACK',
+          );
+
+          return res.status(409).json({
+            error:
+              'No puede iniciarse la faena del lote completo porque todavía existen tropas pendientes de recepción',
+
+            pending_troops:
+              pendingLotTroopsResult.rows,
+          });
+        }
+      }
+
 
       // =================================================
       // VALIDAR PESO VIVO DE PLANTA
