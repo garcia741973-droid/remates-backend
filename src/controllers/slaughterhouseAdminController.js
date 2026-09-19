@@ -36315,10 +36315,11 @@ exports.receiveTroop =
 
 
       // =================================================
-      // BUSCAR RECEPCIÓN OPEN DEL MISMO LOTE
+      // BUSCAR RECEPCIÓN ACTIVA DEL MISMO LOTE
       //
       // Si otra tropa del mismo lote ya llegó,
-      // usamos la misma recepción.
+      // usamos la misma recepción aunque la recepción
+      // ya haya iniciado faena.
       // =================================================
 
       const openReceptionResult =
