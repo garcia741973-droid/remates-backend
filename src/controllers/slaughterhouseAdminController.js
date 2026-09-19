@@ -47607,13 +47607,21 @@ exports.exportFinalLotXlsx =
             `
               SELECT
 
-                slw.id,
+                COALESCE(
+                  slw.id,
+                  st.field_authorization_id,
+                  st.id
+                )
+                  AS id,
 
-                slw.troop_id,
+                st.id
+                  AS troop_id,
 
-                slw.weighing_number,
+                st.field_authorization_id::text
+                  AS weighing_number,
 
-                slw.quantity,
+                st.field_captured_quantity
+                  AS quantity,
 
                 slw.gross_weight_kg,
 
@@ -47627,23 +47635,84 @@ exports.exportFinalLotXlsx =
 
                 slw.total_amount,
 
-                slw.status,
+                st.field_capture_status
+                  AS status,
 
                 slw.original_weighing_id,
 
-                slw.created_at
+                COALESCE(
+                  slw.created_at,
+                  st.updated_at,
+                  st.created_at
+                )
+                  AS created_at
 
               FROM
-                slaughterhouse_live_weighings slw
+                slaughterhouse_troops st
+
+              LEFT JOIN LATERAL (
+
+                SELECT
+
+                  lw.id,
+
+                  lw.gross_weight_kg,
+
+                  lw.shrink_percent,
+
+                  lw.shrink_weight_kg,
+
+                  lw.net_weight_kg,
+
+                  lw.price_per_kg,
+
+                  lw.total_amount,
+
+                  lw.original_weighing_id,
+
+                  lw.created_at
+
+                FROM
+                  slaughterhouse_live_weighings lw
+
+                WHERE
+                  lw.company_id =
+                    st.company_id
+
+                  AND lw.purchase_lot_id =
+                    st.purchase_lot_id
+
+                  AND lw.troop_id =
+                    st.id
+
+                  AND lw.status =
+                    'certified'
+
+                ORDER BY
+                  lw.created_at DESC,
+                  lw.id DESC
+
+                LIMIT 1
+
+              ) slw
+                ON true
 
               WHERE
-                slw.company_id = $1
+                st.company_id = $1
 
-                AND slw.purchase_lot_id = $2
+                AND st.purchase_lot_id = $2
+
+                AND st.status <>
+                  'cancelled'
+
+                AND st.field_capture_status =
+                  'certified'
+
+                AND st.field_captured_quantity
+                  IS NOT NULL
 
               ORDER BY
-                slw.created_at ASC,
-                slw.id ASC
+                st.id ASC
             `,
             [
               companyId,
