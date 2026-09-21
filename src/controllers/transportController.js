@@ -4999,7 +4999,6 @@ const createDispatch = async (req, res) => {
       await client.query(
         `
           SELECT
-          SELECT
             id,
             company_id,
             purchase_lot_id,
