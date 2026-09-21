@@ -4999,10 +4999,12 @@ const createDispatch = async (req, res) => {
       await client.query(
         `
           SELECT
+          SELECT
             id,
             company_id,
             purchase_lot_id,
             status,
+            expected_quantity,
             field_capture_status,
             field_captured_quantity,
             dispatched_quantity,
