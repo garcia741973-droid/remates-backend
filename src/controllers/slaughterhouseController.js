@@ -6463,6 +6463,10 @@ exports.finishSlaughterhouseSlaughter =
           operator.company_id,
         );
 
+      const userId =
+        Number(
+          operator.user_id,
+        );
 
       const receptionId =
         Number(
@@ -6489,6 +6493,84 @@ exports.finishSlaughterhouseSlaughter =
           ?.toString()
           .trim() || null;
 
+      const rawIncidents =
+        req.body?.incidents;
+
+      let incidents =
+        [];
+
+      if (
+        rawIncidents !== undefined &&
+        rawIncidents !== null
+      ) {
+        if (
+          !Array.isArray(
+            rawIncidents,
+          )
+        ) {
+          return res.status(400).json({
+            error:
+              'Las incidencias de faena deben enviarse como una lista',
+          });
+        }
+
+        if (
+          rawIncidents.length > 50
+        ) {
+          return res.status(400).json({
+            error:
+              'No se pueden registrar más de 50 incidencias por cierre de faena',
+          });
+        }
+
+        incidents =
+          rawIncidents.map(
+            (
+              item,
+              index,
+            ) => {
+              const code =
+                item?.code
+                  ?.toString()
+                  .trim()
+                  .toUpperCase() ||
+                null;
+
+              const description =
+                item?.description
+                  ?.toString()
+                  .trim() ||
+                '';
+
+              const rawQuantity =
+                item?.quantity;
+
+              const quantity =
+                rawQuantity === undefined ||
+                rawQuantity === null ||
+                rawQuantity === ''
+                  ? null
+                  : Number(
+                      rawQuantity,
+                    );
+
+              const requiresFinancialReview =
+                item?.requires_financial_review ===
+                  true ||
+                item?.requires_financial_review ===
+                  'true';
+
+              return {
+                index,
+                code,
+                description,
+                quantity,
+                requires_financial_review:
+                  requiresFinancialReview,
+              };
+            },
+          );
+      }
 
       // =================================================
       // VALIDACIONES
@@ -6524,6 +6606,59 @@ exports.finishSlaughterhouseSlaughter =
         });
       }
 
+      if (
+        incidents.length > 0 &&
+        troopId === null
+      ) {
+        return res.status(400).json({
+          error:
+            'Las incidencias de faena deben estar asociadas a una tropa',
+        });
+      }
+
+      for (
+        const incident of incidents
+      ) {
+        if (
+          !incident.description
+        ) {
+          return res.status(400).json({
+            error:
+              `La descripción de la incidencia ${
+                incident.index + 1
+              } es obligatoria`,
+          });
+        }
+
+        if (
+          incident.code !== null &&
+          incident.code.length > 50
+        ) {
+          return res.status(400).json({
+            error:
+              `El código de la incidencia ${
+                incident.index + 1
+              } no puede superar 50 caracteres`,
+          });
+        }
+
+        if (
+          incident.quantity !== null &&
+          (
+            !Number.isFinite(
+              incident.quantity,
+            ) ||
+            incident.quantity < 0
+          )
+        ) {
+          return res.status(400).json({
+            error:
+              `La cantidad de la incidencia ${
+                incident.index + 1
+              } es inválida`,
+          });
+        }
+      }
 
       await client.query(
         'BEGIN',
@@ -7301,6 +7436,99 @@ exports.finishSlaughterhouseSlaughter =
         });
       }
 
+      // =================================================
+      // INCIDENCIAS DE FAENA
+      //
+      // Se registran después de validar que la faena
+      // puede cerrarse.
+      //
+      // No generan descuentos automáticamente.
+      // Finanzas las revisará posteriormente.
+      // =================================================
+
+      const savedIncidents =
+        [];
+
+      if (
+        incidents.length > 0
+      ) {
+        if (
+          !Number.isInteger(
+            purchaseLotId,
+          ) ||
+          purchaseLotId <= 0
+        ) {
+          await client.query(
+            'ROLLBACK',
+          );
+
+          return res.status(409).json({
+            error:
+              'No fue posible identificar el lote de compra para registrar las incidencias de faena',
+          });
+        }
+
+        for (
+          const incident of incidents
+        ) {
+          const incidentResult =
+            await client.query(
+              `
+              INSERT INTO slaughterhouse_slaughter_incidents (
+                company_id,
+                purchase_lot_id,
+                reception_id,
+                troop_id,
+                code,
+                description,
+                quantity,
+                requires_financial_review,
+                created_by
+              )
+              VALUES (
+                $1,
+                $2,
+                $3,
+                $4,
+                $5,
+                $6,
+                $7,
+                $8,
+                $9
+              )
+              RETURNING
+                id,
+                company_id,
+                purchase_lot_id,
+                reception_id,
+                troop_id,
+                code,
+                description,
+                quantity,
+                requires_financial_review,
+                review_status,
+                created_by,
+                created_at
+              `,
+              [
+                companyId,
+                purchaseLotId,
+                receptionId,
+                troopId,
+                incident.code,
+                incident.description,
+                incident.quantity,
+                incident
+                  .requires_financial_review,
+                userId,
+              ],
+            );
+
+          savedIncidents.push(
+            incidentResult.rows[0],
+          );
+        }
+      }
 
       const yieldPercent =
         liveWeight > 0
@@ -7759,6 +7987,9 @@ exports.finishSlaughterhouseSlaughter =
 
         reception:
           updatedReception,
+
+        incidents:
+          savedIncidents,
 
         summary: {
 
