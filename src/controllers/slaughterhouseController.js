@@ -7886,7 +7886,8 @@ exports.finishSlaughterhouseSlaughter =
             RETURNING
               id,
               lot_number,
-              status
+              status,
+              capture_sheet_id
             `,
             [
               companyId,
@@ -7903,6 +7904,68 @@ exports.finishSlaughterhouseSlaughter =
             completedLotsResult.rows,
           );
         }
+
+        // =================================================
+        // COMPLETAR HOJAS DE CAPTACIÓN ASOCIADAS
+        //
+        // Si el lote de compra terminó completamente,
+        // su hoja de captación ya no debe seguir apareciendo
+        // como abierta para el captador.
+        // =================================================
+
+        const completedCaptureSheetIds =
+          completedLotsResult.rows
+            .map(
+              (row) =>
+                row.capture_sheet_id
+            )
+            .filter(
+              (id) =>
+                id !== null &&
+                id !== undefined
+            );
+
+        if (
+          completedCaptureSheetIds.length >
+          0
+        ) {
+          const completedCaptureSheetsResult =
+            await client.query(
+              `
+              UPDATE slaughterhouse_capture_sheets
+              SET
+                status = 'completed',
+                updated_at = NOW()
+              WHERE
+                company_id = $1
+                AND id = ANY($2::int[])
+                AND status NOT IN (
+                  'completed',
+                  'cancelled'
+                )
+              RETURNING
+                id,
+                capture_number,
+                status
+              `,
+              [
+                companyId,
+                completedCaptureSheetIds,
+              ],
+            );
+
+          if (
+            completedCaptureSheetsResult
+              .rows.length > 0
+          ) {
+            console.log(
+              'CAPTURE SHEETS COMPLETED =>',
+              completedCaptureSheetsResult
+                .rows,
+            );
+          }
+        }
+
       }
 
 
