@@ -23251,94 +23251,158 @@ exports.acceptPurchaseLotTransportNegotiation =
         updatedNegotiationResult.rows[0];
 
       // =================================================
-      // CREAR TROPA AUTOMÁTICAMENTE
+      // ASIGNAR NEGOCIACIÓN A TROPA
       //
-      // Una negociación confirmada = una tropa física.
+      // Si ya existe una tropa esperando transporte para
+      // esta misma solicitud, reutilizamos ESA tropa.
       //
-      // expected_quantity:
-      // solamente orientación administrativa.
+      // Esto evita dejar:
+      // - una tropa transport_requested
+      // - otra tropa transport_assigned
+      //
+      // Si ya no existe ninguna tropa pendiente para esta
+      // solicitud, entonces sí creamos una nueva. Esto
+      // permite aceptar un segundo/tercer camión.
       // =================================================
 
-      const troopResult =
+      const pendingTroopResult =
         await client.query(
           `
-            INSERT INTO slaughterhouse_troops (
-
-              company_id,
-
-              purchase_lot_id,
-
-              troop_number,
-
-              transport_request_id,
-
-              transport_negotiation_id,
-
-              truck_id,
-
-              transporter_user_id,
-
-              expected_quantity,
-
-              status,
-
-              notes,
-
-              created_by
-
-            )
-
-            VALUES (
-
-              $1,
-
-              $2,
-
-              NULL,
-
-              $3,
-
-              $4,
-
-              $5,
-
-              $6,
-
-              $7,
-
-              'transport_assigned',
-
-              $8,
-
-              $9
-
-            )
-
-            RETURNING *
+            SELECT *
+            FROM slaughterhouse_troops
+            WHERE
+              company_id = $1
+              AND purchase_lot_id = $2
+              AND transport_request_id = $3
+              AND status = 'transport_requested'
+              AND transport_negotiation_id IS NULL
+            ORDER BY id ASC
+            LIMIT 1
+            FOR UPDATE
           `,
           [
             companyId,
-
             purchaseLotId,
-
             negotiation.request_id,
-
-            negotiation.id,
-
-            negotiation.truck_id,
-
-            negotiation.transporter_id,
-
-            expectedQuantity,
-
-            `Camión confirmado desde solicitud de transporte #${negotiation.request_id}`,
-
-            userId,
           ],
         );
 
-      const troop =
-        troopResult.rows[0];
+
+      let troop;
+
+
+      if (
+        pendingTroopResult.rows.length > 0
+      ) {
+        const pendingTroop =
+          pendingTroopResult.rows[0];
+
+
+        const updatedTroopResult =
+          await client.query(
+            `
+              UPDATE slaughterhouse_troops
+              SET
+                transport_negotiation_id = $1,
+                truck_id = $2,
+                transporter_user_id = $3,
+                expected_quantity =
+                  COALESCE(
+                    expected_quantity,
+                    $4
+                  ),
+                status =
+                  'transport_assigned',
+                notes =
+                  concat_ws(
+                    ' | ',
+                    NULLIF(
+                      notes,
+                      ''
+                    ),
+                    $5
+                  ),
+                updated_at =
+                  NOW()
+              WHERE
+                id = $6
+                AND company_id = $7
+              RETURNING *
+            `,
+            [
+              negotiation.id,
+              negotiation.truck_id,
+              negotiation.transporter_id,
+              expectedQuantity,
+              `Camión confirmado desde solicitud de transporte #${negotiation.request_id}`,
+              pendingTroop.id,
+              companyId,
+            ],
+          );
+
+
+        troop =
+          updatedTroopResult.rows[0];
+
+      } else {
+
+        // =================================================
+        // NO QUEDA TROPA PENDIENTE
+        //
+        // Esta negociación representa un camión adicional.
+        // Recién aquí creamos una nueva tropa física.
+        // =================================================
+
+        const createdTroopResult =
+          await client.query(
+            `
+              INSERT INTO slaughterhouse_troops (
+                company_id,
+                purchase_lot_id,
+                troop_number,
+                transport_request_id,
+                transport_negotiation_id,
+                truck_id,
+                transporter_user_id,
+                expected_quantity,
+                status,
+                notes,
+                created_by
+              )
+
+              VALUES (
+                $1,
+                $2,
+                NULL,
+                $3,
+                $4,
+                $5,
+                $6,
+                $7,
+                'transport_assigned',
+                $8,
+                $9
+              )
+
+              RETURNING *
+            `,
+            [
+              companyId,
+              purchaseLotId,
+              negotiation.request_id,
+              negotiation.id,
+              negotiation.truck_id,
+              negotiation.transporter_id,
+              expectedQuantity,
+              `Camión adicional confirmado desde solicitud de transporte #${negotiation.request_id}`,
+              userId,
+            ],
+          );
+
+
+        troop =
+          createdTroopResult.rows[0];
+      }
 
       // =================================================
       // LOTE EN TRANSPORTE
@@ -23944,14 +24008,20 @@ exports.closePurchaseLotTransportRequest =
           `
             SELECT
               COUNT(*)::int AS total
-
             FROM slaughterhouse_troops
-
             WHERE
               company_id = $1
               AND purchase_lot_id = $2
               AND transport_request_id = $3
-              AND status <> 'cancelled'
+              AND transport_negotiation_id IS NOT NULL
+              AND status IN (
+                'transport_assigned',
+                'dispatched',
+                'in_transit',
+                'received',
+                'in_slaughter',
+                'completed'
+              )
           `,
           [
             companyId,
@@ -24003,6 +24073,47 @@ exports.closePurchaseLotTransportRequest =
             transportRequest.id,
           ],
         );
+
+        // ===============================================
+        // CANCELAR TROPAS PENDIENTES SIN CAMIÓN GANADOR
+        //
+        // Al cerrar la solicitud ya no debe quedar ninguna
+        // tropa en transport_requested sin negociación.
+        //
+        // Las tropas ya asignadas / en viaje / recibidas
+        // NO se modifican.
+        // ===============================================
+
+        const cancelledPendingTroopsResult =
+          await client.query(
+            `
+              UPDATE slaughterhouse_troops
+              SET
+                status = 'cancelled',
+                notes =
+                  concat_ws(
+                    ' | ',
+                    NULLIF(
+                      notes,
+                      ''
+                    ),
+                    'Solicitud de transporte cerrada sin camión asignado'
+                  ),
+                updated_at = NOW()
+              WHERE
+                company_id = $1
+                AND purchase_lot_id = $2
+                AND transport_request_id = $3
+                AND status = 'transport_requested'
+                AND transport_negotiation_id IS NULL
+              RETURNING id
+            `,
+            [
+              companyId,
+              purchaseLotId,
+              transportRequest.id,
+            ],
+          );
 
       // ===============================================
       // CANCELAR SOLO PROPUESTAS NO CONFIRMADAS
@@ -24070,8 +24181,17 @@ exports.closePurchaseLotTransportRequest =
           JSON.stringify({
             ...closedRequestResult
               .rows[0],
+
             confirmed_trucks:
               confirmedTrucks,
+
+            cancelled_pending_troops:
+              cancelledPendingTroopsResult
+                .rows
+                .map(
+                  row => row.id
+                ),
+
             cancelled_open_negotiations:
               cancelledNegotiationsResult
                 .rows
@@ -24095,6 +24215,9 @@ exports.closePurchaseLotTransportRequest =
             transportRequest.id,
           confirmed_trucks:
             confirmedTrucks,
+          cancelled_pending_troops:
+            cancelledPendingTroopsResult
+              .rowCount,
           cancelled_open_negotiations:
             cancelledNegotiationsResult
               .rowCount,
@@ -24113,6 +24236,9 @@ exports.closePurchaseLotTransportRequest =
           closedRequestResult.rows[0],
         confirmed_trucks:
           confirmedTrucks,
+        cancelled_pending_troops:
+          cancelledPendingTroopsResult
+            .rowCount,
         cancelled_open_negotiations:
           cancelledNegotiationsResult
             .rowCount,
