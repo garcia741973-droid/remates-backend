@@ -5028,12 +5028,23 @@ const createDispatch = async (req, res) => {
 
     // =====================================================
     // SI ES FRIGORÍFICO:
-    // EL CAMIONERO SOLO PUEDE CERRAR CARGA
-    // SI EL VENDEDOR YA CERTIFICÓ EL LOTE
+    //
+    // La certificación del vendedor es RECOMENDADA,
+    // pero NO debe detener la operación.
+    //
+    // Si existe certificación completa:
+    // - usamos la cantidad certificada.
+    //
+    // Si no existe:
+    // - permitimos el despacho;
+    // - usamos provisionalmente la cantidad esperada
+    //   de la tropa.
+    //
+    // Recepción registrará posteriormente la cantidad
+    // realmente recibida.
     // =====================================================
 
     if (slaughterhouseTroop) {
-
       if (
         ![
           'transport_assigned',
@@ -5042,7 +5053,6 @@ const createDispatch = async (req, res) => {
           slaughterhouseTroop.status
         )
       ) {
-
         await client.query(
           'ROLLBACK'
         );
@@ -5053,51 +5063,65 @@ const createDispatch = async (req, res) => {
         });
       }
 
-      if (
+      const hasCertifiedFieldLoad =
         slaughterhouseTroop
-          .field_capture_status !==
-          'certified' ||
+          .field_capture_status ===
+          'certified' &&
         slaughterhouseTroop
-          .field_authorization_id ===
-          null ||
-        !slaughterhouseTroop
-          .field_document_hash ||
-        slaughterhouseTroop
-          .field_certified_at ===
-          null
-      ) {
-
-        await client.query(
-          'ROLLBACK'
-        );
-
-        return res.status(409).json({
-          error:
-            'La carga todavía no está certificada por el vendedor',
-        });
-      }
-
-      certifiedDispatchQuantity =
-        Number(
+          .field_authorization_id !==
+          null &&
+        Boolean(
           slaughterhouseTroop
-            .field_captured_quantity
-        );
+            .field_document_hash
+        ) &&
+        slaughterhouseTroop
+          .field_certified_at !==
+          null;
 
-      if (
-        !Number.isInteger(
-          certifiedDispatchQuantity
-        ) ||
-        certifiedDispatchQuantity <= 0
-      ) {
+      if (hasCertifiedFieldLoad) {
+        certifiedDispatchQuantity =
+          Number(
+            slaughterhouseTroop
+              .field_captured_quantity
+          );
 
-        await client.query(
-          'ROLLBACK'
-        );
+        if (
+          !Number.isInteger(
+            certifiedDispatchQuantity
+          ) ||
+          certifiedDispatchQuantity <= 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
 
-        return res.status(409).json({
-          error:
-            'La cantidad certificada de la carga es inválida',
-        });
+          return res.status(409).json({
+            error:
+              'La cantidad certificada de la carga es inválida',
+          });
+        }
+      } else {
+        certifiedDispatchQuantity =
+          Number(
+            slaughterhouseTroop
+              .expected_quantity
+          );
+
+        if (
+          !Number.isInteger(
+            certifiedDispatchQuantity
+          ) ||
+          certifiedDispatchQuantity <= 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'La tropa no tiene una cantidad válida para registrar el despacho',
+          });
+        }
       }
 
       if (
@@ -5112,14 +5136,13 @@ const createDispatch = async (req, res) => {
         ) !==
           certifiedDispatchQuantity
       ) {
-
         await client.query(
           'ROLLBACK'
         );
 
         return res.status(409).json({
           error:
-            'La cantidad despachada no coincide con la cantidad certificada',
+            'La cantidad despachada no coincide con la cantidad registrada para la tropa',
         });
       }
     }
