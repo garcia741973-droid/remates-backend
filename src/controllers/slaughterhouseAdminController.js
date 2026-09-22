@@ -40241,10 +40241,19 @@ exports.getPreliquidationById =
               rate,
               quantity,
               amount,
+
+              target_type,
+              transport_negotiation_id,
+              commissioner_person_id,
+              created_by,
+
               created_at
+
             FROM slaughterhouse_preliquidation_adjustments
+
             WHERE
               preliquidation_id = $1
+
             ORDER BY
               id ASC
           `,
@@ -40258,6 +40267,1540 @@ exports.getPreliquidationById =
         adjustmentsResult.rows;
 
 
+      const sellerAdjustments =
+        adjustments.filter(
+          (adjustment) =>
+            adjustment.target_type ===
+            'seller'
+        );
+
+
+      const transportAdjustments =
+        adjustments.filter(
+          (adjustment) =>
+            adjustment.target_type ===
+            'transport'
+        );
+
+
+      const commissionerAdjustments =
+        adjustments.filter(
+          (adjustment) =>
+            adjustment.target_type ===
+            'commissioner'
+        );
+
+      // =================================================
+      // 3. CONTEXTO DE COMPRA
+      //
+      // Datos comerciales y operativos que identifican
+      // la compra asociada a esta versión de
+      // preliquidación.
+      //
+      // Incluye:
+      // - lote
+      // - clasificación y código generado
+      // - ganadero
+      // - predio
+      // - captador
+      // - método de pago del ganadero
+      // =================================================
+
+      const purchaseContextResult =
+        await pool.query(
+          `
+            SELECT
+              spl.id
+                AS purchase_lot_id,
+
+              spl.lot_number,
+
+              spl.expected_quantity,
+              spl.price_per_unit,
+              spl.pricing_basis,
+              spl.weight_source,
+
+              spl.planned_payment_date,
+              spl.payment_terms,
+
+
+              ac.id
+                AS classification_id,
+
+              ac.generated_code
+                AS classification_code,
+
+              ac.display_name
+                AS classification_name,
+
+
+              cat.id
+                AS category_id,
+
+              cat.code
+                AS category_code,
+
+              cat.name
+                AS category_name,
+
+
+              br.id
+                AS breed_id,
+
+              br.code
+                AS breed_code,
+
+              br.name
+                AS breed_name,
+
+
+              fm.id
+                AS feeding_method_id,
+
+              fm.code
+                AS feeding_code,
+
+              fm.name
+                AS feeding_name,
+
+
+              ar.id
+                AS age_range_id,
+
+              ar.code
+                AS age_code,
+
+              ar.name
+                AS age_name,
+
+
+              seller.id
+                AS seller_person_id,
+
+              seller.full_name
+                AS seller_name,
+
+              seller.document_type
+                AS seller_document_type,
+
+              seller.document_number
+                AS seller_document_number,
+
+              seller.phone
+                AS seller_phone,
+
+
+              estate.id
+                AS estate_id,
+
+              estate.name
+                AS estate_name,
+
+
+              captador.id
+                AS captador_person_id,
+
+              captador.full_name
+                AS captador_name,
+
+              captador.document_type
+                AS captador_document_type,
+
+              captador.document_number
+                AS captador_document_number,
+
+              captador.phone
+                AS captador_phone,
+
+
+              payment_method.id
+                AS seller_payment_method_id,
+
+              payment_method.method_type
+                AS seller_payment_method_type,
+
+              payment_method.account_number
+                AS seller_account_number,
+
+              payment_method.account_type
+                AS seller_account_type,
+
+              payment_method.account_holder
+                AS seller_account_holder,
+
+              payment_method.wallet_phone
+                AS seller_wallet_phone,
+
+              payment_method.wallet_name
+                AS seller_wallet_name,
+
+
+              bank.id
+                AS seller_bank_id,
+
+              bank.name
+                AS seller_bank_name
+
+
+            FROM slaughterhouse_purchase_lots spl
+
+
+            LEFT JOIN slaughterhouse_animal_classifications ac
+              ON ac.id =
+                spl.classification_id
+
+
+            LEFT JOIN slaughterhouse_animal_categories cat
+              ON cat.id =
+                ac.category_id
+
+
+            LEFT JOIN slaughterhouse_breeds br
+              ON br.id =
+                ac.breed_id
+
+
+            LEFT JOIN slaughterhouse_feeding_methods fm
+              ON fm.id =
+                ac.feeding_method_id
+
+
+            LEFT JOIN slaughterhouse_age_ranges ar
+              ON ar.id =
+                ac.age_range_id
+
+
+            LEFT JOIN slaughterhouse_people seller
+              ON seller.id =
+                spl.seller_person_id
+
+
+            LEFT JOIN slaughterhouse_estates estate
+              ON estate.id =
+                spl.estate_id
+
+
+            LEFT JOIN slaughterhouse_people captador
+              ON captador.id =
+                spl.captador_person_id
+
+
+            LEFT JOIN slaughterhouse_person_payment_methods payment_method
+              ON payment_method.id =
+                spl.seller_payment_method_id
+
+
+            LEFT JOIN slaughterhouse_banks bank
+              ON bank.id =
+                payment_method.bank_id
+
+
+            WHERE
+              spl.id = $1
+              AND spl.company_id = $2
+
+            LIMIT 1
+          `,
+          [
+            preliquidation.purchase_lot_id,
+            companyId,
+          ],
+        );
+
+
+      const purchaseContext =
+        purchaseContextResult.rows.length > 0
+          ? purchaseContextResult.rows[0]
+          : null;
+
+      // =================================================
+      // 4. RESUMEN REAL DE FAENA
+      //
+      // Compatible con:
+      //
+      // LEGACY
+      // - una fila de carcasa = un animal.
+      //
+      // MODERNO
+      // - dos medias identificadas = un animal completo.
+      //
+      // El rendimiento utiliza:
+      //
+      // peso gancho real
+      // ---------------- × 100
+      // peso neto liquidable
+      // =================================================
+
+      const slaughterSummaryResult =
+        await pool.query(
+          `
+            WITH lot_troops AS (
+              SELECT
+                st.id,
+                st.received_quantity
+              FROM slaughterhouse_troops st
+              WHERE
+                st.company_id = $1
+                AND st.purchase_lot_id = $2
+                AND st.status <> 'cancelled'
+            ),
+
+
+            lot_carcasses AS (
+              SELECT
+                sc.*
+              FROM slaughterhouse_carcasses sc
+              JOIN lot_troops lt
+                ON lt.id =
+                  sc.troop_id
+            ),
+
+
+            legacy AS (
+              SELECT
+                COUNT(*)::int
+                  AS animals_count
+              FROM lot_carcasses
+              WHERE
+                animal_sequence_number
+                  IS NULL
+                OR half_number
+                  IS NULL
+            ),
+
+
+            modern_animals AS (
+              SELECT
+                troop_id,
+                animal_sequence_number,
+
+                COUNT(
+                  DISTINCT half_number
+                )::int
+                  AS halves_count
+
+              FROM lot_carcasses
+
+              WHERE
+                animal_sequence_number
+                  IS NOT NULL
+                AND half_number
+                  IS NOT NULL
+
+              GROUP BY
+                troop_id,
+                animal_sequence_number
+            ),
+
+
+            modern_summary AS (
+              SELECT
+                COUNT(*) FILTER (
+                  WHERE
+                    halves_count = 2
+                )::int
+                  AS completed_animals,
+
+                COUNT(*) FILTER (
+                  WHERE
+                    halves_count = 1
+                )::int
+                  AS incomplete_animals
+
+              FROM modern_animals
+            ),
+
+
+            weight_summary AS (
+              SELECT
+                COUNT(*) FILTER (
+                  WHERE
+                    animal_sequence_number
+                      IS NOT NULL
+                    AND half_number
+                      IS NOT NULL
+                )::int
+                  AS half_carcasses_count,
+
+                COALESCE(
+                  SUM(hook_weight_kg),
+                  0
+                )::numeric
+                  AS hook_weight_kg,
+
+                ROUND(
+                  AVG(hook_weight_kg),
+                  2
+                )
+                  AS average_hook_weight_kg,
+
+                MIN(hook_weight_kg)
+                  AS min_hook_weight_kg,
+
+                MAX(hook_weight_kg)
+                  AS max_hook_weight_kg
+
+              FROM lot_carcasses
+            )
+
+
+            SELECT
+              COALESCE(
+                (
+                  SELECT
+                    SUM(received_quantity)
+                  FROM lot_troops
+                ),
+                0
+              )::int
+                AS received_animals,
+
+
+              (
+                legacy.animals_count
+                +
+                COALESCE(
+                  modern_summary.completed_animals,
+                  0
+                )
+              )::int
+                AS slaughtered_animals,
+
+
+              COALESCE(
+                modern_summary.incomplete_animals,
+                0
+              )::int
+                AS incomplete_animals,
+
+
+              weight_summary.half_carcasses_count,
+
+              weight_summary.hook_weight_kg,
+
+              weight_summary.average_hook_weight_kg,
+
+              weight_summary.min_hook_weight_kg,
+
+              weight_summary.max_hook_weight_kg
+
+
+            FROM legacy
+
+            CROSS JOIN modern_summary
+
+            CROSS JOIN weight_summary
+          `,
+          [
+            companyId,
+            preliquidation.purchase_lot_id,
+          ],
+        );
+
+
+      const slaughterRaw =
+        slaughterSummaryResult.rows[0] || {};
+
+
+      const slaughterHookWeightKg =
+        Number(
+          slaughterRaw.hook_weight_kg || 0
+        );
+
+
+      const netLiveWeightKg =
+        Number(
+          preliquidation.net_weight_kg || 0
+        );
+
+
+      const yieldPercent =
+        netLiveWeightKg > 0
+          ? Math.round(
+              (
+                (
+                  slaughterHookWeightKg /
+                  netLiveWeightKg
+                ) *
+                100 +
+                Number.EPSILON
+              ) *
+              100
+            ) / 100
+          : null;
+
+
+      const slaughter = {
+        received_animals:
+          Number(
+            slaughterRaw.received_animals || 0
+          ),
+
+        slaughtered_animals:
+          Number(
+            slaughterRaw.slaughtered_animals || 0
+          ),
+
+        incomplete_animals:
+          Number(
+            slaughterRaw.incomplete_animals || 0
+          ),
+
+        half_carcasses_count:
+          Number(
+            slaughterRaw.half_carcasses_count || 0
+          ),
+
+        hook_weight_kg:
+          slaughterHookWeightKg,
+
+        average_hook_weight_kg:
+          slaughterRaw.average_hook_weight_kg !==
+            null
+            ? Number(
+                slaughterRaw.average_hook_weight_kg
+              )
+            : null,
+
+        min_hook_weight_kg:
+          slaughterRaw.min_hook_weight_kg !==
+            null
+            ? Number(
+                slaughterRaw.min_hook_weight_kg
+              )
+            : null,
+
+        max_hook_weight_kg:
+          slaughterRaw.max_hook_weight_kg !==
+            null
+            ? Number(
+                slaughterRaw.max_hook_weight_kg
+              )
+            : null,
+
+        net_live_weight_kg:
+          netLiveWeightKg,
+
+        yield_percent:
+          yieldPercent,
+      };
+
+
+      // =================================================
+      // 5. INCIDENCIAS DE FAENA
+      //
+      // Las incidencias se muestran aunque todavía
+      // no tengan efecto financiero.
+      //
+      // preliquidation_adjustment_id permite saber
+      // posteriormente qué incidencia fue convertida
+      // en descuento/adición.
+      // =================================================
+
+      const incidentsResult =
+        await pool.query(
+          `
+            SELECT
+              id,
+              company_id,
+              purchase_lot_id,
+              reception_id,
+              troop_id,
+
+              code,
+              description,
+              quantity,
+
+              requires_financial_review,
+              review_status,
+
+              preliquidation_adjustment_id,
+
+              created_by,
+              created_at,
+
+              reviewed_by,
+              reviewed_at
+
+            FROM slaughterhouse_slaughter_incidents
+
+            WHERE
+              company_id = $1
+              AND purchase_lot_id = $2
+
+            ORDER BY
+              created_at ASC,
+              id ASC
+          `,
+          [
+            companyId,
+            preliquidation.purchase_lot_id,
+          ],
+        );
+
+
+      const incidents =
+        incidentsResult.rows;
+
+      // =================================================
+      // 6. TRANSPORTE DEL LOTE
+      //
+      // Cada negociación conserva:
+      //
+      // - transportista
+      // - camión
+      // - tropa
+      // - monto pactado
+      // - método de pago
+      // - ajustes propios
+      // - neto a pagar
+      //
+      // Los ajustes de transporte NO modifican
+      // total_payable del ganadero.
+      // =================================================
+
+      const transportResult =
+        await pool.query(
+          `
+            SELECT
+              tr.id
+                AS request_id,
+
+              tr.origin,
+              tr.destination,
+              tr.quantity
+                AS requested_quantity,
+              tr.animal_type,
+              tr.travel_date,
+              tr.status
+                AS request_status,
+
+
+              tn.id
+                AS negotiation_id,
+
+              tn.transporter_id
+                AS transporter_user_id,
+
+              tn.trip_price,
+              tn.status
+                AS transport_status,
+
+              tn.trip_started_at,
+              tn.delivered_at,
+
+
+              troop.id
+                AS troop_id,
+
+              troop.received_quantity
+                AS troop_received_quantity,
+
+              troop.status
+                AS troop_status,
+
+
+              tt.id
+                AS truck_id,
+
+              tt.plate,
+              tt.brand,
+              tt.model,
+              tt.year,
+              tt.truck_type,
+
+              tt.capacity_large,
+              tt.capacity_small,
+              tt.has_trailer,
+              tt.trailer_capacity,
+
+
+              transporter.id
+                AS transporter_person_id,
+
+              transporter.full_name
+                AS transporter_name,
+
+              transporter.document_type
+                AS transporter_document_type,
+
+              transporter.document_number
+                AS transporter_document_number,
+
+              transporter.phone
+                AS transporter_phone,
+
+
+              company_transporter.id
+                AS company_transporter_id,
+
+              company_transporter.status
+                AS company_transporter_status,
+
+              company_transporter.is_preferred,
+
+
+              payment_method.id
+                AS payment_method_id,
+
+              payment_method.method_type
+                AS payment_method_type,
+
+              payment_method.account_number,
+
+              payment_method.account_type,
+
+              payment_method.account_holder,
+
+              payment_method.wallet_phone,
+
+              payment_method.wallet_name,
+
+
+              bank.id
+                AS bank_id,
+
+              bank.name
+                AS bank_name
+
+
+            FROM transport_requests tr
+
+
+            JOIN transport_negotiations tn
+              ON tn.request_id =
+                tr.id
+              AND COALESCE(
+                tn.cancelled,
+                false
+              ) = false
+
+
+            LEFT JOIN transporter_trucks tt
+              ON tt.id =
+                tn.truck_id
+
+
+            LEFT JOIN slaughterhouse_people transporter
+              ON transporter.user_id =
+                tn.transporter_id
+
+
+            LEFT JOIN slaughterhouse_company_transporters
+              company_transporter
+              ON company_transporter.company_id =
+                $2
+              AND company_transporter.person_id =
+                transporter.id
+
+
+            LEFT JOIN LATERAL (
+              SELECT
+                st.id,
+                st.received_quantity,
+                st.status
+
+              FROM slaughterhouse_troops st
+
+              WHERE
+                st.company_id = $2
+                AND st.purchase_lot_id =
+                  tr.purchase_lot_id
+                AND st.transport_negotiation_id =
+                  tn.id
+                AND st.status <> 'cancelled'
+
+              ORDER BY
+                st.id ASC
+
+              LIMIT 1
+            ) troop
+              ON true
+
+
+            LEFT JOIN LATERAL (
+              SELECT
+                spm.*
+
+              FROM slaughterhouse_person_payment_methods spm
+
+              WHERE
+                spm.person_id =
+                  transporter.id
+
+              ORDER BY
+                spm.is_default DESC,
+                spm.id ASC
+
+              LIMIT 1
+            ) payment_method
+              ON true
+
+
+            LEFT JOIN slaughterhouse_banks bank
+              ON bank.id =
+                payment_method.bank_id
+
+
+            WHERE
+              tr.purchase_lot_id = $1
+
+            ORDER BY
+              tr.id ASC,
+              tn.id ASC
+          `,
+          [
+            preliquidation.purchase_lot_id,
+            companyId,
+          ],
+        );
+
+
+      // =================================================
+      // CALCULAR AJUSTES Y NETO POR NEGOCIACIÓN
+      // =================================================
+
+      const transport =
+        transportResult.rows.map(
+          (row) => {
+
+            const negotiationId =
+              Number(
+                row.negotiation_id
+              );
+
+
+            const relatedAdjustments =
+              transportAdjustments.filter(
+                (adjustment) =>
+                  Number(
+                    adjustment
+                      .transport_negotiation_id
+                  ) === negotiationId
+              );
+
+
+            const discountsTotal =
+              relatedAdjustments
+                .filter(
+                  (adjustment) =>
+                    adjustment.adjustment_type ===
+                    'discount'
+                )
+                .reduce(
+                  (
+                    total,
+                    adjustment,
+                  ) =>
+                    total +
+                    Number(
+                      adjustment.amount || 0
+                    ),
+                  0,
+                );
+
+
+            const additionsTotal =
+              relatedAdjustments
+                .filter(
+                  (adjustment) =>
+                    adjustment.adjustment_type ===
+                    'addition'
+                )
+                .reduce(
+                  (
+                    total,
+                    adjustment,
+                  ) =>
+                    total +
+                    Number(
+                      adjustment.amount || 0
+                    ),
+                  0,
+                );
+
+
+            const baseAmount =
+              Number(
+                row.trip_price || 0
+              );
+
+
+            const netPayable =
+              Math.round(
+                (
+                  baseAmount -
+                  discountsTotal +
+                  additionsTotal +
+                  Number.EPSILON
+                ) *
+                100
+              ) / 100;
+
+
+            return {
+              ...row,
+
+              trip_price:
+                baseAmount,
+
+              discounts_total:
+                Math.round(
+                  (
+                    discountsTotal +
+                    Number.EPSILON
+                  ) *
+                  100
+                ) / 100,
+
+              additions_total:
+                Math.round(
+                  (
+                    additionsTotal +
+                    Number.EPSILON
+                  ) *
+                  100
+                ) / 100,
+
+              net_payable:
+                netPayable,
+
+              adjustments:
+                relatedAdjustments,
+            };
+          },
+        );
+
+
+      // =================================================
+      // TOTAL GENERAL DE TRANSPORTE DEL LOTE
+      // =================================================
+
+      const transportBaseTotal =
+        transport.reduce(
+          (
+            total,
+            item,
+          ) =>
+            total +
+            Number(
+              item.trip_price || 0
+            ),
+          0,
+        );
+
+
+      const transportDiscountsTotal =
+        transport.reduce(
+          (
+            total,
+            item,
+          ) =>
+            total +
+            Number(
+              item.discounts_total || 0
+            ),
+          0,
+        );
+
+
+      const transportAdditionsTotal =
+        transport.reduce(
+          (
+            total,
+            item,
+          ) =>
+            total +
+            Number(
+              item.additions_total || 0
+            ),
+          0,
+        );
+
+
+      const transportNetTotal =
+        transport.reduce(
+          (
+            total,
+            item,
+          ) =>
+            total +
+            Number(
+              item.net_payable || 0
+            ),
+          0,
+        );
+
+
+      const transportSummary = {
+        count:
+          transport.length,
+
+        base_total:
+          Math.round(
+            (
+              transportBaseTotal +
+              Number.EPSILON
+            ) *
+            100
+          ) / 100,
+
+        discounts_total:
+          Math.round(
+            (
+              transportDiscountsTotal +
+              Number.EPSILON
+            ) *
+            100
+          ) / 100,
+
+        additions_total:
+          Math.round(
+            (
+              transportAdditionsTotal +
+              Number.EPSILON
+            ) *
+            100
+          ) / 100,
+
+        net_payable_total:
+          Math.round(
+            (
+              transportNetTotal +
+              Number.EPSILON
+            ) *
+            100
+          ) / 100,
+      };
+
+      // =================================================
+      // 7. COMISIONISTA
+      //
+      // Regla existente del sistema:
+      //
+      // fixed
+      //   → commission_value
+      //
+      // per_head
+      //   → animales recibidos
+      //     × commission_value
+      //
+      // percent
+      //   → total neto del ganadero
+      //     × commission_value / 100
+      //
+      // Los ajustes del comisionista NO modifican
+      // total_payable del ganadero.
+      // =================================================
+
+      const commissionerResult =
+        await pool.query(
+          `
+            SELECT
+              spl.commissioner_person_id,
+
+              spl.commission_type,
+
+              spl.commission_value,
+
+
+              commissioner.full_name
+                AS commissioner_name,
+
+              commissioner.document_type
+                AS commissioner_document_type,
+
+              commissioner.document_number
+                AS commissioner_document_number,
+
+              commissioner.phone
+                AS commissioner_phone,
+
+
+              payment_method.id
+                AS payment_method_id,
+
+              payment_method.method_type
+                AS payment_method_type,
+
+              payment_method.account_number,
+
+              payment_method.account_type,
+
+              payment_method.account_holder,
+
+              payment_method.wallet_phone,
+
+              payment_method.wallet_name,
+
+
+              bank.id
+                AS bank_id,
+
+              bank.name
+                AS bank_name
+
+
+            FROM slaughterhouse_purchase_lots spl
+
+
+            LEFT JOIN slaughterhouse_people commissioner
+              ON commissioner.id =
+                spl.commissioner_person_id
+
+
+            LEFT JOIN LATERAL (
+              SELECT
+                spm.*
+
+              FROM slaughterhouse_person_payment_methods spm
+
+              WHERE
+                spm.person_id =
+                  commissioner.id
+
+              ORDER BY
+                spm.is_default DESC,
+                spm.id ASC
+
+              LIMIT 1
+            ) payment_method
+              ON true
+
+
+            LEFT JOIN slaughterhouse_banks bank
+              ON bank.id =
+                payment_method.bank_id
+
+
+            WHERE
+              spl.id = $1
+              AND spl.company_id = $2
+
+            LIMIT 1
+          `,
+          [
+            preliquidation.purchase_lot_id,
+            companyId,
+          ],
+        );
+
+
+      const commissionerRaw =
+        commissionerResult.rows.length > 0
+          ? commissionerResult.rows[0]
+          : null;
+
+
+      let commissioner =
+        null;
+
+
+      let commissionerSummary = {
+        has_commissioner: false,
+
+        commission_type:
+          commissionerRaw
+            ?.commission_type ||
+          null,
+
+        commission_value:
+          commissionerRaw
+            ?.commission_value !==
+              null &&
+          commissionerRaw
+            ?.commission_value !==
+              undefined
+            ? Number(
+                commissionerRaw
+                  .commission_value
+              )
+            : null,
+
+        configuration_without_person:
+          false,
+
+        base_amount:
+          0,
+
+        discounts_total:
+          0,
+
+        additions_total:
+          0,
+
+        net_payable:
+          0,
+      };
+
+
+      if (
+        commissionerRaw &&
+        commissionerRaw
+          .commissioner_person_id !== null
+      ) {
+
+        const commissionerPersonId =
+          Number(
+            commissionerRaw
+              .commissioner_person_id
+          );
+
+
+        const commissionType =
+          commissionerRaw
+            .commission_type
+            ?.toString()
+            .trim()
+            .toLowerCase() ||
+          null;
+
+
+        const commissionValue =
+          commissionerRaw
+            .commission_value !== null
+            ? Number(
+                commissionerRaw
+                  .commission_value
+              )
+            : null;
+
+
+        const receivedAnimals =
+          Number(
+            slaughter
+              .received_animals || 0
+          );
+
+
+        const sellerNetPayable =
+          Number(
+            preliquidation
+              .total_payable || 0
+          );
+
+
+        let commissionBaseAmount =
+          0;
+
+
+        if (
+          commissionType === 'fixed' &&
+          Number.isFinite(
+            commissionValue
+          )
+        ) {
+          commissionBaseAmount =
+            commissionValue;
+        }
+
+
+        if (
+          commissionType === 'per_head' &&
+          Number.isFinite(
+            commissionValue
+          )
+        ) {
+          commissionBaseAmount =
+            receivedAnimals *
+            commissionValue;
+        }
+
+
+        if (
+          commissionType === 'percent' &&
+          Number.isFinite(
+            commissionValue
+          )
+        ) {
+          commissionBaseAmount =
+            (
+              sellerNetPayable *
+              commissionValue
+            ) / 100;
+        }
+
+
+        commissionBaseAmount =
+          Math.round(
+            (
+              commissionBaseAmount +
+              Number.EPSILON
+            ) *
+            100
+          ) / 100;
+
+
+        const relatedAdjustments =
+          commissionerAdjustments.filter(
+            (adjustment) =>
+              Number(
+                adjustment
+                  .commissioner_person_id
+              ) === commissionerPersonId
+          );
+
+
+        const discountsTotal =
+          relatedAdjustments
+            .filter(
+              (adjustment) =>
+                adjustment.adjustment_type ===
+                'discount'
+            )
+            .reduce(
+              (
+                total,
+                adjustment,
+              ) =>
+                total +
+                Number(
+                  adjustment.amount || 0
+                ),
+              0,
+            );
+
+
+        const additionsTotal =
+          relatedAdjustments
+            .filter(
+              (adjustment) =>
+                adjustment.adjustment_type ===
+                'addition'
+            )
+            .reduce(
+              (
+                total,
+                adjustment,
+              ) =>
+                total +
+                Number(
+                  adjustment.amount || 0
+                ),
+              0,
+            );
+
+
+        const commissionerNetPayable =
+          Math.round(
+            (
+              commissionBaseAmount -
+              discountsTotal +
+              additionsTotal +
+              Number.EPSILON
+            ) *
+            100
+          ) / 100;
+
+
+        commissioner = {
+          ...commissionerRaw,
+
+          commissioner_person_id:
+            commissionerPersonId,
+
+          commission_value:
+            commissionValue,
+
+          adjustments:
+            relatedAdjustments,
+        };
+
+
+        commissionerSummary = {
+          has_commissioner: true,
+
+          commission_type:
+            commissionType,
+
+          commission_value:
+            commissionValue,
+
+          configuration_without_person:
+            false,
+
+          base_amount:
+            commissionBaseAmount,
+
+          discounts_total:
+            Math.round(
+              (
+                discountsTotal +
+                Number.EPSILON
+              ) *
+              100
+            ) / 100,
+
+          additions_total:
+            Math.round(
+              (
+                additionsTotal +
+                Number.EPSILON
+              ) *
+              100
+            ) / 100,
+
+          net_payable:
+            commissionerNetPayable,
+        };
+      }
+
+
+      // =================================================
+      // CONFIGURACIÓN DE COMISIÓN SIN BENEFICIARIO
+      //
+      // No genera deuda.
+      // Se informa para que Administración pueda
+      // corregir la compra.
+      // =================================================
+
+      if (
+        commissionerRaw &&
+        commissionerRaw
+          .commissioner_person_id === null &&
+        (
+          commissionerRaw
+            .commission_type !== null ||
+          commissionerRaw
+            .commission_value !== null
+        )
+      ) {
+        commissionerSummary
+          .configuration_without_person =
+            true;
+      }
+
+      // =================================================
+      // 8. RESUMEN FINANCIERO GLOBAL DEL LOTE
+      //
+      // IMPORTANTE:
+      //
+      // seller_net_payable
+      //   = obligación con el ganadero.
+      //
+      // transport_net_payable
+      //   = obligación total con transportistas.
+      //
+      // commissioner_net_payable
+      //   = obligación con el comisionista.
+      //
+      // total_obligations
+      //   = suma informativa de las tres obligaciones.
+      //
+      // Transporte y comisión NO se descuentan
+      // del pago del ganadero.
+      // =================================================
+
+      const sellerNetPayable =
+        Number(
+          preliquidation
+            .total_payable || 0
+        );
+
+
+      const transportNetPayable =
+        Number(
+          transportSummary
+            .net_payable_total || 0
+        );
+
+
+      const commissionerNetPayable =
+        Number(
+          commissionerSummary
+            .net_payable || 0
+        );
+
+
+      const totalObligations =
+        Math.round(
+          (
+            sellerNetPayable +
+            transportNetPayable +
+            commissionerNetPayable +
+            Number.EPSILON
+          ) *
+          100
+        ) / 100;
+
+
+      const financialSummary = {
+        seller: {
+          base_amount:
+            Number(
+              preliquidation
+                .base_amount || 0
+            ),
+
+          discounts_total:
+            Number(
+              preliquidation
+                .discounts_total || 0
+            ),
+
+          additions_total:
+            Number(
+              preliquidation
+                .additions_total || 0
+            ),
+
+          net_payable:
+            sellerNetPayable,
+        },
+
+
+        transport: {
+          base_amount:
+            Number(
+              transportSummary
+                .base_total || 0
+            ),
+
+          discounts_total:
+            Number(
+              transportSummary
+                .discounts_total || 0
+            ),
+
+          additions_total:
+            Number(
+              transportSummary
+                .additions_total || 0
+            ),
+
+          net_payable:
+            transportNetPayable,
+        },
+
+
+        commissioner: {
+          base_amount:
+            Number(
+              commissionerSummary
+                .base_amount || 0
+            ),
+
+          discounts_total:
+            Number(
+              commissionerSummary
+                .discounts_total || 0
+            ),
+
+          additions_total:
+            Number(
+              commissionerSummary
+                .additions_total || 0
+            ),
+
+          net_payable:
+            commissionerNetPayable,
+        },
+
+
+        total_obligations:
+          totalObligations,
+      };
+
       // =================================================
       // 3. RESPUESTA
       // =================================================
@@ -40267,10 +41810,52 @@ exports.getPreliquidationById =
 
         preliquidation,
 
+        purchase:
+          purchaseContext,
+
+        slaughter,
+
+        incidents,
+
+        incidents_count:
+          incidents.length,
+
+        transport,
+
+        transport_summary:
+          transportSummary,
+
+        commissioner,
+
+        commissioner_summary:
+          commissionerSummary,
+
+        financial_summary:
+          financialSummary,
+
         adjustments,
+        seller_adjustments:
+          sellerAdjustments,
+
+        transport_adjustments:
+          transportAdjustments,
+
+        commissioner_adjustments:
+          commissionerAdjustments,
 
         adjustments_count:
           adjustments.length,
+
+        adjustment_counts: {
+          seller:
+            sellerAdjustments.length,
+
+          transport:
+            transportAdjustments.length,
+
+          commissioner:
+            commissionerAdjustments.length,
+        },
       });
 
 
