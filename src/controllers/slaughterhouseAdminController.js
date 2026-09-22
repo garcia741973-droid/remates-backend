@@ -40390,6 +40390,50 @@ exports.addPreliquidationAdjustment =
             )
           : null;
 
+      // =================================================
+      // DESTINO DEL AJUSTE
+      //
+      // seller
+      //   → pago al ganadero
+      //
+      // transport
+      //   → pago de una negociación de transporte
+      //
+      // commissioner
+      //   → pago al comisionista
+      //
+      // Por compatibilidad, si no viene target_type,
+      // asumimos seller.
+      // =================================================
+
+      const targetType =
+        req.body.target_type
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        'seller';
+
+      const transportNegotiationId =
+        req.body.transport_negotiation_id !==
+            undefined &&
+        req.body.transport_negotiation_id !==
+            null &&
+        req.body.transport_negotiation_id !== ''
+          ? Number(
+              req.body.transport_negotiation_id
+            )
+          : null;
+
+      const commissionerPersonId =
+        req.body.commissioner_person_id !==
+            undefined &&
+        req.body.commissioner_person_id !==
+            null &&
+        req.body.commissioner_person_id !== ''
+          ? Number(
+              req.body.commissioner_person_id
+            )
+          : null;
 
       // =================================================
       // 1. VALIDACIONES BÁSICAS
@@ -40455,6 +40499,86 @@ exports.addPreliquidationAdjustment =
 
       }
 
+      if (
+        ![
+          'seller',
+          'transport',
+          'commissioner',
+        ].includes(
+          targetType
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'Destino del ajuste inválido',
+        });
+      }
+
+
+      if (
+        targetType === 'seller' &&
+        (
+          transportNegotiationId !== null ||
+          commissionerPersonId !== null
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'Un ajuste del ganadero no debe indicar transporte ni comisionista',
+        });
+      }
+
+
+      if (
+        targetType === 'transport'
+      ) {
+        if (
+          !Number.isInteger(
+            transportNegotiationId
+          ) ||
+          transportNegotiationId <= 0
+        ) {
+          return res.status(400).json({
+            error:
+              'Debe indicar una negociación de transporte válida',
+          });
+        }
+
+        if (
+          commissionerPersonId !== null
+        ) {
+          return res.status(400).json({
+            error:
+              'Un ajuste de transporte no debe indicar comisionista',
+          });
+        }
+      }
+
+
+      if (
+        targetType === 'commissioner'
+      ) {
+        if (
+          !Number.isInteger(
+            commissionerPersonId
+          ) ||
+          commissionerPersonId <= 0
+        ) {
+          return res.status(400).json({
+            error:
+              'Debe indicar un comisionista válido',
+          });
+        }
+
+        if (
+          transportNegotiationId !== null
+        ) {
+          return res.status(400).json({
+            error:
+              'Un ajuste de comisionista no debe indicar transporte',
+          });
+        }
+      }
 
       await client.query(
         'BEGIN'
@@ -40547,6 +40671,175 @@ exports.addPreliquidationAdjustment =
           ?.toString()
           .trim() ||
         null;
+
+
+      // =================================================
+      // VALIDAR DESTINO REAL DEL AJUSTE
+      //
+      // seller
+      //   → ajuste de la liquidación del ganadero.
+      //
+      // transport
+      //   → debe corresponder a una negociación
+      //     perteneciente al mismo lote.
+      //
+      // commissioner
+      //   → debe ser exactamente el comisionista
+      //     asociado al lote.
+      //
+      // Transporte y comisión utilizan ajustes
+      // monetarios fijos: motivo + monto.
+      // =================================================
+
+      if (
+        targetType === 'transport'
+      ) {
+        if (
+          calculationType !== 'fixed'
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(400).json({
+            error:
+              'Los ajustes de transporte deben registrarse como monto fijo',
+          });
+        }
+
+
+        const transportResult =
+          await client.query(
+            `
+              SELECT
+                tn.id,
+                tn.trip_price,
+                tr.id
+                  AS request_id,
+                tr.purchase_lot_id
+              FROM transport_negotiations tn
+              JOIN transport_requests tr
+                ON tr.id =
+                  tn.request_id
+              WHERE
+                tn.id = $1
+                AND tr.purchase_lot_id = $2
+                AND COALESCE(
+                  tn.cancelled,
+                  false
+                ) = false
+              LIMIT 1
+            `,
+            [
+              transportNegotiationId,
+              preliquidation.purchase_lot_id,
+            ],
+          );
+
+
+        if (
+          transportResult.rows.length === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'La negociación de transporte no pertenece a este lote',
+          });
+        }
+      }
+
+
+      if (
+        targetType === 'commissioner'
+      ) {
+        if (
+          calculationType !== 'fixed'
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(400).json({
+            error:
+              'Los ajustes del comisionista deben registrarse como monto fijo',
+          });
+        }
+
+
+        const commissionerResult =
+          await client.query(
+            `
+              SELECT
+                commissioner_person_id
+              FROM slaughterhouse_purchase_lots
+              WHERE
+                id = $1
+                AND company_id = $2
+              LIMIT 1
+            `,
+            [
+              preliquidation.purchase_lot_id,
+              companyId,
+            ],
+          );
+
+
+        if (
+          commissionerResult.rows.length === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(404).json({
+            error:
+              'Lote de compra no encontrado',
+          });
+        }
+
+
+        const lotCommissionerId =
+          commissionerResult.rows[0]
+            .commissioner_person_id !==
+              null
+            ? Number(
+                commissionerResult.rows[0]
+                  .commissioner_person_id
+              )
+            : null;
+
+
+        if (
+          lotCommissionerId === null
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'Este lote no tiene comisionista asociado',
+          });
+        }
+
+
+        if (
+          lotCommissionerId !==
+          commissionerPersonId
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El comisionista indicado no corresponde a este lote',
+          });
+        }
+      }
 
 
       // =================================================
@@ -40781,11 +41074,16 @@ exports.addPreliquidationAdjustment =
               calculation_type,
               rate,
               quantity,
-              amount
+              amount,
+              target_type,
+              transport_negotiation_id,
+              commissioner_person_id,
+              created_by
             )
             VALUES (
               $1,$2,$3,$4,
-              $5,$6,$7,$8
+              $5,$6,$7,$8,
+              $9,$10,$11,$12
             )
             RETURNING *
           `,
@@ -40798,6 +41096,14 @@ exports.addPreliquidationAdjustment =
             rate,
             quantity,
             amount,
+            targetType,
+            targetType === 'transport'
+              ? transportNegotiationId
+              : null,
+            targetType === 'commissioner'
+              ? commissionerPersonId
+              : null,
+            userId,
           ],
         );
 
@@ -40838,6 +41144,7 @@ exports.addPreliquidationAdjustment =
             FROM slaughterhouse_preliquidation_adjustments
             WHERE
               preliquidation_id = $1
+              AND target_type = 'seller'
           `,
           [
             preliquidationId,
@@ -41206,6 +41513,7 @@ exports.deletePreliquidationAdjustment =
             FROM slaughterhouse_preliquidation_adjustments
             WHERE
               preliquidation_id = $1
+              AND target_type = 'seller'
           `,
           [
             preliquidationId,
