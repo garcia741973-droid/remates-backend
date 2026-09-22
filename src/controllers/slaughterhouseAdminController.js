@@ -39683,6 +39683,128 @@ exports.generatePreliquidationDraft =
       }
 
 
+      // =================================================
+      // RESULTADO REAL DE RECEPCIÓN Y FAENA
+      //
+      // Independientemente de la modalidad comercial,
+      // conservamos:
+      //
+      // - animales realmente recibidos
+      // - cantidad de medias registradas
+      // - peso gancho real obtenido en faena
+      //
+      // Esto NO modifica la base contractual.
+      // Solo agrega información productiva real.
+      // =================================================
+
+      const slaughterSummaryResult =
+        await client.query(
+          `
+            SELECT
+              COALESCE(
+                (
+                  SELECT
+                    SUM(st.received_quantity)
+                  FROM slaughterhouse_troops st
+                  WHERE
+                    st.company_id = $1
+                    AND st.purchase_lot_id = $2
+                    AND st.status <> 'cancelled'
+                ),
+                0
+              )::int
+                AS received_animals,
+
+              COALESCE(
+                (
+                  SELECT
+                    COUNT(sc.id)
+                  FROM slaughterhouse_carcasses sc
+                  JOIN slaughterhouse_troops st
+                    ON st.id =
+                      sc.troop_id
+                  WHERE
+                    st.company_id = $1
+                    AND st.purchase_lot_id = $2
+                    AND st.status <> 'cancelled'
+                ),
+                0
+              )::int
+                AS carcass_halves_count,
+
+              COALESCE(
+                (
+                  SELECT
+                    SUM(sc.hook_weight_kg)
+                  FROM slaughterhouse_carcasses sc
+                  JOIN slaughterhouse_troops st
+                    ON st.id =
+                      sc.troop_id
+                  WHERE
+                    st.company_id = $1
+                    AND st.purchase_lot_id = $2
+                    AND st.status <> 'cancelled'
+                ),
+                0
+              )::numeric
+                AS actual_hook_weight_kg
+          `,
+          [
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+
+      const slaughterSummary =
+        slaughterSummaryResult.rows[0];
+
+
+      const receivedAnimalsActual =
+        Number(
+          slaughterSummary
+            .received_animals || 0
+        );
+
+
+      const carcassHalvesActual =
+        Number(
+          slaughterSummary
+            .carcass_halves_count || 0
+        );
+
+
+      const hookWeightActualKg =
+        Number(
+          slaughterSummary
+            .actual_hook_weight_kg || 0
+        );
+
+
+      if (
+        hookWeightActualKg > 0
+      ) {
+        hookWeightKg =
+          hookWeightActualKg;
+      }
+
+
+      source = {
+        ...source,
+
+        actual_slaughter: {
+          received_animals:
+            receivedAnimalsActual,
+
+          carcass_halves_count:
+            carcassHalvesActual,
+
+          hook_weight_kg:
+            hookWeightActualKg,
+        },
+      };
+
+
       const sourceSnapshot = {
         source_type:
           sourceType,
