@@ -401,10 +401,17 @@ exports.getSlaughterhouseReceptionCandidates =
             spl.status
               AS purchase_lot_status,
 
+            spl.pricing_basis,
+            spl.weight_source,
+
+            (
+              spl.pricing_basis = 'live_kg'
+              AND spl.weight_source = 'plant'
+            )
+              AS requires_plant_live_weight,
+
             tn.status,
-
             tn.trip_started_at,
-
             tn.delivered_at,
 
             tr.id
