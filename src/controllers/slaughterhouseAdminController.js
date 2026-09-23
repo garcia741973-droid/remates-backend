@@ -52761,21 +52761,18 @@ exports.exportFinalLotXlsx =
           return new Intl.DateTimeFormat(
             'es-BO',
             {
+              timeZone:
+                'America/La_Paz',
               day:
                 '2-digit',
-
               month:
                 '2-digit',
-
               year:
                 'numeric',
-
               hour:
                 '2-digit',
-
               minute:
                 '2-digit',
-
               hour12:
                 false,
             }
@@ -53563,6 +53560,22 @@ exports.exportFinalLotXlsx =
           0
         );
 
+
+      const grossLiveWeightKg =
+        preliq
+          ? number(
+              preliq.gross_weight_kg
+            )
+          : 0;
+
+
+      const carcassYieldPercent =
+        grossLiveWeightKg > 0
+          ? (
+              hookWeightKg /
+              grossLiveWeightKg
+            ) * 100
+          : 0;
 
       const animalWeights =
         completedAnimals
@@ -55160,6 +55173,35 @@ exports.exportFinalLotXlsx =
               moneyFormat;
         }
 
+        const yieldRow =
+          addInfoRow([
+            'Rendimiento carcasa',
+            carcassYieldPercent,
+            'Fórmula',
+            'Peso gancho / peso vivo bruto',
+            'Peso vivo bruto kg',
+            grossLiveWeightKg,
+            'Peso gancho kg',
+            hookWeightKg,
+          ]);
+
+
+        yieldRow
+          .getCell(2)
+          .numFmt =
+            '0.00"%"';
+
+
+        yieldRow
+          .getCell(6)
+          .numFmt =
+            moneyFormat;
+
+
+        yieldRow
+          .getCell(8)
+          .numFmt =
+            moneyFormat;
 
         // =============================================
         // INCIDENCIAS
