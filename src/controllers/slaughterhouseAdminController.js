@@ -52146,16 +52146,25 @@ exports.exportFinalLotXlsx =
                 sp.total_payable,
 
                 sp.generated_at,
-
+                sp.approved_by,
+                COALESCE(
+                  approved_user.full_name,
+                  approved_user.name,
+                  approved_user.email
+                )
+                  AS approved_by_name,
                 sp.approved_at,
-
                 sp.exported_at
+                FROM
+                  slaughterhouse_preliquidations sp
 
-              FROM
-                slaughterhouse_preliquidations sp
+                LEFT JOIN
+                  users approved_user
+                  ON approved_user.id =
+                    sp.approved_by
 
-              WHERE
-                sp.company_id = $1
+                WHERE
+                  sp.company_id = $1
 
                 AND sp.purchase_lot_id = $2
 
@@ -52204,6 +52213,500 @@ exports.exportFinalLotXlsx =
         preliqResult.rows[0] ||
         null;
 
+
+      // =================================================
+      // DATOS FINANCIEROS COMPLEMENTARIOS
+      // PARA HOJA DE PRELIQUIDACIÓN
+      //
+      // Se reutilizan las mismas fuentes que
+      // getPreliquidationById para evitar diferencias
+      // entre pantalla y Excel.
+      // =================================================
+
+      let adjustments = [];
+      let sellerAdjustments = [];
+      let transportAdjustments = [];
+      let commissionerAdjustments = [];
+      let incidents = [];
+
+      let transport = [];
+
+      let transportSummary = {
+        count: 0,
+        base_total: 0,
+        discounts_total: 0,
+        additions_total: 0,
+        net_payable_total: 0,
+      };
+
+
+      if (preliq) {
+
+        const [
+          adjustmentsResult,
+          incidentsResult,
+        ] =
+          await Promise.all([
+
+            pool.query(
+              `
+                SELECT
+                  id,
+                  preliquidation_id,
+                  code,
+                  description,
+                  adjustment_type,
+                  calculation_type,
+                  rate,
+                  quantity,
+                  amount,
+                  target_type,
+                  transport_negotiation_id,
+                  commissioner_person_id,
+                  created_by,
+                  created_at
+                FROM
+                  slaughterhouse_preliquidation_adjustments
+                WHERE
+                  preliquidation_id = $1
+                ORDER BY
+                  id ASC
+              `,
+              [
+                preliq.id,
+              ],
+            ),
+
+
+            pool.query(
+              `
+                SELECT
+                  id,
+                  company_id,
+                  purchase_lot_id,
+                  reception_id,
+                  troop_id,
+                  code,
+                  description,
+                  quantity,
+                  requires_financial_review,
+                  review_status,
+                  preliquidation_adjustment_id,
+                  created_by,
+                  created_at,
+                  reviewed_by,
+                  reviewed_at
+                FROM
+                  slaughterhouse_slaughter_incidents
+                WHERE
+                  company_id = $1
+                  AND purchase_lot_id = $2
+                ORDER BY
+                  created_at ASC,
+                  id ASC
+              `,
+              [
+                companyId,
+                purchaseLotId,
+              ],
+            ),
+
+          ]);
+
+
+        adjustments =
+          adjustmentsResult.rows;
+
+
+        sellerAdjustments =
+          adjustments.filter(
+            (adjustment) =>
+              adjustment.target_type ===
+              'seller'
+          );
+
+
+        transportAdjustments =
+          adjustments.filter(
+            (adjustment) =>
+              adjustment.target_type ===
+              'transport'
+          );
+
+
+        commissionerAdjustments =
+          adjustments.filter(
+            (adjustment) =>
+              adjustment.target_type ===
+              'commissioner'
+          );
+
+
+        incidents =
+          incidentsResult.rows;
+
+
+        // ===============================================
+        // TRANSPORTE FINANCIERO DEL LOTE
+        // ===============================================
+
+        const transportResult =
+          await pool.query(
+            `
+              SELECT
+                tr.id
+                  AS request_id,
+                tr.origin,
+                tr.destination,
+                tr.quantity
+                  AS requested_quantity,
+                tr.animal_type,
+                tr.travel_date,
+                tr.status
+                  AS request_status,
+
+                tn.id
+                  AS negotiation_id,
+                tn.transporter_id
+                  AS transporter_user_id,
+                tn.trip_price,
+                tn.status
+                  AS transport_status,
+                tn.trip_started_at,
+                tn.delivered_at,
+
+                troop.id
+                  AS troop_id,
+                troop.received_quantity
+                  AS troop_received_quantity,
+                troop.status
+                  AS troop_status,
+
+                tt.id
+                  AS truck_id,
+                tt.plate,
+                tt.brand,
+                tt.model,
+                tt.year,
+                tt.truck_type,
+                tt.capacity_large,
+                tt.capacity_small,
+                tt.has_trailer,
+                tt.trailer_capacity,
+
+                transporter.id
+                  AS transporter_person_id,
+                transporter.full_name
+                  AS transporter_name,
+                transporter.document_type
+                  AS transporter_document_type,
+                transporter.document_number
+                  AS transporter_document_number,
+                transporter.phone
+                  AS transporter_phone,
+
+                company_transporter.id
+                  AS company_transporter_id,
+                company_transporter.status
+                  AS company_transporter_status,
+                company_transporter.is_preferred,
+
+                payment_method.id
+                  AS payment_method_id,
+                payment_method.method_type
+                  AS payment_method_type,
+                payment_method.account_number,
+                payment_method.account_type,
+                payment_method.account_holder,
+                payment_method.wallet_phone,
+                payment_method.wallet_name,
+
+                bank.id
+                  AS bank_id,
+                bank.name
+                  AS bank_name
+
+              FROM
+                transport_requests tr
+
+              JOIN
+                transport_negotiations tn
+                ON tn.request_id =
+                  tr.id
+                AND COALESCE(
+                  tn.cancelled,
+                  false
+                ) = false
+
+              LEFT JOIN
+                transporter_trucks tt
+                ON tt.id =
+                  tn.truck_id
+
+              LEFT JOIN
+                slaughterhouse_people transporter
+                ON transporter.user_id =
+                  tn.transporter_id
+
+              LEFT JOIN
+                slaughterhouse_company_transporters
+                  company_transporter
+                ON company_transporter.company_id =
+                  $2
+                AND company_transporter.person_id =
+                  transporter.id
+
+              LEFT JOIN LATERAL (
+                SELECT
+                  st.id,
+                  st.received_quantity,
+                  st.status
+                FROM
+                  slaughterhouse_troops st
+                WHERE
+                  st.company_id = $2
+                  AND st.purchase_lot_id =
+                    tr.purchase_lot_id
+                  AND st.transport_negotiation_id =
+                    tn.id
+                  AND st.status <> 'cancelled'
+                ORDER BY
+                  st.id ASC
+                LIMIT 1
+              ) troop
+                ON true
+
+              LEFT JOIN LATERAL (
+                SELECT
+                  spm.*
+                FROM
+                  slaughterhouse_person_payment_methods spm
+                WHERE
+                  spm.person_id =
+                    transporter.id
+                ORDER BY
+                  spm.is_default DESC,
+                  spm.id ASC
+                LIMIT 1
+              ) payment_method
+                ON true
+
+              LEFT JOIN
+                slaughterhouse_banks bank
+                ON bank.id =
+                  payment_method.bank_id
+
+              WHERE
+                tr.purchase_lot_id = $1
+
+              ORDER BY
+                tr.id ASC,
+                tn.id ASC
+            `,
+            [
+              purchaseLotId,
+              companyId,
+            ],
+          );
+
+
+        transport =
+          transportResult.rows.map(
+            (row) => {
+              const negotiationId =
+                Number(
+                  row.negotiation_id
+                );
+
+              const relatedAdjustments =
+                transportAdjustments.filter(
+                  (adjustment) =>
+                    Number(
+                      adjustment
+                        .transport_negotiation_id
+                    ) === negotiationId
+                );
+
+              const discountsTotal =
+                relatedAdjustments
+                  .filter(
+                    (adjustment) =>
+                      adjustment.adjustment_type ===
+                      'discount'
+                  )
+                  .reduce(
+                    (
+                      total,
+                      adjustment
+                    ) =>
+                      total +
+                      Number(
+                        adjustment.amount || 0
+                      ),
+                    0,
+                  );
+
+              const additionsTotal =
+                relatedAdjustments
+                  .filter(
+                    (adjustment) =>
+                      adjustment.adjustment_type ===
+                      'addition'
+                  )
+                  .reduce(
+                    (
+                      total,
+                      adjustment
+                    ) =>
+                      total +
+                      Number(
+                        adjustment.amount || 0
+                      ),
+                    0,
+                  );
+
+              const baseAmount =
+                Number(
+                  row.trip_price || 0
+                );
+
+              const netPayable =
+                Math.round(
+                  (
+                    baseAmount -
+                    discountsTotal +
+                    additionsTotal +
+                    Number.EPSILON
+                  ) *
+                  100
+                ) / 100;
+
+              return {
+                ...row,
+                trip_price:
+                  baseAmount,
+                discounts_total:
+                  Math.round(
+                    (
+                      discountsTotal +
+                      Number.EPSILON
+                    ) *
+                    100
+                  ) / 100,
+                additions_total:
+                  Math.round(
+                    (
+                      additionsTotal +
+                      Number.EPSILON
+                    ) *
+                    100
+                  ) / 100,
+                net_payable:
+                  netPayable,
+                adjustments:
+                  relatedAdjustments,
+              };
+            },
+          );
+
+
+        const transportBaseTotal =
+          transport.reduce(
+            (
+              total,
+              item
+            ) =>
+              total +
+              Number(
+                item.trip_price || 0
+              ),
+            0,
+          );
+
+
+        const transportDiscountsTotal =
+          transport.reduce(
+            (
+              total,
+              item
+            ) =>
+              total +
+              Number(
+                item.discounts_total || 0
+              ),
+            0,
+          );
+
+
+        const transportAdditionsTotal =
+          transport.reduce(
+            (
+              total,
+              item
+            ) =>
+              total +
+              Number(
+                item.additions_total || 0
+              ),
+            0,
+          );
+
+
+        const transportNetTotal =
+          transport.reduce(
+            (
+              total,
+              item
+            ) =>
+              total +
+              Number(
+                item.net_payable || 0
+              ),
+            0,
+          );
+
+
+        transportSummary = {
+          count:
+            transport.length,
+
+          base_total:
+            Math.round(
+              (
+                transportBaseTotal +
+                Number.EPSILON
+              ) *
+              100
+            ) / 100,
+
+          discounts_total:
+            Math.round(
+              (
+                transportDiscountsTotal +
+                Number.EPSILON
+              ) *
+              100
+            ) / 100,
+
+          additions_total:
+            Math.round(
+              (
+                transportAdditionsTotal +
+                Number.EPSILON
+              ) *
+              100
+            ) / 100,
+
+          net_payable_total:
+            Math.round(
+              (
+                transportNetTotal +
+                Number.EPSILON
+              ) *
+              100
+            ) / 100,
+        };
+      }
 
       const number =
         (value) => {
@@ -52336,6 +52839,531 @@ exports.exportFinalLotXlsx =
           0
         );
 
+        // =================================================
+        // COMISIONISTA
+        //
+        // Misma regla financiera utilizada por
+        // getPreliquidationById.
+        //
+        // fixed
+        //   = commission_value
+        //
+        // per_head
+        //   = animales recibidos × commission_value
+        //
+        // percent
+        //   = neto ganadero × commission_value / 100
+        //
+        // Una configuración sin persona NO genera deuda.
+        // =================================================
+
+        let commissioner =
+          null;
+
+
+        let commissionerSummary = {
+          has_commissioner:
+            false,
+
+          commission_type:
+            null,
+
+          commission_value:
+            null,
+
+          configuration_without_person:
+            false,
+
+          base_amount:
+            0,
+
+          discounts_total:
+            0,
+
+          additions_total:
+            0,
+
+          net_payable:
+            0,
+        };
+
+
+        if (preliq) {
+
+          const commissionerResult =
+            await pool.query(
+              `
+                SELECT
+                  spl.commissioner_person_id,
+                  spl.commission_type,
+                  spl.commission_value,
+
+                  commissioner.full_name
+                    AS commissioner_name,
+                  commissioner.document_type
+                    AS commissioner_document_type,
+                  commissioner.document_number
+                    AS commissioner_document_number,
+                  commissioner.phone
+                    AS commissioner_phone,
+
+                  payment_method.id
+                    AS payment_method_id,
+                  payment_method.method_type
+                    AS payment_method_type,
+                  payment_method.account_number,
+                  payment_method.account_type,
+                  payment_method.account_holder,
+                  payment_method.wallet_phone,
+                  payment_method.wallet_name,
+
+                  bank.id
+                    AS bank_id,
+                  bank.name
+                    AS bank_name
+
+                FROM
+                  slaughterhouse_purchase_lots spl
+
+                LEFT JOIN
+                  slaughterhouse_people commissioner
+                  ON commissioner.id =
+                    spl.commissioner_person_id
+
+                LEFT JOIN LATERAL (
+                  SELECT
+                    spm.*
+                  FROM
+                    slaughterhouse_person_payment_methods spm
+                  WHERE
+                    spm.person_id =
+                      commissioner.id
+                  ORDER BY
+                    spm.is_default DESC,
+                    spm.id ASC
+                  LIMIT 1
+                ) payment_method
+                  ON true
+
+                LEFT JOIN
+                  slaughterhouse_banks bank
+                  ON bank.id =
+                    payment_method.bank_id
+
+                WHERE
+                  spl.id = $1
+                  AND spl.company_id = $2
+
+                LIMIT 1
+              `,
+              [
+                purchaseLotId,
+                companyId,
+              ],
+            );
+
+
+          const commissionerRaw =
+            commissionerResult.rows.length > 0
+              ? commissionerResult.rows[0]
+              : null;
+
+
+          commissionerSummary = {
+            has_commissioner:
+              false,
+
+            commission_type:
+              commissionerRaw
+                ?.commission_type ||
+              null,
+
+            commission_value:
+              commissionerRaw
+                ?.commission_value !==
+                  null &&
+              commissionerRaw
+                ?.commission_value !==
+                  undefined
+                ? Number(
+                    commissionerRaw
+                      .commission_value
+                  )
+                : null,
+
+            configuration_without_person:
+              false,
+
+            base_amount:
+              0,
+
+            discounts_total:
+              0,
+
+            additions_total:
+              0,
+
+            net_payable:
+              0,
+          };
+
+
+          if (
+            commissionerRaw &&
+            commissionerRaw
+              .commissioner_person_id !== null
+          ) {
+
+            const commissionerPersonId =
+              Number(
+                commissionerRaw
+                  .commissioner_person_id
+              );
+
+
+            const commissionType =
+              commissionerRaw
+                .commission_type
+                ?.toString()
+                .trim()
+                .toLowerCase() ||
+              null;
+
+
+            const commissionValue =
+              commissionerRaw
+                .commission_value !== null
+                ? Number(
+                    commissionerRaw
+                      .commission_value
+                  )
+                : null;
+
+
+            const sellerNetPayable =
+              Number(
+                preliq.total_payable || 0
+              );
+
+
+            let commissionBaseAmount =
+              0;
+
+
+            if (
+              commissionType ===
+                'fixed' &&
+              Number.isFinite(
+                commissionValue
+              )
+            ) {
+              commissionBaseAmount =
+                commissionValue;
+            }
+
+
+            if (
+              commissionType ===
+                'per_head' &&
+              Number.isFinite(
+                commissionValue
+              )
+            ) {
+              commissionBaseAmount =
+                receivedQuantity *
+                commissionValue;
+            }
+
+
+            if (
+              commissionType ===
+                'percent' &&
+              Number.isFinite(
+                commissionValue
+              )
+            ) {
+              commissionBaseAmount =
+                (
+                  sellerNetPayable *
+                  commissionValue
+                ) / 100;
+            }
+
+
+            commissionBaseAmount =
+              Math.round(
+                (
+                  commissionBaseAmount +
+                  Number.EPSILON
+                ) *
+                100
+              ) / 100;
+
+
+            const relatedAdjustments =
+              commissionerAdjustments.filter(
+                (adjustment) =>
+                  Number(
+                    adjustment
+                      .commissioner_person_id
+                  ) ===
+                  commissionerPersonId
+              );
+
+
+            const discountsTotal =
+              relatedAdjustments
+                .filter(
+                  (adjustment) =>
+                    adjustment
+                      .adjustment_type ===
+                    'discount'
+                )
+                .reduce(
+                  (
+                    total,
+                    adjustment
+                  ) =>
+                    total +
+                    Number(
+                      adjustment.amount ||
+                        0
+                    ),
+                  0,
+                );
+
+
+            const additionsTotal =
+              relatedAdjustments
+                .filter(
+                  (adjustment) =>
+                    adjustment
+                      .adjustment_type ===
+                    'addition'
+                )
+                .reduce(
+                  (
+                    total,
+                    adjustment
+                  ) =>
+                    total +
+                    Number(
+                      adjustment.amount ||
+                        0
+                    ),
+                  0,
+                );
+
+
+            const commissionerNetPayable =
+              Math.round(
+                (
+                  commissionBaseAmount -
+                  discountsTotal +
+                  additionsTotal +
+                  Number.EPSILON
+                ) *
+                100
+              ) / 100;
+
+
+            commissioner = {
+              ...commissionerRaw,
+
+              commissioner_person_id:
+                commissionerPersonId,
+
+              commission_value:
+                commissionValue,
+
+              adjustments:
+                relatedAdjustments,
+            };
+
+
+            commissionerSummary = {
+              has_commissioner:
+                true,
+
+              commission_type:
+                commissionType,
+
+              commission_value:
+                commissionValue,
+
+              configuration_without_person:
+                false,
+
+              base_amount:
+                commissionBaseAmount,
+
+              discounts_total:
+                Math.round(
+                  (
+                    discountsTotal +
+                    Number.EPSILON
+                  ) *
+                  100
+                ) / 100,
+
+              additions_total:
+                Math.round(
+                  (
+                    additionsTotal +
+                    Number.EPSILON
+                  ) *
+                  100
+                ) / 100,
+
+              net_payable:
+                commissionerNetPayable,
+            };
+          }
+
+
+          // =============================================
+          // CONFIGURACIÓN SIN COMISIONISTA
+          //
+          // Se informa, pero NO genera obligación.
+          // =============================================
+
+          if (
+            commissionerRaw &&
+            commissionerRaw
+              .commissioner_person_id === null &&
+            (
+              commissionerRaw
+                .commission_type !== null ||
+              commissionerRaw
+                .commission_value !== null
+            )
+          ) {
+            commissionerSummary
+              .configuration_without_person =
+                true;
+          }
+        }
+
+
+        // =================================================
+        // RESUMEN FINANCIERO GLOBAL DEL LOTE
+        // =================================================
+
+        const sellerNetPayable =
+          preliq
+            ? Number(
+                preliq.total_payable || 0
+              )
+            : 0;
+
+
+        const transportNetPayable =
+          Number(
+            transportSummary
+              .net_payable_total || 0
+          );
+
+
+        const commissionerNetPayable =
+          Number(
+            commissionerSummary
+              .net_payable || 0
+          );
+
+
+        const totalObligations =
+          Math.round(
+            (
+              sellerNetPayable +
+              transportNetPayable +
+              commissionerNetPayable +
+              Number.EPSILON
+            ) *
+            100
+          ) / 100;
+
+
+        const financialSummary = {
+          seller: {
+            base_amount:
+              preliq
+                ? Number(
+                    preliq.base_amount || 0
+                  )
+                : 0,
+
+            discounts_total:
+              preliq
+                ? Number(
+                    preliq.discounts_total ||
+                      0
+                  )
+                : 0,
+
+            additions_total:
+              preliq
+                ? Number(
+                    preliq.additions_total ||
+                      0
+                  )
+                : 0,
+
+            net_payable:
+              sellerNetPayable,
+          },
+
+
+          transport: {
+            base_amount:
+              Number(
+                transportSummary
+                  .base_total || 0
+              ),
+
+            discounts_total:
+              Number(
+                transportSummary
+                  .discounts_total || 0
+              ),
+
+            additions_total:
+              Number(
+                transportSummary
+                  .additions_total || 0
+              ),
+
+            net_payable:
+              transportNetPayable,
+          },
+
+
+          commissioner: {
+            base_amount:
+              Number(
+                commissionerSummary
+                  .base_amount || 0
+              ),
+
+            discounts_total:
+              Number(
+                commissionerSummary
+                  .discounts_total || 0
+              ),
+
+            additions_total:
+              Number(
+                commissionerSummary
+                  .additions_total || 0
+              ),
+
+            net_payable:
+              commissionerNetPayable,
+          },
+
+
+          total_obligations:
+            totalObligations,
+        };
 
       // =================================================
       // FAENA AGRUPADA POR ANIMAL
@@ -53626,210 +54654,1191 @@ exports.exportFinalLotXlsx =
         `PRELIQUIDACIÓN · ${text(
           lot.lot_number
         )}`,
-        'B'
+        'H'
       );
 
 
       preliqSheet.columns = [
-
-        {
-          width:
-            32,
-        },
-
-        {
-          width:
-            28,
-        },
-
+        { width: 24 },
+        { width: 28 },
+        { width: 24 },
+        { width: 28 },
+        { width: 22 },
+        { width: 22 },
+        { width: 22 },
+        { width: 22 },
       ];
+
+
+      const addPreliqSection =
+        (title) => {
+
+          const row =
+            preliqSheet.addRow([
+              title,
+            ]);
+
+          preliqSheet.mergeCells(
+            `A${row.number}:H${row.number}`
+          );
+
+          row.getCell(1).style =
+            sectionStyle;
+
+          row.height =
+            22;
+
+          return row;
+        };
+
+
+      const addInfoRow =
+        (values) => {
+
+          const row =
+            preliqSheet.addRow(
+              values
+            );
+
+          [
+            1,
+            3,
+            5,
+            7,
+          ].forEach(
+            (column) => {
+
+              const cell =
+                row.getCell(
+                  column
+                );
+
+              if (
+                cell.value !== null &&
+                cell.value !== undefined &&
+                cell.value !== ''
+              ) {
+                cell.font = {
+                  bold: true,
+                };
+              }
+            }
+          );
+
+          row.alignment = {
+            vertical:
+              'top',
+            wrapText:
+              true,
+          };
+
+          return row;
+        };
+
+
+      const moneyFormat =
+        '#,##0.00';
 
 
       preliqSheet.addRow([]);
 
 
-      const preliqHeader =
-        preliqSheet.addRow([
-
-          'CONCEPTO',
-
-          'VALOR',
-
-        ]);
-
-
-      applyHeader(
-        preliqHeader
-      );
-
-
       if (!preliq) {
 
+        addPreliqSection(
+          'PRELIQUIDACIÓN'
+        );
+
         preliqSheet.addRow([
-
           'Estado',
-
           'Todavía no existe preliquidación',
-
         ]);
 
       } else {
 
-        const preliqRows = [
+        // =============================================
+        // ESTADO Y APROBACIÓN
+        // =============================================
 
-          [
-            'Versión',
-            preliq.version,
-          ],
+        addPreliqSection(
+          'ESTADO DE PRELIQUIDACIÓN'
+        );
 
+
+        addInfoRow([
+          'Versión',
+          preliq.version,
+          'Estado',
+          text(
+            preliq.status
+          ).toUpperCase(),
+          'Generada',
+          dateText(
+            preliq.generated_at
+          ),
+          'Aprobada',
+          dateText(
+            preliq.approved_at
+          ),
+        ]);
+
+
+        addInfoRow([
+          'Aprobada por',
+          text(
+            preliq.approved_by_name
+          ),
+          'Usuario ID',
+          preliq.approved_by ||
+            '',
+          'Exportada',
+          dateText(
+            preliq.exported_at
+          ),
+          '',
+          '',
+        ]);
+
+
+        preliqSheet.addRow([]);
+
+
+        // =============================================
+        // GANADERO / COMPRA
+        // =============================================
+
+        addPreliqSection(
+          'GANADERO Y DATOS DE COMPRA'
+        );
+
+
+        addInfoRow([
+          'Ganadero',
+          text(
+            lot.seller_name
+          ),
+          'Documento',
           [
-            'Estado',
             text(
-              preliq.status
+              lot.seller_document_type
             ),
-          ],
-
-          [
-            'Base de precio',
             text(
-              preliq.pricing_basis
+              lot.seller_document_number
             ),
-          ],
+          ]
+            .filter(Boolean)
+            .join(' '),
+          'Predio',
+          text(
+            lot.estate_name
+          ),
+          'N° SENASAG predio',
+          text(
+            lot.estate_senasag_predio_number
+          ),
+        ]);
 
-          [
-            'Origen de peso',
-            text(
-              preliq.weight_source
-            ),
-          ],
 
-          [
+        addInfoRow([
+          'Captador',
+          text(
+            lot.captador_name
+          ),
+          'Clasificación',
+          text(
+            lot.classification_code
+          ),
+          'Descripción',
+          text(
+            lot.classification_name
+          ),
+          'Fecha compra',
+          dateText(
+            lot.purchase_date
+          ),
+        ]);
+
+
+        addInfoRow([
+          'Tipo de compra',
+          text(
+            lot.purchase_type
+          ),
+          'Base de precio',
+          text(
+            preliq.pricing_basis
+          ),
+          'Origen de peso',
+          text(
+            preliq.weight_source
+          ),
+          'Moneda',
+          text(
+            lot.currency
+          ),
+        ]);
+
+
+        addInfoRow([
+          'Forma de pago',
+          text(
+            lot.seller_payment_method_label
+          ),
+          'Banco',
+          text(
+            lot.seller_bank_name
+          ),
+          'Cuenta',
+          text(
+            lot.seller_account_number
+          ),
+          'Tipo cuenta',
+          text(
+            lot.seller_account_type
+          ),
+        ]);
+
+
+        addInfoRow([
+          'Titular cuenta',
+          text(
+            lot.seller_account_holder
+          ),
+          'Pago previsto',
+          dateText(
+            lot.planned_payment_date
+          ),
+          'Condiciones',
+          text(
+            lot.payment_terms
+          ),
+          '',
+          '',
+        ]);
+
+
+        preliqSheet.addRow([]);
+
+
+        // =============================================
+        // CÁLCULO GANADERO
+        // =============================================
+
+        addPreliqSection(
+          'CÁLCULO DE COMPRA / GANADERO'
+        );
+
+
+        const sellerCalcHeader =
+          preliqSheet.addRow([
             'Cantidad',
+            'Peso bruto kg',
+            'Merma %',
+            'Merma kg',
+            'Peso neto kg',
+            'Precio/kg',
+            'Monto base',
+            'Neto ganadero',
+          ]);
+
+        applyHeader(
+          sellerCalcHeader
+        );
+
+
+        const sellerCalcRow =
+          preliqSheet.addRow([
             number(
               preliq.quantity
             ),
-          ],
-
-          [
-            'Precio unitario',
-            number(
-              preliq.unit_price
-            ),
-          ],
-
-          [
-            'Peso vivo kg',
-            number(
-              preliq.live_weight_kg
-            ),
-          ],
-
-          [
-            'Peso gancho kg',
-            number(
-              preliq.hook_weight_kg
-            ),
-          ],
-
-          [
-            'Peso bruto kg',
             number(
               preliq.gross_weight_kg
             ),
-          ],
-
-          [
-            'Merma %',
             number(
               preliq.shrink_percent
             ),
-          ],
-
-          [
-            'Merma kg',
             number(
               preliq.shrink_weight_kg
             ),
-          ],
-
-          [
-            'Peso neto kg',
             number(
               preliq.net_weight_kg
             ),
-          ],
-
-          [
-            'Precio/kg',
             number(
               preliq.price_per_kg
             ),
-          ],
-
-          [
-            'Monto base',
             number(
               preliq.base_amount
             ),
-          ],
-
-          [
-            'Descuentos',
-            number(
-              preliq.discounts_total
-            ),
-          ],
-
-          [
-            'Ajustes / adiciones',
-            number(
-              preliq.additions_total
-            ),
-          ],
-
-          [
-            'TOTAL A PAGAR',
             number(
               preliq.total_payable
             ),
-          ],
+          ]);
 
-          [
-            'Generada',
-            dateText(
-              preliq.generated_at
+
+        sellerCalcRow.getCell(2).numFmt =
+          moneyFormat;
+        sellerCalcRow.getCell(3).numFmt =
+          '0.00';
+        sellerCalcRow.getCell(4).numFmt =
+          moneyFormat;
+        sellerCalcRow.getCell(5).numFmt =
+          moneyFormat;
+        sellerCalcRow.getCell(6).numFmt =
+          moneyFormat;
+        sellerCalcRow.getCell(7).numFmt =
+          moneyFormat;
+        sellerCalcRow.getCell(8).numFmt =
+          moneyFormat;
+
+
+        addInfoRow([
+          'Descuentos ganadero',
+          number(
+            preliq.discounts_total
+          ),
+          'Adiciones ganadero',
+          number(
+            preliq.additions_total
+          ),
+          'TOTAL A PAGAR',
+          number(
+            preliq.total_payable
+          ),
+          '',
+          '',
+        ]);
+
+
+        preliqSheet
+          .getRow(
+            preliqSheet.rowCount
+          )
+          .getCell(2)
+          .numFmt =
+            moneyFormat;
+
+        preliqSheet
+          .getRow(
+            preliqSheet.rowCount
+          )
+          .getCell(4)
+          .numFmt =
+            moneyFormat;
+
+        preliqSheet
+          .getRow(
+            preliqSheet.rowCount
+          )
+          .getCell(6)
+          .numFmt =
+            moneyFormat;
+
+
+        // =============================================
+        // AJUSTES DEL GANADERO
+        // =============================================
+
+        if (
+          sellerAdjustments.length > 0
+        ) {
+
+          preliqSheet.addRow([]);
+
+          addPreliqSection(
+            'AJUSTES DEL GANADERO'
+          );
+
+
+          const sellerAdjustmentHeader =
+            preliqSheet.addRow([
+              'Código',
+              'Descripción',
+              'Tipo',
+              'Cálculo',
+              'Tasa',
+              'Cantidad',
+              'Monto',
+              'Fecha',
+            ]);
+
+          applyHeader(
+            sellerAdjustmentHeader
+          );
+
+
+          for (
+            const adjustment
+            of sellerAdjustments
+          ) {
+
+            const row =
+              preliqSheet.addRow([
+                text(
+                  adjustment.code
+                ),
+                text(
+                  adjustment.description
+                ),
+                text(
+                  adjustment.adjustment_type
+                ).toUpperCase(),
+                text(
+                  adjustment.calculation_type
+                ),
+                number(
+                  adjustment.rate
+                ),
+                number(
+                  adjustment.quantity
+                ),
+                number(
+                  adjustment.amount
+                ),
+                dateText(
+                  adjustment.created_at
+                ),
+              ]);
+
+            row.getCell(7).numFmt =
+              moneyFormat;
+          }
+        }
+
+
+        preliqSheet.addRow([]);
+
+
+        // =============================================
+        // FAENA
+        // =============================================
+
+        addPreliqSection(
+          'FAENA Y RENDIMIENTO'
+        );
+
+
+        const slaughterHeader =
+          preliqSheet.addRow([
+            'Recibidos',
+            'Faenados',
+            'Medias reses',
+            'Incompletos',
+            'Peso gancho kg',
+            'Promedio kg',
+            'Mínimo kg',
+            'Máximo kg',
+          ]);
+
+        applyHeader(
+          slaughterHeader
+        );
+
+
+        const slaughterRow =
+          preliqSheet.addRow([
+            receivedQuantity,
+            slaughteredAnimals,
+            carcassRows.length,
+            incompleteAnimals,
+            hookWeightKg,
+            averageHookWeight,
+            minHookWeight,
+            maxHookWeight,
+          ]);
+
+
+        for (
+          let column = 5;
+          column <= 8;
+          column += 1
+        ) {
+          slaughterRow
+            .getCell(
+              column
+            )
+            .numFmt =
+              moneyFormat;
+        }
+
+
+        // =============================================
+        // INCIDENCIAS
+        // =============================================
+
+        preliqSheet.addRow([]);
+
+        addPreliqSection(
+          'INCIDENCIAS DE FAENA'
+        );
+
+
+        const incidentHeader =
+          preliqSheet.addRow([
+            'Código',
+            'Descripción',
+            'Cantidad',
+            'Revisión financiera',
+            'Estado',
+            'Tipo ajuste',
+            'Monto ajuste',
+            'Revisada',
+          ]);
+
+        applyHeader(
+          incidentHeader
+        );
+
+
+        if (
+          incidents.length === 0
+        ) {
+
+          preliqSheet.addRow([
+            'Sin incidencias',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+          ]);
+
+        } else {
+
+          for (
+            const incident
+            of incidents
+          ) {
+
+            const linkedAdjustment =
+              adjustments.find(
+                (adjustment) =>
+                  Number(
+                    adjustment.id
+                  ) ===
+                  Number(
+                    incident
+                      .preliquidation_adjustment_id
+                  )
+              );
+
+
+            let incidentStatus =
+              text(
+                incident.review_status
+              ).toUpperCase();
+
+
+            if (
+              incident.review_status ===
+              'dismissed'
+            ) {
+              incidentStatus =
+                'SIN IMPACTO';
+            }
+
+
+            if (
+              incident.review_status ===
+              'converted_to_adjustment'
+            ) {
+              incidentStatus =
+                'AJUSTE APLICADO';
+            }
+
+
+            const row =
+              preliqSheet.addRow([
+                text(
+                  incident.code
+                ),
+                text(
+                  incident.description
+                ),
+                number(
+                  incident.quantity
+                ),
+                incident
+                    .requires_financial_review
+                  ? 'SÍ'
+                  : 'NO',
+                incidentStatus,
+                linkedAdjustment
+                  ? text(
+                      linkedAdjustment
+                        .adjustment_type
+                    ).toUpperCase()
+                  : '',
+                linkedAdjustment
+                  ? number(
+                      linkedAdjustment.amount
+                    )
+                  : 0,
+                dateText(
+                  incident.reviewed_at
+                ),
+              ]);
+
+
+            row.getCell(7).numFmt =
+              moneyFormat;
+          }
+        }
+
+
+        // =============================================
+        // TRANSPORTE
+        // =============================================
+
+        preliqSheet.addRow([]);
+
+        addPreliqSection(
+          'TRANSPORTE'
+        );
+
+
+        const transportHeader =
+          preliqSheet.addRow([
+            'Transportista',
+            'Documento',
+            'Placa',
+            'Tropa',
+            'Base',
+            'Descuentos',
+            'Adiciones',
+            'Neto',
+          ]);
+
+        applyHeader(
+          transportHeader
+        );
+
+
+        if (
+          transport.length === 0
+        ) {
+
+          preliqSheet.addRow([
+            'Sin transporte asociado',
+            '',
+            '',
+            '',
+            0,
+            0,
+            0,
+            0,
+          ]);
+
+        } else {
+
+          for (
+            const item
+            of transport
+          ) {
+
+            const row =
+              preliqSheet.addRow([
+                text(
+                  item.transporter_name
+                ),
+                [
+                  text(
+                    item.transporter_document_type
+                  ),
+                  text(
+                    item.transporter_document_number
+                  ),
+                ]
+                  .filter(Boolean)
+                  .join(' '),
+                text(
+                  item.plate
+                ),
+                item.troop_id ||
+                  '',
+                number(
+                  item.trip_price
+                ),
+                number(
+                  item.discounts_total
+                ),
+                number(
+                  item.additions_total
+                ),
+                number(
+                  item.net_payable
+                ),
+              ]);
+
+
+            for (
+              let column = 5;
+              column <= 8;
+              column += 1
+            ) {
+              row
+                .getCell(
+                  column
+                )
+                .numFmt =
+                  moneyFormat;
+            }
+
+
+            addInfoRow([
+              'Banco',
+              text(
+                item.bank_name
+              ) ||
+                'PENDIENTE DE REGISTRAR',
+
+              'Cuenta',
+              text(
+                item.account_number
+              ) ||
+                'PENDIENTE DE REGISTRAR',
+
+              'Titular',
+              text(
+                item.account_holder
+              ),
+
+              'Origen → destino',
+              [
+                text(
+                  item.origin
+                ),
+                text(
+                  item.destination
+                ),
+              ]
+                .filter(Boolean)
+                .join(' → '),
+            ]);
+
+
+            if (
+              Array.isArray(
+                item.adjustments
+              ) &&
+              item.adjustments.length > 0
+            ) {
+
+              for (
+                const adjustment
+                of item.adjustments
+              ) {
+
+                const adjustmentRow =
+                  preliqSheet.addRow([
+                    'AJUSTE TRANSPORTE',
+                    text(
+                      adjustment.description
+                    ),
+                    text(
+                      adjustment.adjustment_type
+                    ).toUpperCase(),
+                    '',
+                    '',
+                    '',
+                    number(
+                      adjustment.amount
+                    ),
+                    dateText(
+                      adjustment.created_at
+                    ),
+                  ]);
+
+                adjustmentRow
+                  .getCell(7)
+                  .numFmt =
+                    moneyFormat;
+              }
+            }
+          }
+        }
+
+
+        const transportTotalRow =
+          preliqSheet.addRow([
+            'TOTAL TRANSPORTE',
+            '',
+            '',
+            '',
+            number(
+              transportSummary.base_total
             ),
-          ],
-
-          [
-            'Aprobada',
-            dateText(
-              preliq.approved_at
+            number(
+              transportSummary
+                .discounts_total
             ),
-          ],
-
-          [
-            'Exportada',
-            dateText(
-              preliq.exported_at
+            number(
+              transportSummary
+                .additions_total
             ),
-          ],
+            number(
+              transportSummary
+                .net_payable_total
+            ),
+          ]);
 
+
+        transportTotalRow.font = {
+          bold: true,
+        };
+
+
+        for (
+          let column = 5;
+          column <= 8;
+          column += 1
+        ) {
+          transportTotalRow
+            .getCell(
+              column
+            )
+            .numFmt =
+              moneyFormat;
+        }
+
+
+        // =============================================
+        // COMISIONISTA
+        // =============================================
+
+        preliqSheet.addRow([]);
+
+        addPreliqSection(
+          'COMISIONISTA'
+        );
+
+
+        if (
+          commissionerSummary
+            .configuration_without_person
+        ) {
+
+          preliqSheet.addRow([
+            'Estado',
+            'CONFIGURACIÓN DE COMISIÓN SIN BENEFICIARIO',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+          ]);
+
+
+          addInfoRow([
+            'Tipo comisión',
+            text(
+              commissionerSummary
+                .commission_type
+            ),
+            'Valor configurado',
+            commissionerSummary
+              .commission_value,
+            'Obligación generada',
+            0,
+            '',
+            '',
+          ]);
+
+        } else if (
+          commissioner === null
+        ) {
+
+          preliqSheet.addRow([
+            'Estado',
+            'Sin comisionista',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+          ]);
+
+        } else {
+
+          addInfoRow([
+            'Comisionista',
+            text(
+              commissioner
+                .commissioner_name
+            ),
+            'Documento',
+            [
+              text(
+                commissioner
+                  .commissioner_document_type
+              ),
+              text(
+                commissioner
+                  .commissioner_document_number
+              ),
+            ]
+              .filter(Boolean)
+              .join(' '),
+            'Banco',
+            text(
+              commissioner.bank_name
+            ) ||
+              'PENDIENTE DE REGISTRAR',
+            'Cuenta',
+            text(
+              commissioner.account_number
+            ) ||
+              'PENDIENTE DE REGISTRAR',
+          ]);
+
+
+          const commissionerHeader =
+            preliqSheet.addRow([
+              'Tipo comisión',
+              'Valor',
+              '',
+              '',
+              'Base',
+              'Descuentos',
+              'Adiciones',
+              'Neto',
+            ]);
+
+          applyHeader(
+            commissionerHeader
+          );
+
+
+          const commissionerRow =
+            preliqSheet.addRow([
+              text(
+                commissionerSummary
+                  .commission_type
+              ),
+              commissionerSummary
+                .commission_value,
+              '',
+              '',
+              number(
+                commissionerSummary
+                  .base_amount
+              ),
+              number(
+                commissionerSummary
+                  .discounts_total
+              ),
+              number(
+                commissionerSummary
+                  .additions_total
+              ),
+              number(
+                commissionerSummary
+                  .net_payable
+              ),
+            ]);
+
+
+          for (
+            let column = 5;
+            column <= 8;
+            column += 1
+          ) {
+            commissionerRow
+              .getCell(
+                column
+              )
+              .numFmt =
+                moneyFormat;
+          }
+
+
+          if (
+            Array.isArray(
+              commissioner.adjustments
+            ) &&
+            commissioner.adjustments.length > 0
+          ) {
+
+            for (
+              const adjustment
+              of commissioner.adjustments
+            ) {
+
+              const row =
+                preliqSheet.addRow([
+                  'AJUSTE COMISIONISTA',
+                  text(
+                    adjustment.description
+                  ),
+                  text(
+                    adjustment.adjustment_type
+                  ).toUpperCase(),
+                  '',
+                  '',
+                  '',
+                  number(
+                    adjustment.amount
+                  ),
+                  dateText(
+                    adjustment.created_at
+                  ),
+                ]);
+
+              row.getCell(7).numFmt =
+                moneyFormat;
+            }
+          }
+        }
+
+
+        // =============================================
+        // RESUMEN FINANCIERO
+        // =============================================
+
+        preliqSheet.addRow([]);
+
+        addPreliqSection(
+          'RESUMEN FINANCIERO DEL LOTE'
+        );
+
+
+        const financialHeader =
+          preliqSheet.addRow([
+            'Obligación',
+            '',
+            '',
+            '',
+            'Base',
+            'Descuentos',
+            'Adiciones',
+            'Neto',
+          ]);
+
+        applyHeader(
+          financialHeader
+        );
+
+
+        const financialRows = [
+          [
+            'GANADERO',
+            financialSummary
+              .seller,
+          ],
+          [
+            'TRANSPORTE',
+            financialSummary
+              .transport,
+          ],
+          [
+            'COMISIONISTA',
+            financialSummary
+              .commissioner,
+          ],
         ];
 
 
         for (
-          const row
-          of preliqRows
+          const [
+            label,
+            values,
+          ]
+          of financialRows
         ) {
 
-          preliqSheet.addRow(
-            row
-          );
+          const row =
+            preliqSheet.addRow([
+              label,
+              '',
+              '',
+              '',
+              number(
+                values.base_amount
+              ),
+              number(
+                values.discounts_total
+              ),
+              number(
+                values.additions_total
+              ),
+              number(
+                values.net_payable
+              ),
+            ]);
 
+
+          for (
+            let column = 5;
+            column <= 8;
+            column += 1
+          ) {
+            row
+              .getCell(
+                column
+              )
+              .numFmt =
+                moneyFormat;
+          }
         }
 
+
+        const totalObligationsRow =
+          preliqSheet.addRow([
+            'TOTAL OBLIGACIONES DEL LOTE',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            number(
+              financialSummary
+                .total_obligations
+            ),
+          ]);
+
+
+        totalObligationsRow.font = {
+          bold: true,
+          size: 12,
+        };
+
+
+        totalObligationsRow
+          .getCell(8)
+          .numFmt =
+            moneyFormat;
       }
+
+
+      // =================================================
+      // CONFIGURACIÓN DE LA HOJA
+      // =================================================
+
+      preliqSheet.views = [
+        {
+          state:
+            'frozen',
+          ySplit:
+            1,
+        },
+      ];
+
+
+      preliqSheet.eachRow(
+        (row) => {
+
+          row.alignment = {
+            vertical:
+              'top',
+            wrapText:
+              true,
+          };
+        }
+      );
 
 
       // =================================================
