@@ -45322,9 +45322,63 @@ exports.reviewPreliquidation =
 
       }
 
+      // =================================================
+      // 5. VALIDAR INCIDENCIAS FINANCIERAS PENDIENTES
+      //
+      // Una preliquidación no puede pasar a reviewed
+      // mientras exista una incidencia que:
+      //
+      // - requiera revisión financiera
+      // - continúe en estado pending
+      //
+      // Las incidencias sin impacto ya revisadas quedan
+      // como dismissed y no bloquean.
+      // Las convertidas a ajuste tampoco bloquean.
+      // =================================================
+
+      const pendingIncidentsResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              code,
+              description,
+              quantity,
+              review_status
+            FROM slaughterhouse_slaughter_incidents
+            WHERE
+              company_id = $1
+              AND purchase_lot_id = $2
+              AND requires_financial_review = true
+              AND review_status = 'pending'
+            ORDER BY
+              created_at ASC,
+              id ASC
+          `,
+          [
+            companyId,
+            preliquidation.purchase_lot_id,
+          ],
+        );
+
+
+      if (
+        pendingIncidentsResult.rows.length > 0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Existen incidencias con revisión financiera pendiente',
+          pending_incidents:
+            pendingIncidentsResult.rows,
+        });
+      }
 
       // =================================================
-      // 5. PASAR A REVIEWED
+      // 6. PASAR A REVIEWED
       //
       // Aprovechamos para dejar los totales nuevamente
       // sincronizados con la tabla de ajustes.
@@ -45360,7 +45414,7 @@ exports.reviewPreliquidation =
 
 
       // =================================================
-      // 6. AUDITORÍA
+      // 7. AUDITORÍA
       // =================================================
 
       await client.query(
@@ -45805,9 +45859,10 @@ exports.approvePreliquidation =
               )::numeric
                 AS additions_total
 
-            FROM slaughterhouse_preliquidation_adjustments
-            WHERE
-              preliquidation_id = $1
+              FROM slaughterhouse_preliquidation_adjustments
+              WHERE
+                preliquidation_id = $1
+                AND target_type = 'seller'
           `,
           [
             preliquidationId,
