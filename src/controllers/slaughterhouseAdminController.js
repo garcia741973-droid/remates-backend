@@ -47931,6 +47931,386 @@ exports.updateNotificationRecipient =
   };
 
 // =====================================================
+// 📊 INFORMES PERSONALIZADOS — CATÁLOGO
+//
+// GET /slaughterhouse/admin/reports/catalog
+//
+// Define las fuentes y columnas permitidas para
+// "MI INFORME".
+// =====================================================
+
+exports.getReportsCatalog =
+  async (req, res) => {
+    try {
+      return res.status(200).json({
+        datasets: {
+          final_lots: {
+            label:
+              'Lotes / preliquidación',
+            description:
+              'Compra, recepción, faena, rendimiento y preliquidación por lote.',
+            fields: [
+              {
+                field: 'lot_number',
+                label: 'Lote',
+              },
+              {
+                field: 'purchase_date',
+                label: 'Fecha compra',
+              },
+              {
+                field: 'seller_name',
+                label: 'Vendedor / ganadero',
+              },
+              {
+                field: 'seller_document_number',
+                label: 'CI / documento vendedor',
+              },
+              {
+                field: 'estate_name',
+                label: 'Hacienda',
+              },
+              {
+                field: 'captador_name',
+                label: 'Captador',
+              },
+              {
+                field: 'classification_name',
+                label: 'Clasificación',
+              },
+              {
+                field: 'pricing_basis',
+                label: 'Base de precio',
+              },
+              {
+                field: 'weight_source',
+                label: 'Origen del peso',
+              },
+              {
+                field: 'expected_quantity',
+                label: 'Cantidad contratada',
+              },
+              {
+                field: 'received_quantity',
+                label: 'Cantidad recibida',
+              },
+              {
+                field: 'slaughtered_animals',
+                label: 'Animales faenados',
+              },
+              {
+                field: 'gross_weight_kg',
+                label: 'Peso bruto',
+              },
+              {
+                field: 'shrink_weight_kg',
+                label: 'Merma kg',
+              },
+              {
+                field: 'net_weight_kg',
+                label: 'Peso neto',
+              },
+              {
+                field: 'hook_weight_kg',
+                label: 'Peso gancho',
+              },
+              {
+                field: 'carcass_yield_percent',
+                label: 'Rendimiento carcasa %',
+              },
+              {
+                field: 'base_amount',
+                label: 'Monto base',
+              },
+              {
+                field: 'discounts_total',
+                label: 'Descuentos',
+              },
+              {
+                field: 'additions_total',
+                label: 'Adiciones',
+              },
+              {
+                field: 'total_payable',
+                label: 'Total preliquidación',
+              },
+              {
+                field: 'preliquidation_status',
+                label: 'Estado preliquidación',
+              },
+              {
+                field: 'process_status',
+                label: 'Estado operativo',
+              },
+            ],
+          },
+
+          seller_payments: {
+            label:
+              'Pagos a vendedores',
+            description:
+              'Compra, vendedor, método de pago y última preliquidación disponible.',
+            fields: [
+              {
+                field: 'lot_number',
+                label: 'Lote',
+              },
+              {
+                field: 'purchase_date',
+                label: 'Fecha compra',
+              },
+              {
+                field: 'seller_name',
+                label: 'Vendedor / ganadero',
+              },
+              {
+                field: 'seller_document_number',
+                label: 'CI / documento',
+              },
+              {
+                field: 'estate_name',
+                label: 'Hacienda',
+              },
+              {
+                field: 'captador_name',
+                label: 'Captador',
+              },
+              {
+                field: 'pricing_basis_label',
+                label: 'Modalidad de compra',
+              },
+              {
+                field: 'received_quantity',
+                label: 'Cantidad recibida',
+              },
+              {
+                field: 'base_amount',
+                label: 'Monto base',
+              },
+              {
+                field: 'discounts_total',
+                label: 'Descuentos',
+              },
+              {
+                field: 'additions_total',
+                label: 'Adiciones',
+              },
+              {
+                field: 'total_payable',
+                label: 'Neto a pagar',
+              },
+              {
+                field: 'preliquidation_status',
+                label: 'Estado preliquidación',
+              },
+              {
+                field: 'payment_method_label',
+                label: 'Método de pago',
+              },
+              {
+                field: 'seller_bank_name',
+                label: 'Banco',
+              },
+              {
+                field: 'seller_account_number',
+                label: 'Cuenta',
+              },
+              {
+                field: 'seller_account_holder',
+                label: 'Titular cuenta',
+              },
+              {
+                field: 'planned_payment_date',
+                label: 'Fecha prevista pago',
+              },
+              {
+                field: 'payment_terms',
+                label: 'Condiciones de pago',
+              },
+            ],
+          },
+
+          captador_payments: {
+            label:
+              'Captadores / comisionistas',
+            description:
+              'Comisiones asociadas a la captación de compras.',
+            fields: [
+              {
+                field: 'lot_number',
+                label: 'Lote',
+              },
+              {
+                field: 'purchase_date',
+                label: 'Fecha compra',
+              },
+              {
+                field: 'captador_name',
+                label: 'Captador / comisionista',
+              },
+              {
+                field: 'captador_document_number',
+                label: 'CI / documento',
+              },
+              {
+                field: 'seller_name',
+                label: 'Vendedor',
+              },
+              {
+                field: 'estate_name',
+                label: 'Hacienda',
+              },
+              {
+                field: 'commission_type_label',
+                label: 'Tipo comisión',
+              },
+              {
+                field: 'commission_value',
+                label: 'Valor comisión',
+              },
+              {
+                field: 'received_quantity',
+                label: 'Cantidad recibida',
+              },
+              {
+                field: 'purchase_total_payable',
+                label: 'Total compra',
+              },
+              {
+                field: 'commission_amount',
+                label: 'Monto comisión',
+              },
+              {
+                field: 'preliquidation_status',
+                label: 'Estado preliquidación',
+              },
+              {
+                field: 'payment_method_label',
+                label: 'Método de pago',
+              },
+              {
+                field: 'bank_name',
+                label: 'Banco',
+              },
+              {
+                field: 'account_number',
+                label: 'Cuenta',
+              },
+              {
+                field: 'account_holder',
+                label: 'Titular cuenta',
+              },
+            ],
+          },
+
+          transporter_payments: {
+            label:
+              'Transportistas / camiones',
+            description:
+              'Tropas, viajes, camiones, transportistas y autorización de pago.',
+            fields: [
+              {
+                field: 'lot_number',
+                label: 'Lote',
+              },
+              {
+                field: 'troop_label',
+                label: 'Tropa',
+              },
+              {
+                field: 'purchase_date',
+                label: 'Fecha compra',
+              },
+              {
+                field: 'travel_date',
+                label: 'Fecha viaje',
+              },
+              {
+                field: 'transporter_name',
+                label: 'Transportista',
+              },
+              {
+                field: 'transporter_document_number',
+                label: 'CI transportista',
+              },
+              {
+                field: 'driver_name',
+                label: 'Conductor',
+              },
+              {
+                field: 'driver_ci',
+                label: 'CI conductor',
+              },
+              {
+                field: 'plate',
+                label: 'Placa',
+              },
+              {
+                field: 'brand',
+                label: 'Marca camión',
+              },
+              {
+                field: 'model',
+                label: 'Modelo camión',
+              },
+              {
+                field: 'origin',
+                label: 'Origen',
+              },
+              {
+                field: 'destination',
+                label: 'Destino',
+              },
+              {
+                field: 'transported_quantity',
+                label: 'Cantidad transportada',
+              },
+              {
+                field: 'trip_price',
+                label: 'Precio viaje',
+              },
+              {
+                field: 'authorization_status',
+                label: 'Estado autorización',
+              },
+              {
+                field: 'payment_reference',
+                label: 'Referencia pago',
+              },
+              {
+                field: 'payment_method_label',
+                label: 'Método de pago',
+              },
+              {
+                field: 'bank_name',
+                label: 'Banco',
+              },
+              {
+                field: 'account_number',
+                label: 'Cuenta',
+              },
+              {
+                field: 'paid_at',
+                label: 'Fecha pago',
+              },
+            ],
+          },
+        },
+      });
+    } catch (error) {
+      console.error(
+        'GET SLAUGHTERHOUSE REPORTS CATALOG ERROR:',
+        error
+      );
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo catálogo de informes',
+      });
+    }
+  };
+
+// =====================================================
 // 📊 INFORME — VENDEDORES / GANADEROS
 //
 // GET /slaughterhouse/admin/reports/seller-payments
@@ -50476,6 +50856,383 @@ exports.getFinalLotsReport =
 
     }
 
+  };
+
+// =====================================================
+// 📊 INFORME PERSONALIZADO — VISTA PREVIA
+//
+// POST /slaughterhouse/admin/reports/custom/preview
+//
+// Reutiliza los informes existentes.
+// No duplica consultas SQL.
+// Devuelve solamente las columnas seleccionadas.
+// =====================================================
+
+exports.previewCustomReport =
+  async (req, res) => {
+    try {
+      const datasetType =
+        req.body?.dataset_type
+          ?.toString()
+          .trim() ||
+        '';
+
+      const filters =
+        req.body?.filters &&
+        typeof req.body.filters ===
+          'object'
+          ? req.body.filters
+          : {};
+
+      const requestedFields = [
+        ...new Set(
+          Array.isArray(req.body?.fields)
+            ? req.body.fields
+                .map(
+                  (item) =>
+                    item?.field
+                      ?.toString()
+                      .trim() ||
+                    ''
+                )
+                .filter(Boolean)
+            : []
+        ),
+      ];
+
+      // =================================================
+      // VALIDACIONES BÁSICAS
+      // =================================================
+
+      if (!datasetType) {
+        return res.status(400).json({
+          error:
+            'Debes seleccionar una fuente de datos',
+        });
+      }
+
+      if (requestedFields.length === 0) {
+        return res.status(400).json({
+          error:
+            'Debes seleccionar al menos una columna',
+        });
+      }
+
+      // =================================================
+      // EJECUTAR INTERNAMENTE UN CONTROLADOR EXISTENTE
+      //
+      // Permite reutilizar los informes actuales
+      // sin duplicar todo su SQL.
+      // =================================================
+
+      const runController =
+        async (
+          controller,
+          query = {}
+        ) => {
+          let internalStatus = 200;
+          let internalPayload = null;
+
+          const internalReq = {
+            slaughterhouseAdmin:
+              req.slaughterhouseAdmin,
+            user:
+              req.user,
+            query,
+            body:
+              req.body,
+          };
+
+          const internalRes = {
+            status(code) {
+              internalStatus =
+                Number(code) ||
+                200;
+
+              return this;
+            },
+
+            json(payload) {
+              internalPayload =
+                payload;
+
+              return payload;
+            },
+          };
+
+          await controller(
+            internalReq,
+            internalRes
+          );
+
+          if (
+            internalStatus >= 400
+          ) {
+            const internalError =
+              new Error(
+                internalPayload?.error ||
+                  'Error obteniendo datos del informe'
+              );
+
+            internalError.statusCode =
+              internalStatus;
+
+            throw internalError;
+          }
+
+          return (
+            internalPayload ||
+            {}
+          );
+        };
+
+      // =================================================
+      // OBTENER CATÁLOGO REAL
+      // =================================================
+
+      const catalogResponse =
+        await runController(
+          exports.getReportsCatalog
+        );
+
+      const datasets =
+        catalogResponse.datasets;
+
+      const dataset =
+        datasets &&
+        typeof datasets ===
+          'object'
+          ? datasets[
+              datasetType
+            ]
+          : null;
+
+      if (
+        !dataset ||
+        typeof dataset !==
+          'object'
+      ) {
+        return res.status(400).json({
+          error:
+            'Fuente de datos inválida',
+        });
+      }
+
+      const catalogFields =
+        Array.isArray(
+          dataset.fields
+        )
+          ? dataset.fields
+          : [];
+
+      const allowedFields =
+        new Set(
+          catalogFields
+            .map(
+              (item) =>
+                item?.field
+                  ?.toString()
+                  .trim() ||
+                ''
+            )
+            .filter(Boolean)
+        );
+
+      const invalidFields =
+        requestedFields.filter(
+          (field) =>
+            !allowedFields.has(
+              field
+            )
+        );
+
+      if (
+        invalidFields.length > 0
+      ) {
+        return res.status(400).json({
+          error:
+            'El informe contiene columnas no permitidas',
+          invalid_fields:
+            invalidFields,
+        });
+      }
+
+      // =================================================
+      // CONTROLADOR SEGÚN FUENTE
+      // =================================================
+
+      const controllers = {
+        seller_payments:
+          exports
+            .getSellerPaymentsReport,
+
+        captador_payments:
+          exports
+            .getCaptadorPaymentsReport,
+
+        transporter_payments:
+          exports
+            .getTransporterPaymentsReport,
+
+        final_lots:
+          exports
+            .getFinalLotsReport,
+      };
+
+      const reportController =
+        controllers[
+          datasetType
+        ];
+
+      if (
+        typeof reportController !==
+        'function'
+      ) {
+        return res.status(400).json({
+          error:
+            'La fuente seleccionada no está disponible',
+        });
+      }
+
+      // =================================================
+      // FILTROS
+      // =================================================
+
+      const query = {
+        from:
+          filters.from
+            ?.toString()
+            .trim() ||
+          undefined,
+
+        to:
+          filters.to
+            ?.toString()
+            .trim() ||
+          undefined,
+
+        status:
+          filters.status
+            ?.toString()
+            .trim() ||
+          undefined,
+
+        q:
+          filters.q
+            ?.toString()
+            .trim() ||
+          undefined,
+      };
+
+      // =================================================
+      // OBTENER INFORME BASE
+      // =================================================
+
+      const reportResponse =
+        await runController(
+          reportController,
+          query
+        );
+
+      const sourceRows =
+        Array.isArray(
+          reportResponse.rows
+        )
+          ? reportResponse.rows
+          : [];
+
+      // =================================================
+      // PROYECTAR SOLO COLUMNAS SELECCIONADAS
+      // =================================================
+
+      const rows =
+        sourceRows.map(
+          (sourceRow) => {
+            const projected =
+              {};
+
+            for (
+              const field
+              of requestedFields
+            ) {
+              projected[field] =
+                sourceRow?.[
+                  field
+                ] ??
+                null;
+            }
+
+            return projected;
+          }
+        );
+
+      // =================================================
+      // METADATOS DE COLUMNAS
+      // Mantiene el mismo orden pedido por el Web.
+      // =================================================
+
+      const selectedFields =
+        requestedFields
+          .map(
+            (field) =>
+              catalogFields.find(
+                (item) =>
+                  item?.field
+                    ?.toString() ===
+                  field
+              )
+          )
+          .filter(Boolean);
+
+      return res.status(200).json({
+        success:
+          true,
+
+        name:
+          req.body?.name
+            ?.toString()
+            .trim() ||
+          'Mi informe',
+
+        dataset_type:
+          datasetType,
+
+        dataset_label:
+          dataset.label ||
+          datasetType,
+
+        fields:
+          selectedFields,
+
+        rows,
+
+        summary:
+          reportResponse.summary ||
+          {
+            count:
+              rows.length,
+          },
+      });
+    } catch (error) {
+      console.error(
+        'CUSTOM REPORT PREVIEW ERROR:',
+        error
+      );
+
+      const statusCode =
+        Number(
+          error.statusCode
+        ) ||
+        500;
+
+      return res
+        .status(statusCode)
+        .json({
+          error:
+            error.message ||
+            'Error generando informe personalizado',
+        });
+    }
   };
 
 // =====================================================

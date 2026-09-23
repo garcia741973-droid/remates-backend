@@ -228,6 +228,10 @@ const {
 
   getTransporterPaymentsReport,
 
+  getReportsCatalog,
+
+  previewCustomReport,
+
   getFinalLotsReport,
 
   getFinalLotDetail,
@@ -2009,6 +2013,26 @@ router.post(
 // =====================================================
 // 📊 INFORMES
 // =====================================================
+
+router.get(
+  '/reports/catalog',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission(
+    'reports.view'
+  ),
+  getReportsCatalog,
+);
+
+router.post(
+  '/reports/custom/preview',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission(
+    'reports.view'
+  ),
+  previewCustomReport,
+);
 
 router.get(
   '/reports/seller-payments',
