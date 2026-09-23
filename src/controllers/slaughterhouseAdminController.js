@@ -44110,6 +44110,580 @@ exports.reviewPreliquidationIncident =
   };
   
 // =====================================================
+// 💰 REABRIR INCIDENCIA DE PRELIQUIDACIÓN
+//
+// converted_to_adjustment
+//   → limpia vínculo con ajuste
+//   → elimina SU ajuste seller
+//   → recalcula ganadero
+//   → vuelve a pending
+//
+// dismissed
+//   → vuelve a pending
+//
+// Solo permitido mientras la preliquidación esté draft.
+// =====================================================
+
+exports.reopenPreliquidationIncident =
+  async (req, res) => {
+    const client =
+      await pool.connect();
+
+    try {
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+      const preliquidationId =
+        Number(
+          req.params.id
+        );
+
+      const incidentId =
+        Number(
+          req.params.incidentId
+        );
+
+
+      // =================================================
+      // 1. VALIDACIONES BÁSICAS
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          preliquidationId
+        ) ||
+        preliquidationId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'ID de preliquidación inválido',
+        });
+      }
+
+
+      if (
+        !Number.isInteger(
+          incidentId
+        ) ||
+        incidentId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'ID de incidencia inválido',
+        });
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // 2. BLOQUEAR PRELIQUIDACIÓN
+      // =================================================
+
+      const preliqResult =
+        await client.query(
+          `
+            SELECT
+              *
+            FROM slaughterhouse_preliquidations
+            WHERE
+              id = $1
+              AND company_id = $2
+            FOR UPDATE
+          `,
+          [
+            preliquidationId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        preliqResult.rows.length === 0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'Preliquidación no encontrada',
+        });
+      }
+
+
+      const preliquidation =
+        preliqResult.rows[0];
+
+
+      if (
+        preliquidation.status !==
+        'draft'
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Solo una preliquidación en borrador puede modificarse',
+          status:
+            preliquidation.status,
+        });
+      }
+
+
+      // =================================================
+      // 3. BLOQUEAR INCIDENCIA
+      // =================================================
+
+      const incidentResult =
+        await client.query(
+          `
+            SELECT
+              *
+            FROM slaughterhouse_slaughter_incidents
+            WHERE
+              id = $1
+              AND company_id = $2
+              AND purchase_lot_id = $3
+            FOR UPDATE
+          `,
+          [
+            incidentId,
+            companyId,
+            preliquidation.purchase_lot_id,
+          ],
+        );
+
+
+      if (
+        incidentResult.rows.length === 0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'Incidencia no encontrada para este lote',
+        });
+      }
+
+
+      const incident =
+        incidentResult.rows[0];
+
+
+      if (
+        ![
+          'converted_to_adjustment',
+          'dismissed',
+        ].includes(
+          incident.review_status
+        )
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Solo una incidencia ya revisada puede reabrirse',
+          review_status:
+            incident.review_status,
+        });
+      }
+
+
+      let deletedAdjustment =
+        null;
+
+
+      // =================================================
+      // 4. SI TIENE AJUSTE:
+      //
+      // Primero validamos el ajuste.
+      // Después limpiamos la FK desde incidencia.
+      // Recién entonces eliminamos el ajuste.
+      // =================================================
+
+      if (
+        incident.review_status ===
+        'converted_to_adjustment'
+      ) {
+        const adjustmentId =
+          incident
+            .preliquidation_adjustment_id !==
+          null
+            ? Number(
+                incident
+                  .preliquidation_adjustment_id
+              )
+            : null;
+
+
+        if (
+          !Number.isInteger(
+            adjustmentId
+          ) ||
+          adjustmentId <= 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'La incidencia no tiene un ajuste financiero válido asociado',
+          });
+        }
+
+
+        const adjustmentResult =
+          await client.query(
+            `
+              SELECT
+                *
+              FROM slaughterhouse_preliquidation_adjustments
+              WHERE
+                id = $1
+                AND preliquidation_id = $2
+              FOR UPDATE
+            `,
+            [
+              adjustmentId,
+              preliquidationId,
+            ],
+          );
+
+
+        if (
+          adjustmentResult.rows.length === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(404).json({
+            error:
+              'Ajuste financiero asociado no encontrado',
+          });
+        }
+
+
+        const adjustment =
+          adjustmentResult.rows[0];
+
+
+        if (
+          adjustment.target_type !==
+            'seller' ||
+          adjustment.adjustment_type !==
+            'discount'
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El ajuste vinculado no corresponde a un descuento del ganadero',
+          });
+        }
+
+
+        // -----------------------------------------------
+        // Limpiar primero la referencia FK.
+        // -----------------------------------------------
+
+        await client.query(
+          `
+            UPDATE slaughterhouse_slaughter_incidents
+            SET
+              preliquidation_adjustment_id =
+                NULL
+            WHERE
+              id = $1
+              AND company_id = $2
+          `,
+          [
+            incidentId,
+            companyId,
+          ],
+        );
+
+
+        const deleteAdjustmentResult =
+          await client.query(
+            `
+              DELETE FROM slaughterhouse_preliquidation_adjustments
+              WHERE
+                id = $1
+                AND preliquidation_id = $2
+              RETURNING *
+            `,
+            [
+              adjustmentId,
+              preliquidationId,
+            ],
+          );
+
+
+        deletedAdjustment =
+          deleteAdjustmentResult.rows[0] ||
+          null;
+      }
+
+
+      // =================================================
+      // 5. VOLVER INCIDENCIA A PENDING
+      // =================================================
+
+      const updatedIncidentResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_slaughter_incidents
+            SET
+              review_status =
+                'pending',
+              preliquidation_adjustment_id =
+                NULL,
+              reviewed_by =
+                NULL,
+              reviewed_at =
+                NULL
+            WHERE
+              id = $1
+              AND company_id = $2
+            RETURNING *
+          `,
+          [
+            incidentId,
+            companyId,
+          ],
+        );
+
+
+      const updatedIncident =
+        updatedIncidentResult.rows[0];
+
+
+      // =================================================
+      // 6. RECALCULAR SOLO AJUSTES DEL GANADERO
+      // =================================================
+
+      const totalsResult =
+        await client.query(
+          `
+            SELECT
+              COALESCE(
+                SUM(amount) FILTER (
+                  WHERE
+                    adjustment_type =
+                    'discount'
+                ),
+                0
+              )::numeric
+                AS discounts_total,
+
+              COALESCE(
+                SUM(amount) FILTER (
+                  WHERE
+                    adjustment_type =
+                    'addition'
+                ),
+                0
+              )::numeric
+                AS additions_total
+
+            FROM slaughterhouse_preliquidation_adjustments
+
+            WHERE
+              preliquidation_id = $1
+              AND target_type = 'seller'
+          `,
+          [
+            preliquidationId,
+          ],
+        );
+
+
+      const discountsTotal =
+        Number(
+          totalsResult.rows[0]
+            .discounts_total || 0
+        );
+
+
+      const additionsTotal =
+        Number(
+          totalsResult.rows[0]
+            .additions_total || 0
+        );
+
+
+      const baseAmount =
+        Number(
+          preliquidation.base_amount || 0
+        );
+
+
+      const totalPayable =
+        Math.round(
+          (
+            baseAmount -
+            discountsTotal +
+            additionsTotal +
+            Number.EPSILON
+          ) *
+          100
+        ) / 100;
+
+
+      // =================================================
+      // 7. ACTUALIZAR PRELIQUIDACIÓN
+      // =================================================
+
+      const updatedPreliqResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_preliquidations
+            SET
+              discounts_total = $1,
+              additions_total = $2,
+              total_payable = $3,
+              updated_at = NOW()
+            WHERE
+              id = $4
+              AND company_id = $5
+            RETURNING *
+          `,
+          [
+            discountsTotal,
+            additionsTotal,
+            totalPayable,
+            preliquidationId,
+            companyId,
+          ],
+        );
+
+
+      const updatedPreliquidation =
+        updatedPreliqResult.rows[0];
+
+
+      // =================================================
+      // 8. AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+          VALUES (
+            $1,
+            $2,
+            'slaughter_incident',
+            $3,
+            'reopen_financial_review',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+          userId,
+          String(
+            incidentId
+          ),
+          JSON.stringify({
+            review_status:
+              incident.review_status,
+            preliquidation_adjustment_id:
+              incident
+                .preliquidation_adjustment_id,
+            deleted_adjustment:
+              deletedAdjustment,
+          }),
+          JSON.stringify({
+            review_status:
+              'pending',
+            preliquidation_adjustment_id:
+              null,
+            totals: {
+              discounts_total:
+                discountsTotal,
+              additions_total:
+                additionsTotal,
+              total_payable:
+                totalPayable,
+            },
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.status(200).json({
+        success: true,
+        message:
+          'Incidencia reabierta correctamente',
+        incident:
+          updatedIncident,
+        deleted_adjustment:
+          deletedAdjustment,
+        preliquidation:
+          updatedPreliquidation,
+      });
+
+
+    } catch (error) {
+      try {
+        await client.query(
+          'ROLLBACK'
+        );
+      } catch (_) {}
+
+
+      console.error(
+        'REOPEN PRELIQUIDATION INCIDENT ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error reabriendo incidencia de preliquidación',
+      });
+
+    } finally {
+      client.release();
+    }
+  };
+  
+// =====================================================
 // 💰 ELIMINAR AJUSTE DE PRELIQUIDACIÓN
 // DELETE /slaughterhouse/admin/preliquidations/:id/adjustments/:adjustmentId
 //
@@ -44697,9 +45271,10 @@ exports.reviewPreliquidation =
               )::numeric
                 AS additions_total
 
-            FROM slaughterhouse_preliquidation_adjustments
-            WHERE
-              preliquidation_id = $1
+              FROM slaughterhouse_preliquidation_adjustments
+              WHERE
+                preliquidation_id = $1
+                AND target_type = 'seller'
           `,
           [
             preliquidationId,
