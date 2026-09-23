@@ -52146,15 +52146,26 @@ exports.exportFinalLotXlsx =
                 sp.total_payable,
 
                 sp.generated_at,
+                sp.generated_at
+                  AT TIME ZONE 'UTC'
+                  AS generated_at,
+
                 sp.approved_by,
+
                 COALESCE(
                   approved_user.full_name,
                   approved_user.name,
                   approved_user.email
                 )
                   AS approved_by_name,
-                sp.approved_at,
+
+                sp.approved_at
+                  AT TIME ZONE 'UTC'
+                  AS approved_at,
+
                 sp.exported_at
+                  AT TIME ZONE 'UTC'
+                  AS exported_at
                 FROM
                   slaughterhouse_preliquidations sp
 
@@ -52264,7 +52275,10 @@ exports.exportFinalLotXlsx =
                   transport_negotiation_id,
                   commissioner_person_id,
                   created_by,
+
                   created_at
+                    AT TIME ZONE 'UTC'
+                    AS created_at
                 FROM
                   slaughterhouse_preliquidation_adjustments
                 WHERE
@@ -52293,9 +52307,15 @@ exports.exportFinalLotXlsx =
                   review_status,
                   preliquidation_adjustment_id,
                   created_by,
-                  created_at,
+
+                  created_at
+                    AT TIME ZONE 'UTC'
+                    AS created_at,
                   reviewed_by,
+
                   reviewed_at
+                    AT TIME ZONE 'UTC'
+                    AS reviewed_at
                 FROM
                   slaughterhouse_slaughter_incidents
                 WHERE
