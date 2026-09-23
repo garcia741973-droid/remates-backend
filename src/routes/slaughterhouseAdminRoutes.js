@@ -190,6 +190,8 @@ const {
 
   addPreliquidationAdjustment,
 
+  reviewPreliquidationIncident,
+
   deletePreliquidationAdjustment,
 
   reviewPreliquidation,
@@ -1520,6 +1522,16 @@ router.post(
 
   addPreliquidationAdjustment,
 
+);
+
+router.post(
+  '/preliquidations/:id/incidents/:incidentId/review',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission(
+    'preliquidation.manage'
+  ),
+  reviewPreliquidationIncident,
 );
 
 // =====================================================
