@@ -192,6 +192,8 @@ const {
 
   reviewPreliquidationIncident,
 
+  updatePreliquidationIncidentDiscount,
+
   deletePreliquidationAdjustment,
 
   reviewPreliquidation,
@@ -1532,6 +1534,16 @@ router.post(
     'preliquidation.manage'
   ),
   reviewPreliquidationIncident,
+);
+
+router.patch(
+  '/preliquidations/:id/incidents/:incidentId/discount',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission(
+    'preliquidation.manage'
+  ),
+  updatePreliquidationIncidentDiscount,
 );
 
 // =====================================================
