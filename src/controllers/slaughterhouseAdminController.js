@@ -52738,47 +52738,96 @@ exports.exportFinalLotXlsx =
         };
 
 
-      const dateText =
-        (value) => {
-
-          if (!value) {
-            return '';
-          }
-
-          const date =
-            new Date(value);
-
-          if (
-            Number.isNaN(
-              date.getTime()
-            )
-          ) {
-
-            return text(value);
-
-          }
-
-          return new Intl.DateTimeFormat(
-            'es-BO',
-            {
-              timeZone:
-                'America/La_Paz',
-              day:
-                '2-digit',
-              month:
-                '2-digit',
-              year:
-                'numeric',
-              hour:
-                '2-digit',
-              minute:
-                '2-digit',
-              hour12:
-                false,
+        const dateText =
+          (value) => {
+            if (!value) {
+              return '';
             }
-          ).format(date);
 
-        };
+            const date =
+              new Date(value);
+
+            if (
+              Number.isNaN(
+                date.getTime()
+              )
+            ) {
+              return text(value);
+            }
+
+            return new Intl.DateTimeFormat(
+              'es-BO',
+              {
+                timeZone:
+                  'America/La_Paz',
+                day:
+                  '2-digit',
+                month:
+                  '2-digit',
+                year:
+                  'numeric',
+                hour:
+                  '2-digit',
+                minute:
+                  '2-digit',
+                hour12:
+                  false,
+              }
+            ).format(date);
+          };
+
+
+        const dateOnlyText =
+          (value) => {
+            if (!value) {
+              return '';
+            }
+
+            // PostgreSQL DATE normalmente llega como YYYY-MM-DD.
+            // Lo tratamos como fecha calendario, sin convertir
+            // zona horaria para evitar moverla al día anterior.
+            if (
+              typeof value === 'string'
+            ) {
+              const match =
+                value.match(
+                  /^(\d{4})-(\d{2})-(\d{2})/
+                );
+
+              if (match) {
+                return (
+                  `${match[3]}/` +
+                  `${match[2]}/` +
+                  `${match[1]}`
+                );
+              }
+            }
+
+            const date =
+              new Date(value);
+
+            if (
+              Number.isNaN(
+                date.getTime()
+              )
+            ) {
+              return text(value);
+            }
+
+            return new Intl.DateTimeFormat(
+              'es-BO',
+              {
+                timeZone:
+                  'UTC',
+                day:
+                  '2-digit',
+                month:
+                  '2-digit',
+                year:
+                  'numeric',
+              }
+            ).format(date);
+          };
 
 
       const certifiedFieldRows =
@@ -54866,7 +54915,7 @@ exports.exportFinalLotXlsx =
             lot.classification_name
           ),
           'Fecha compra',
-          dateText(
+          dateOnlyText(
             lot.purchase_date
           ),
         ]);
@@ -54918,7 +54967,7 @@ exports.exportFinalLotXlsx =
             lot.seller_account_holder
           ),
           'Pago previsto',
-          dateText(
+          dateOnlyText(
             lot.planned_payment_date
           ),
           'Condiciones',
