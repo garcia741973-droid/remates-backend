@@ -9046,35 +9046,245 @@ const importLocation = async (
   req,
   res
 ) => {
+
+  const client =
+    await pool.connect();
+
   try {
 
-  await pool.query('BEGIN');
+    await client.query('BEGIN');
 
     const userId =
-      req.user.user_id;
+      Number(req.user.user_id);
+
+    const authCompanyId =
+      req.user.company_id
+        ? Number(req.user.company_id)
+        : null;
 
     const {
       token,
+      corporate,
+      slaughterhouse_estate_id,
     } = req.body;
 
+    const cleanToken =
+      token
+        ?.toString()
+        .trim()
+        .toUpperCase();
+
+    if (!cleanToken) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
+      return res.status(400).json({
+        error:
+          'El código es obligatorio',
+      });
+
+    }
+
+    const wantsCorporate =
+      corporate === true ||
+      corporate === 'true';
+
+    let companyId = null;
+    let estateId = null;
+
+    // =====================================================
+    // IMPORTACIÓN CORPORATIVA
+    //
+    // Solamente disponible para un usuario perteneciente
+    // a un frigorífico activo.
+    // =====================================================
+
+    if (wantsCorporate) {
+
+      if (!authCompanyId) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(403).json({
+          error:
+            'No existe una empresa autenticada para importar esta ubicación',
+        });
+
+      }
+
+      const companyResult =
+        await client.query(
+
+          `
+          SELECT
+            c.id
+
+          FROM user_companies uc
+
+          JOIN companies c
+            ON c.id = uc.company_id
+
+          WHERE
+            uc.user_id = $1
+
+            AND uc.company_id = $2
+
+            AND uc.company_status =
+              'approved'
+
+            AND c.company_type =
+              'slaughterhouse'
+
+            AND c.is_active = true
+
+          LIMIT 1
+          `,
+
+          [
+            userId,
+            authCompanyId,
+          ]
+
+        );
+
+      if (
+        companyResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(403).json({
+          error:
+            'El usuario no pertenece a un frigorífico autorizado',
+        });
+
+      }
+
+      companyId =
+        companyResult.rows[0].id;
+
+      // ===================================================
+      // HACIENDA OPCIONAL
+      // ===================================================
+
+      if (
+        slaughterhouse_estate_id !==
+          null &&
+        slaughterhouse_estate_id !==
+          undefined &&
+        slaughterhouse_estate_id !== ''
+      ) {
+
+        estateId =
+          Number(
+            slaughterhouse_estate_id
+          );
+
+        if (
+          !Number.isInteger(
+            estateId
+          ) ||
+          estateId <= 0
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(400).json({
+            error:
+              'ID de hacienda inválido',
+          });
+
+        }
+
+        const estateResult =
+          await client.query(
+
+            `
+            SELECT id
+
+            FROM slaughterhouse_estates
+
+            WHERE
+              id = $1
+
+              AND company_id = $2
+
+              AND is_active = true
+
+            LIMIT 1
+            `,
+
+            [
+              estateId,
+              companyId,
+            ]
+
+          );
+
+        if (
+          estateResult.rows.length === 0
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(404).json({
+            error:
+              'La hacienda no pertenece al frigorífico',
+          });
+
+        }
+
+      }
+
+    }
+
+    // =====================================================
+    // LEER TOKEN
+    // =====================================================
+
     const tokenRes =
-      await pool.query(
+      await client.query(
+
         `
         SELECT *
+
         FROM transport_location_share_tokens
-        WHERE share_token = $1
+
+        WHERE
+          share_token = $1
+
         LIMIT 1
         `,
-        [token]
+
+        [
+          cleanToken,
+        ]
+
       );
 
     if (
       tokenRes.rows.length === 0
     ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
       return res.status(404).json({
         error:
           'Token no encontrado',
       });
+
     }
 
     const share =
@@ -9086,114 +9296,230 @@ const importLocation = async (
         share.expires_at
       )
     ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
       return res.status(400).json({
         error:
           'Este token expiró',
       });
+
     }
 
     if (
       share.times_used >=
       share.max_uses
     ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
       return res.status(400).json({
         error:
           'Este token ya fue utilizado',
       });
+
     }
 
+    // =====================================================
+    // UBICACIÓN ORIGINAL
+    // =====================================================
+
     const locationRes =
-      await pool.query(
+      await client.query(
+
         `
         SELECT *
+
         FROM transport_saved_locations
-        WHERE id = $1
+
+        WHERE
+          id = $1
+
         LIMIT 1
         `,
+
         [
           share.saved_location_id,
         ]
+
       );
 
     if (
       locationRes.rows.length === 0
     ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
       return res.status(404).json({
         error:
           'Ubicación no encontrada',
       });
+
     }
 
     const location =
       locationRes.rows[0];
 
-    const duplicate =
-          await pool.query(
-            `
-            SELECT id
-            FROM transport_saved_locations
-            WHERE
-              user_id = $1
-            AND
-              latitude = $2
-            AND
-              longitude = $3
-            LIMIT 1
-            `,
-            [
-              userId,
-              location.latitude,
-              location.longitude,
-            ]
-          );
+    // =====================================================
+    // EVITAR DUPLICADO
+    //
+    // PERSONAL:
+    // misma ubicación dentro de la cuenta del usuario.
+    //
+    // CORPORATIVA:
+    // misma ubicación dentro del frigorífico.
+    // =====================================================
+
+    let duplicate;
+
+    if (companyId) {
+
+      duplicate =
+        await client.query(
+
+          `
+          SELECT id
+
+          FROM transport_saved_locations
+
+          WHERE
+            company_id = $1
+
+            AND latitude = $2
+
+            AND longitude = $3
+
+          LIMIT 1
+          `,
+
+          [
+            companyId,
+            location.latitude,
+            location.longitude,
+          ]
+
+        );
+
+    } else {
+
+      duplicate =
+        await client.query(
+
+          `
+          SELECT id
+
+          FROM transport_saved_locations
+
+          WHERE
+            user_id = $1
+
+            AND company_id IS NULL
+
+            AND latitude = $2
+
+            AND longitude = $3
+
+          LIMIT 1
+          `,
+
+          [
+            userId,
+            location.latitude,
+            location.longitude,
+          ]
+
+        );
+
+    }
 
     if (
       duplicate.rows.length > 0
     ) {
+
+      await client.query(
+        'ROLLBACK'
+      );
+
       return res.status(400).json({
         error:
-          'Ya tienes una ubicación con ese nombre',
+          companyId
+            ? 'El frigorífico ya tiene esta ubicación'
+            : 'Ya tienes esta ubicación guardada',
       });
+
     }
 
+    // =====================================================
+    // COPIAR UBICACIÓN
+    // =====================================================
+
     const newLocation =
-      await pool.query(
+      await client.query(
+
         `
         INSERT INTO transport_saved_locations (
 
           user_id,
+          company_id,
+          slaughterhouse_estate_id,
           name,
           type,
           latitude,
           longitude,
-          notes
+          notes,
+          is_primary
 
         )
+
         VALUES (
-          $1,$2,$3,$4,$5,$6
+          $1,$2,$3,$4,$5,$6,$7,$8,false
         )
+
         RETURNING *
         `,
+
         [
           userId,
+          companyId,
+          estateId,
           location.name,
           location.type,
           location.latitude,
           location.longitude,
           location.notes,
         ]
+
       );
 
+    // =====================================================
+    // COPIAR TODAS LAS RUTAS
+    // =====================================================
+
     const routes =
-      await pool.query(
+      await client.query(
+
         `
         SELECT *
+
         FROM transport_location_routes
-        WHERE saved_location_id = $1
+
+        WHERE
+          saved_location_id = $1
+
+        ORDER BY
+          created_at ASC
         `,
+
         [
           share.saved_location_id,
         ]
+
       );
 
     for (
@@ -9201,7 +9527,8 @@ const importLocation = async (
       of routes.rows
     ) {
 
-      await pool.query(
+      await client.query(
+
         `
         INSERT INTO transport_location_routes (
 
@@ -9213,47 +9540,60 @@ const importLocation = async (
           duration_minutes
 
         )
+
         VALUES (
           $1,$2,$3,$4,$5,$6
         )
         `,
+
         [
           newLocation.rows[0].id,
           route.name,
           route.route_type,
-          JSON.stringify(route.route_points),
+          JSON.stringify(
+            route.route_points
+          ),
           route.distance_km,
           route.duration_minutes,
         ]
+
       );
 
     }
 
+    // =====================================================
+    // CONSUMIR TOKEN
+    // =====================================================
+
     const updateToken =
-        await pool.query(
-      `
-      UPDATE transport_location_share_tokens
-      SET
+      await client.query(
 
-        times_used =
-          times_used + 1,
+        `
+        UPDATE transport_location_share_tokens
 
-        used_by = $1,
+        SET
+          times_used =
+            times_used + 1,
 
-        used_at = NOW()
+          used_by = $1,
 
-      WHERE
-        id = $2
-      AND
-        times_used < max_uses
+          used_at = NOW()
 
-      RETURNING id
-      `,
-      [
-        userId,
-        share.id,
-      ]
-    );
+        WHERE
+          id = $2
+
+          AND times_used <
+            max_uses
+
+        RETURNING id
+        `,
+
+        [
+          userId,
+          share.id,
+        ]
+
+      );
 
     if (
       updateToken.rows.length === 0
@@ -9265,28 +9605,56 @@ const importLocation = async (
 
     }
 
-    await pool.query('COMMIT');
+    await client.query(
+      'COMMIT'
+    );
 
-    res.json({
+    return res.json({
+
       success: true,
+
       location:
         newLocation.rows[0],
+
       imported_routes:
         routes.rows.length,
+
+      is_corporate:
+        companyId !== null,
+
+      company_id:
+        companyId,
+
+      slaughterhouse_estate_id:
+        estateId,
+
     });
 
-    } catch (error) {
+  } catch (error) {
 
-    await pool.query('ROLLBACK');
+    await client.query(
+      'ROLLBACK'
+    );
 
-    console.error(error);
+    console.error(
+      'IMPORT LOCATION ERROR:',
+      error
+    );
 
-    res.status(500).json({
-        error:
-          'Error importando ubicación',
+    return res.status(500).json({
+      error:
+        error.message ===
+        'Token ya utilizado'
+          ? 'Este token ya fue utilizado'
+          : 'Error importando ubicación',
     });
+
+  } finally {
+
+    client.release();
 
   }
+
 };
 
 const createLocationRoute = async (req, res) => {
