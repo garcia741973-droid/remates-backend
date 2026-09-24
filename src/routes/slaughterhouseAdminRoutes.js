@@ -232,6 +232,8 @@ const {
 
   previewCustomReport,
 
+  exportCustomReportXlsx,
+
   getFinalLotsReport,
 
   getFinalLotDetail,
@@ -2032,6 +2034,16 @@ router.post(
     'reports.view'
   ),
   previewCustomReport,
+);
+
+router.post(
+  '/reports/custom/xlsx',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission(
+    'reports.export'
+  ),
+  exportCustomReportXlsx,
 );
 
 router.get(

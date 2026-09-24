@@ -51236,6 +51236,608 @@ exports.previewCustomReport =
   };
 
 // =====================================================
+// 📊 INFORME PERSONALIZADO — EXPORTAR EXCEL
+//
+// POST /slaughterhouse/admin/reports/custom/xlsx
+//
+// Reutiliza previewCustomReport.
+// Exporta únicamente las columnas seleccionadas.
+// =====================================================
+
+exports.exportCustomReportXlsx =
+  async (req, res) => {
+    try {
+      let internalStatus = 200;
+      let internalPayload = null;
+
+      // =================================================
+      // EJECUTAR PREVIEW INTERNAMENTE
+      // =================================================
+
+      const internalRes = {
+        status(code) {
+          internalStatus =
+            Number(code) ||
+            200;
+
+          return this;
+        },
+
+        json(payload) {
+          internalPayload =
+            payload;
+
+          return payload;
+        },
+      };
+
+      await exports.previewCustomReport(
+        req,
+        internalRes
+      );
+
+      if (
+        internalStatus >= 400
+      ) {
+        return res
+          .status(internalStatus)
+          .json(
+            internalPayload || {
+              error:
+                'Error generando informe personalizado',
+            }
+          );
+      }
+
+      const report =
+        internalPayload || {};
+
+      const fields =
+        Array.isArray(
+          report.fields
+        )
+          ? report.fields
+          : [];
+
+      const rows =
+        Array.isArray(
+          report.rows
+        )
+          ? report.rows
+          : [];
+
+      if (
+        fields.length === 0
+      ) {
+        return res.status(400).json({
+          error:
+            'El informe no tiene columnas seleccionadas',
+        });
+      }
+
+      // =================================================
+      // HELPERS
+      // =================================================
+
+      const text =
+        (value) => {
+          if (
+            value === null ||
+            value === undefined
+          ) {
+            return '';
+          }
+
+          return String(
+            value
+          ).trim();
+        };
+
+      const dateTimeText =
+        (value) => {
+          if (
+            value === null ||
+            value === undefined ||
+            value === ''
+          ) {
+            return '';
+          }
+
+          const date =
+            value instanceof Date
+              ? value
+              : new Date(
+                  value
+                );
+
+          if (
+            Number.isNaN(
+              date.getTime()
+            )
+          ) {
+            return text(
+              value
+            );
+          }
+
+          return new Intl.DateTimeFormat(
+            'es-BO',
+            {
+              timeZone:
+                'America/La_Paz',
+              year:
+                'numeric',
+              month:
+                '2-digit',
+              day:
+                '2-digit',
+              hour:
+                '2-digit',
+              minute:
+                '2-digit',
+              second:
+                '2-digit',
+              hour12:
+                false,
+            }
+          ).format(
+            date
+          );
+        };
+
+      const numericFields =
+        new Set([
+          'expected_quantity',
+          'received_quantity',
+          'slaughtered_animals',
+          'gross_weight_kg',
+          'shrink_weight_kg',
+          'net_weight_kg',
+          'hook_weight_kg',
+          'carcass_yield_percent',
+          'base_amount',
+          'discounts_total',
+          'additions_total',
+          'total_payable',
+
+          'commission_value',
+          'purchase_total_payable',
+          'commission_amount',
+
+          'transported_quantity',
+          'trip_price',
+        ]);
+
+      const dateTimeFields =
+        new Set([
+          'generated_at',
+          'approved_at',
+          'exported_at',
+          'paid_at',
+          'authorized_at',
+          'negotiation_created_at',
+          'trip_started_at',
+          'delivered_at',
+        ]);
+
+      const excelValue =
+        (
+          field,
+          value
+        ) => {
+          if (
+            value === null ||
+            value === undefined
+          ) {
+            return '';
+          }
+
+          if (
+            dateTimeFields.has(
+              field
+            )
+          ) {
+            return dateTimeText(
+              value
+            );
+          }
+
+          if (
+            numericFields.has(
+              field
+            )
+          ) {
+            const numeric =
+              Number(
+                value
+              );
+
+            if (
+              Number.isFinite(
+                numeric
+              )
+            ) {
+              return numeric;
+            }
+          }
+
+          if (
+            value instanceof Date
+          ) {
+            return dateTimeText(
+              value
+            );
+          }
+
+          if (
+            typeof value ===
+            'boolean'
+          ) {
+            return value
+              ? 'SÍ'
+              : 'NO';
+          }
+
+          if (
+            typeof value ===
+              'object' &&
+            value !== null
+          ) {
+            return JSON.stringify(
+              value
+            );
+          }
+
+          return value;
+        };
+
+      // =================================================
+      // WORKBOOK
+      // =================================================
+
+      const workbook =
+        new ExcelJS.Workbook();
+
+      workbook.creator =
+        'FRIGOSI';
+
+      workbook.created =
+        new Date();
+
+      const worksheet =
+        workbook.addWorksheet(
+          'MI INFORME'
+        );
+
+      // =================================================
+      // TÍTULO
+      // =================================================
+
+      worksheet.mergeCells(
+        1,
+        1,
+        1,
+        fields.length
+      );
+
+      const titleCell =
+        worksheet.getCell(
+          1,
+          1
+        );
+
+      titleCell.value =
+        text(
+          report.name
+        ) ||
+        'Mi informe';
+
+      titleCell.font = {
+        bold:
+          true,
+        size:
+          16,
+      };
+
+      titleCell.alignment = {
+        vertical:
+          'middle',
+        horizontal:
+          'left',
+      };
+
+      worksheet.getRow(
+        1
+      ).height = 24;
+
+      // =================================================
+      // FUENTE
+      // =================================================
+
+      worksheet.mergeCells(
+        2,
+        1,
+        2,
+        fields.length
+      );
+
+      worksheet.getCell(
+        2,
+        1
+      ).value =
+        `Fuente: ${
+          text(
+            report.dataset_label
+          ) ||
+          text(
+            report.dataset_type
+          )
+        }`;
+
+      // =================================================
+      // CANTIDAD
+      // =================================================
+
+      worksheet.mergeCells(
+        3,
+        1,
+        3,
+        fields.length
+      );
+
+      worksheet.getCell(
+        3,
+        1
+      ).value =
+        `Registros: ${rows.length}`;
+
+      // =================================================
+      // CABECERAS
+      // =================================================
+
+      const headerRow =
+        worksheet.getRow(
+          5
+        );
+
+      fields.forEach(
+        (
+          item,
+          index
+        ) => {
+          const label =
+            text(
+              item?.label
+            ) ||
+            text(
+              item?.field
+            );
+
+          const cell =
+            headerRow.getCell(
+              index + 1
+            );
+
+          cell.value =
+            label;
+
+          cell.font = {
+            bold:
+              true,
+          };
+
+          cell.alignment = {
+            vertical:
+              'middle',
+            horizontal:
+              'center',
+            wrapText:
+              true,
+          };
+        }
+      );
+
+      headerRow.height = 28;
+
+      // =================================================
+      // FILAS
+      // =================================================
+
+      for (
+        const sourceRow
+        of rows
+      ) {
+        const values =
+          fields.map(
+            (item) => {
+              const field =
+                text(
+                  item?.field
+                );
+
+              return excelValue(
+                field,
+                sourceRow?.[
+                  field
+                ]
+              );
+            }
+          );
+
+        worksheet.addRow(
+          values
+        );
+      }
+
+      // =================================================
+      // ANCHOS Y FORMATOS
+      // =================================================
+
+      fields.forEach(
+        (
+          item,
+          index
+        ) => {
+          const field =
+            text(
+              item?.field
+            );
+
+          const label =
+            text(
+              item?.label
+            );
+
+          const column =
+            worksheet.getColumn(
+              index + 1
+            );
+
+          let width =
+            Math.max(
+              label.length + 4,
+              14
+            );
+
+          for (
+            const row
+            of rows.slice(
+              0,
+              100
+            )
+          ) {
+            const value =
+              excelValue(
+                field,
+                row?.[
+                  field
+                ]
+              );
+
+            width =
+              Math.max(
+                width,
+                text(
+                  value
+                ).length + 2
+              );
+          }
+
+          column.width =
+            Math.min(
+              width,
+              35
+            );
+
+          if (
+            numericFields.has(
+              field
+            )
+          ) {
+            column.numFmt =
+              '#,##0.00';
+          }
+        }
+      );
+
+      worksheet.views = [
+        {
+          state:
+            'frozen',
+          ySplit:
+            5,
+        },
+      ];
+
+      worksheet.autoFilter = {
+        from: {
+          row:
+            5,
+          column:
+            1,
+        },
+        to: {
+          row:
+            5,
+          column:
+            fields.length,
+        },
+      };
+
+      // =================================================
+      // NOMBRE ARCHIVO
+      // =================================================
+
+      let safeName =
+        text(
+          report.name
+        ) ||
+        'FRIGOSI_MI_INFORME';
+
+      safeName =
+        safeName
+          .normalize(
+            'NFD'
+          )
+          .replace(
+            /[\u0300-\u036f]/g,
+            ''
+          )
+          .replace(
+            /[^a-zA-Z0-9_-]+/g,
+            '_'
+          )
+          .replace(
+            /^_+|_+$/g,
+            ''
+          );
+
+      if (
+        !safeName
+      ) {
+        safeName =
+          'FRIGOSI_MI_INFORME';
+      }
+
+      const fileName =
+        `${safeName}.xlsx`;
+
+      // =================================================
+      // GENERAR ARCHIVO
+      // =================================================
+
+      const buffer =
+        await workbook.xlsx.writeBuffer();
+
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${fileName}"`
+      );
+
+      return res.send(
+        Buffer.from(
+          buffer
+        )
+      );
+    } catch (error) {
+      console.error(
+        'EXPORT CUSTOM REPORT XLSX ERROR:',
+        error
+      );
+
+      return res.status(500).json({
+        error:
+          'Error exportando informe personalizado a Excel',
+      });
+    }
+  };
+
+// =====================================================
 // 📊 DETALLE FINAL DE UN LOTE DE COMPRA
 //
 // GET /slaughterhouse/admin/reports/final-lots/:id
