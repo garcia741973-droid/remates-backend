@@ -9733,56 +9733,194 @@ const importLocation = async (
 };
 
 const createLocationRoute = async (req, res) => {
+
   try {
-        const {
-          client_route_id,
-          saved_location_id,
-          name,
-          route_type,
-          route_points,
-          distance_km,
-          duration_minutes,
-        } = req.body;
 
-        const result = await pool.query(
+    const {
+
+      client_route_id,
+
+      existing_route_id,
+
+      saved_location_id,
+
+      name,
+
+      route_type,
+
+      route_points,
+
+      distance_km,
+
+      duration_minutes,
+
+    } = req.body;
+
+    // =====================================================
+    // SI ESTAMOS REHACIENDO / EDITANDO UNA RUTA EXISTENTE
+    // ACTUALIZAR ESA MISMA FILA.
+    // =====================================================
+
+    if (
+      existing_route_id !== null &&
+      existing_route_id !== undefined &&
+      existing_route_id !== ''
+    ) {
+
+      const existingRouteId =
+        Number(existing_route_id);
+
+      if (
+        !Number.isInteger(
+          existingRouteId
+        ) ||
+        existingRouteId <= 0
+      ) {
+
+        return res.status(400).json({
+
+          error:
+            'ID de ruta existente inválido',
+
+        });
+
+      }
+
+      const updated =
+        await pool.query(
+
           `
-            INSERT INTO transport_location_routes (
-              client_route_id,
-              saved_location_id,
-              name,
-              route_type,
-              route_points,
-              distance_km,
-              duration_minutes
-            )
-            VALUES ($1,$2,$3,$4,$5,$6,$7)
+          UPDATE transport_location_routes
 
-            ON CONFLICT (client_route_id)
-            DO UPDATE SET
-              client_route_id =
-                EXCLUDED.client_route_id
+          SET
+            name = $1,
+            route_type = $2,
+            route_points = $3,
+            distance_km = $4,
+            duration_minutes = $5
 
-            RETURNING *
+          WHERE
+            id = $6
+
+            AND saved_location_id = $7
+
+          RETURNING *
           `,
+
           [
-            client_route_id ?? null,
-            saved_location_id,
+
             name,
+
             route_type,
+
             route_points,
+
             distance_km,
+
             duration_minutes,
+
+            existingRouteId,
+
+            saved_location_id,
+
           ]
+
         );
 
-    res.json(result.rows[0]);
+      if (
+        updated.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+
+          error:
+            'La ruta existente no fue encontrada para esta ubicación',
+
+        });
+
+      }
+
+      return res.json(
+        updated.rows[0]
+      );
+
+    }
+
+    // =====================================================
+    // RUTA NUEVA
+    // =====================================================
+
+    const result =
+      await pool.query(
+
+        `
+        INSERT INTO transport_location_routes (
+
+          client_route_id,
+
+          saved_location_id,
+
+          name,
+
+          route_type,
+
+          route_points,
+
+          distance_km,
+
+          duration_minutes
+
+        )
+
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
+
+        ON CONFLICT (client_route_id)
+
+        DO UPDATE SET
+
+          client_route_id =
+            EXCLUDED.client_route_id
+
+        RETURNING *
+        `,
+
+        [
+
+          client_route_id ?? null,
+
+          saved_location_id,
+
+          name,
+
+          route_type,
+
+          route_points,
+
+          distance_km,
+
+          duration_minutes,
+
+        ]
+
+      );
+
+    res.json(
+      result.rows[0]
+    );
+
   } catch (error) {
+
     console.error(error);
 
     res.status(500).json({
-      error: 'Error creando ruta',
+
+      error:
+        'Error creando ruta',
+
     });
+
   }
+
 };
 
 const getLocationRoutes = async (
