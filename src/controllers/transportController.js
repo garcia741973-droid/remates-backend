@@ -9459,6 +9459,44 @@ const importLocation = async (
     // COPIAR UBICACIÓN
     // =====================================================
 
+    const importedAsPrimary =
+      companyId !== null &&
+      estateId !== null;
+
+    // =====================================================
+    // SI SE IMPORTA PARA UNA HACIENDA DEL FRIGORÍFICO,
+    // ESTE SERÁ SU ACCESO PRINCIPAL.
+    //
+    // Quitar principal anterior de esa misma hacienda.
+    // =====================================================
+
+    if (importedAsPrimary) {
+
+      await client.query(
+
+        `
+        UPDATE transport_saved_locations
+
+        SET
+          is_primary = false
+
+        WHERE
+          company_id = $1
+
+          AND slaughterhouse_estate_id = $2
+
+          AND is_primary = true
+        `,
+
+        [
+          companyId,
+          estateId,
+        ]
+
+      );
+
+    }
+
     const newLocation =
       await client.query(
 
@@ -9478,7 +9516,7 @@ const importLocation = async (
         )
 
         VALUES (
-          $1,$2,$3,$4,$5,$6,$7,$8,false
+          $1,$2,$3,$4,$5,$6,$7,$8,$9
         )
 
         RETURNING *
@@ -9493,9 +9531,46 @@ const importLocation = async (
           location.latitude,
           location.longitude,
           location.notes,
+          importedAsPrimary,
         ]
 
       );
+
+    // =====================================================
+    // ACTUALIZAR UBICACIÓN GENERAL DE LA HACIENDA
+    //
+    // En FRIGOSI manejamos un acceso principal.
+    // Las coordenadas importadas pasan también a ser las
+    // coordenadas operativas de la Hacienda.
+    // =====================================================
+
+    if (importedAsPrimary) {
+
+      await client.query(
+
+        `
+        UPDATE slaughterhouse_estates
+
+        SET
+          lat = $1,
+          lng = $2
+
+        WHERE
+          id = $3
+
+          AND company_id = $4
+        `,
+
+        [
+          location.latitude,
+          location.longitude,
+          estateId,
+          companyId,
+        ]
+
+      );
+
+    }
 
     // =====================================================
     // COPIAR TODAS LAS RUTAS
