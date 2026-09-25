@@ -1009,27 +1009,37 @@ exports.syncFieldLotCapture =
       }
 
       // =================================================
-      // KG VIVO / ORIGEN
+      // PESAJE EN ORIGEN
       //
-      // Ese caso debe sincronizar además los pesos
-      // individuales. Lo construiremos en el siguiente
-      // paso para el Lote 4.
+      // Si weight_source = origin, la captura debe
+      // sincronizar también los pesos individuales,
+      // independientemente de la modalidad comercial.
+      //
+      // live_kg:
+      // el peso también determina el valor económico.
+      //
+      // hook_kg / per_head:
+      // el peso queda como información física/productiva.
       // =================================================
 
       if (
-        lot.pricing_basis ===
-          'live_kg' &&
+
         lot.weight_source ===
           'origin'
+
       ) {
+
         await client.query(
           'ROLLBACK'
         );
 
         return res.status(409).json({
+
           error:
-            'Este lote requiere sincronización de pesos individuales',
+            'Este lote requiere sincronización de pesos individuales en origen',
+
         });
+
       }
 
       // =================================================
