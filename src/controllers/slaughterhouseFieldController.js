@@ -1618,23 +1618,35 @@ exports.syncFieldLiveWeighing =
       }
 
       // =================================================
-      // ESTE ENDPOINT ES SOLO KG VIVO / ORIGEN
+      // ESTE ENDPOINT ES PARA PESAJE FÍSICO EN ORIGEN
+      //
+      // La modalidad comercial puede ser:
+      // - live_kg
+      // - hook_kg
+      // - per_head
+      //
+      // Lo que determina si corresponde pesar aquí
+      // es weight_source = origin.
       // =================================================
 
       if (
-        lot.pricing_basis !==
-          'live_kg' ||
+
         lot.weight_source !==
           'origin'
+
       ) {
+
         await client.query(
           'ROLLBACK'
         );
 
         return res.status(409).json({
+
           error:
-            'Este lote no corresponde a pesaje de kg vivo en origen',
+            'Este lote no corresponde a pesaje en origen',
+
         });
+
       }
 
       // =================================================
@@ -1705,11 +1717,24 @@ exports.syncFieldLiveWeighing =
         );
 
       // =================================================
-      // COMO pricing_basis = live_kg,
-      // price_per_unit SÍ ES precio/kg.
+      // VALORIZACIÓN ECONÓMICA
+      //
+      // El pesaje físico en origen puede existir para
+      // cualquier modalidad de compra.
+      //
+      // SOLO live_kg utiliza este peso para calcular
+      // el importe contractual.
+      //
+      // hook_kg:
+      // se liquidará posteriormente con peso gancho.
+      //
+      // per_head:
+      // se liquidará posteriormente por cantidad.
       // =================================================
 
       const pricePerKg =
+        lot.pricing_basis ===
+          'live_kg' &&
         lot.price_per_unit !== null &&
         lot.price_per_unit !== undefined
           ? Number(
@@ -1718,25 +1743,35 @@ exports.syncFieldLiveWeighing =
           : null;
 
       if (
+
         pricePerKg !== null &&
+
         (
           !Number.isFinite(
             pricePerKg
           ) ||
+
           pricePerKg < 0
         )
+
       ) {
+
         await client.query(
           'ROLLBACK'
         );
 
         return res.status(400).json({
+
           error:
             'El precio por kg del lote es inválido',
+
         });
+
       }
 
       const totalAmount =
+        lot.pricing_basis ===
+            'live_kg' &&
         pricePerKg !== null
           ? Number(
               (
