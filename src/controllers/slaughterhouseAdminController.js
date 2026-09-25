@@ -13781,29 +13781,6 @@ exports.addCaptureSheetLot =
 
 
       if (
-        pricingBasis === 'hook_kg' &&
-        weightSource !== 'plant'
-      ) {
-        return res.status(400).json({
-          error:
-            'Una compra por kilo gancho debe determinarse en planta',
-        });
-      }
-
-
-      if (
-        pricingBasis === 'per_head' &&
-        weightSource !==
-          'not_applicable'
-      ) {
-        return res.status(400).json({
-          error:
-            'Una compra por cabeza debe configurarse como compra a bulto',
-        });
-      }
-
-
-      if (
         pricingBasis !== null &&
         (
           pricePerUnit === null ||
@@ -15307,32 +15284,6 @@ exports.createPurchaseLot =
         return res.status(400).json({
           error:
             'Una compra por kilo vivo debe pesarse en origen o en planta',
-        });
-      }
-
-
-      // KILO GANCHO
-      // Se determina necesariamente en planta.
-      if (
-        pricingBasis === 'hook_kg' &&
-        weightSource !== 'plant'
-      ) {
-        return res.status(400).json({
-          error:
-            'Una compra por kilo gancho debe determinarse en planta',
-        });
-      }
-
-
-      // POR CABEZA / A BULTO
-      if (
-        pricingBasis === 'per_head' &&
-        weightSource !==
-          'not_applicable'
-      ) {
-        return res.status(400).json({
-          error:
-            'Una compra por cabeza debe configurarse como compra a bulto',
         });
       }
 
@@ -17128,29 +17079,6 @@ exports.updatePurchaseLot =
         return res.status(400).json({
           error:
             'Una compra por kilo vivo debe pesarse en origen o en planta',
-        });
-      }
-
-
-      if (
-        pricingBasis === 'hook_kg' &&
-        weightSource !== 'plant'
-      ) {
-        return res.status(400).json({
-          error:
-            'Una compra por kilo gancho debe determinarse en planta',
-        });
-      }
-
-
-      if (
-        pricingBasis === 'per_head' &&
-        weightSource !==
-          'not_applicable'
-      ) {
-        return res.status(400).json({
-          error:
-            'Una compra por cabeza debe configurarse como compra a bulto',
         });
       }
 
@@ -38736,63 +38664,51 @@ exports.generatePreliquidationDraft =
       // =================================================
       // VALIDAR COMBINACIONES COMERCIALES
       //
-      // KG VIVO:
-      // - pesado en origen
-      // - pesado en planta
+      // =================================================
+      // 1. VALIDAR MODALIDAD Y ORIGEN DEL PESO
       //
-      // KG GANCHO:
-      // - determinado en planta
+      // pricing_basis define cómo se valoriza la compra.
+      // weight_source indica dónde se obtuvo el peso
+      // inicial, si existió.
+      //
+      // KILO VIVO:
+      // - requiere peso vivo en origen o en planta.
+      //
+      // KILO GANCHO:
+      // - el precio final se determina por peso gancho,
+      //   pero puede existir peso inicial en origen,
+      //   planta o no existir pesaje inicial.
       //
       // POR CABEZA:
-      // - compra a bulto / sin peso requerido
+      // - el precio se determina por cantidad de animales,
+      //   pero puede existir peso inicial en origen,
+      //   planta o no existir pesaje inicial.
       // =================================================
 
       if (
+
         pricingBasis === 'live_kg' &&
+
         ![
           'origin',
           'plant',
         ].includes(
           weightSource
         )
+
       ) {
+
         await client.query(
           'ROLLBACK'
         );
 
         return res.status(409).json({
+
           error:
             'Una compra por kilo vivo debe pesarse en origen o en planta',
+
         });
-      }
 
-      if (
-        pricingBasis === 'hook_kg' &&
-        weightSource !== 'plant'
-      ) {
-        await client.query(
-          'ROLLBACK'
-        );
-
-        return res.status(409).json({
-          error:
-            'Una compra por kilo gancho debe determinarse en planta',
-        });
-      }
-
-      if (
-        pricingBasis === 'per_head' &&
-        weightSource !==
-          'not_applicable'
-      ) {
-        await client.query(
-          'ROLLBACK'
-        );
-
-        return res.status(409).json({
-          error:
-            'Una compra por cabeza debe configurarse como compra a bulto',
-        });
       }
 
       // =================================================
@@ -39399,10 +39315,10 @@ exports.generatePreliquidationDraft =
       // =================================================
 
       if (
+
         pricingBasis ===
-          'hook_kg' &&
-        weightSource ===
-          'plant'
+          'hook_kg'
+
       ) {
         sourceType =
           'plant_hook_weight';
@@ -39546,10 +39462,10 @@ exports.generatePreliquidationDraft =
       // =================================================
 
       if (
+
         pricingBasis ===
-          'per_head' &&
-        weightSource ===
-          'not_applicable'
+          'per_head'
+
       ) {
         sourceType =
           'received_animals';
