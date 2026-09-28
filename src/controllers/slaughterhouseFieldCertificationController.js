@@ -195,7 +195,7 @@ function commercialDateOnly(
 //   contra los datos del backend.
 // - Consume QR una sola vez.
 // - Certifica troop.
-// - Si es live_kg/origin,
+// - Si weight_source = origin,
 //   certifica también live_weighing.
 // - NO despacha.
 // - NO cambia troop.status.
@@ -1493,8 +1493,6 @@ exports.certifyFieldLot =
         null;
 
       if (
-        lot.pricing_basis ===
-          'live_kg' &&
         lot.weight_source ===
           'origin'
       ) {
@@ -1687,23 +1685,52 @@ exports.certifyFieldLot =
             ).toFixed(3)
           );
 
-        const pricePerKg =
-          lot.price_per_unit !==
-            null
-            ? Number(
-                lot.price_per_unit
-              )
-            : null;
+          if (
+            lot.pricing_basis ===
+            'live_kg'
+          ) {
+            const pricePerKg =
+              lot.price_per_unit !==
+                null
+                ? Number(
+                    lot.price_per_unit
+                  )
+                : null;
 
-        totalAmount =
-          pricePerKg !== null
-            ? Number(
-                (
-                  netWeightKg *
-                  pricePerKg
-                ).toFixed(2)
-              )
-            : null;
+            totalAmount =
+              pricePerKg !== null
+                ? Number(
+                    (
+                      netWeightKg *
+                      pricePerKg
+                    ).toFixed(2)
+                  )
+                : null;
+          } else if (
+            lot.pricing_basis ===
+            'per_head'
+          ) {
+            const pricePerHead =
+              lot.price_per_unit !==
+                null
+                ? Number(
+                    lot.price_per_unit
+                  )
+                : null;
+
+            totalAmount =
+              pricePerHead !== null
+                ? Number(
+                    (
+                      pricePerHead *
+                      quantity
+                    ).toFixed(2)
+                  )
+                : null;
+          } else {
+            totalAmount =
+              null;
+          }
 
         if (
           !sameNumber(
