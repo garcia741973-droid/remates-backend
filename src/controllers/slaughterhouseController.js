@@ -11882,6 +11882,79 @@ exports.exportSlaughterhouseReceptionsCsv =
               )::int
                 AS quantity_difference,
               srt.live_weight_kg,
+
+              troop_info.pricing_basis,
+              troop_info.weight_source,
+
+              CASE
+                WHEN origin_weighing.id IS NOT NULL
+                  THEN 'origin'
+
+                WHEN
+                  srt.live_weight_kg IS NOT NULL
+                  AND srt.live_weight_kg > 0
+                  THEN 'plant'
+
+                ELSE 'none'
+              END
+                AS actual_weight_source,
+
+              CASE
+                WHEN origin_weighing.id IS NOT NULL
+                  THEN origin_weighing.gross_weight_kg
+
+                WHEN
+                  srt.live_weight_kg IS NOT NULL
+                  AND srt.live_weight_kg > 0
+                  THEN srt.live_weight_kg
+
+                ELSE NULL
+              END
+                AS initial_gross_weight_kg,
+
+              CASE
+                WHEN origin_weighing.id IS NOT NULL
+                  THEN origin_weighing.shrink_weight_kg
+
+                WHEN
+                  srt.live_weight_kg IS NOT NULL
+                  AND srt.live_weight_kg > 0
+                  THEN
+                    srt.live_weight_kg *
+                    (
+                      COALESCE(
+                        troop_info.shrink_percent,
+                        0
+                      ) / 100
+                    )
+
+                ELSE NULL
+              END
+                AS initial_shrink_weight_kg,
+
+              CASE
+                WHEN origin_weighing.id IS NOT NULL
+                  THEN origin_weighing.net_weight_kg
+
+                WHEN
+                  srt.live_weight_kg IS NOT NULL
+                  AND srt.live_weight_kg > 0
+                  THEN
+                    srt.live_weight_kg -
+                    (
+                      srt.live_weight_kg *
+                      (
+                        COALESCE(
+                          troop_info.shrink_percent,
+                          0
+                        ) / 100
+                      )
+                    )
+
+                ELSE NULL
+              END
+                AS initial_net_weight_kg,
+
               srt.origin_snapshot,
               srt.destination_snapshot,
               srt.transport_delivered_at,
@@ -11893,6 +11966,90 @@ exports.exportSlaughterhouseReceptionsCsv =
             JOIN slaughterhouse_reception_trucks srt
               ON srt.reception_id =
                 sr.id
+
+
+            -- ================================================
+            -- TROPA VINCULADA AL CAMIÓN
+            -- ================================================
+
+            LEFT JOIN LATERAL (
+              SELECT
+                st.id
+                  AS troop_id,
+
+                st.purchase_lot_id,
+
+                spl.pricing_basis,
+
+                spl.weight_source,
+
+                spl.shrink_percent
+
+              FROM slaughterhouse_troops st
+
+              JOIN slaughterhouse_purchase_lots spl
+                ON spl.id =
+                  st.purchase_lot_id
+
+                AND spl.company_id =
+                  st.company_id
+
+              WHERE
+                st.company_id =
+                  sr.company_id
+
+                AND st.reception_truck_id =
+                  srt.id
+
+                AND st.status <>
+                  'cancelled'
+
+              ORDER BY
+                st.id DESC
+
+              LIMIT 1
+
+            ) troop_info
+              ON true
+
+
+            -- ================================================
+            -- PESAJE INICIAL CERTIFICADO EN ORIGEN
+            -- ================================================
+
+            LEFT JOIN LATERAL (
+              SELECT
+                w.id,
+
+                w.gross_weight_kg,
+
+                w.shrink_weight_kg,
+
+                w.net_weight_kg
+
+              FROM slaughterhouse_live_weighings w
+
+              WHERE
+                w.company_id =
+                  sr.company_id
+
+                AND w.troop_id =
+                  troop_info.troop_id
+
+                AND w.status =
+                  'certified'
+
+              ORDER BY
+                w.certified_at DESC NULLS LAST,
+
+                w.id DESC
+
+              LIMIT 1
+
+            ) origin_weighing
+              ON troop_info.troop_id
+                IS NOT NULL
+
 
             WHERE
               sr.company_id = $1
