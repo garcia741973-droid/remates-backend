@@ -38893,12 +38893,370 @@ exports.generatePreliquidationDraft =
 
 
       // =================================================
+      // PESO INICIAL REAL DEL LOTE
+      //
+      // Se resuelve tropa por tropa:
+      //
+      // 1. Si existe pesaje certificado en origen,
+      //    ese es el peso inicial.
+      //
+      // 2. Si no existe pesaje de origen pero existe
+      //    peso registrado en recepción, usamos planta.
+      //
+      // 3. Si no existe ninguno, la tropa queda sin
+      //    peso inicial.
+      //
+      // weight_source conserva la instrucción original.
+      // actual_weight_source representa lo ocurrido.
+      // =================================================
+
+      const initialWeightResult =
+        await client.query(
+          `
+            WITH active_troops AS (
+              SELECT
+                st.id,
+                st.received_quantity,
+                st.reception_truck_id
+              FROM slaughterhouse_troops st
+              WHERE
+                st.company_id = $1
+                AND st.purchase_lot_id = $2
+                AND st.status <> 'cancelled'
+            ),
+
+            troop_weights AS (
+              SELECT
+                st.id
+                  AS troop_id,
+
+                CASE
+                  WHEN origin_weighing.id IS NOT NULL
+                    THEN 'origin'
+                  WHEN srt.live_weight_kg IS NOT NULL
+                    THEN 'plant'
+                  ELSE 'none'
+                END
+                  AS actual_weight_source,
+
+                CASE
+                  WHEN origin_weighing.id IS NOT NULL
+                    THEN origin_weighing.quantity
+                  WHEN srt.live_weight_kg IS NOT NULL
+                    THEN st.received_quantity
+                  ELSE NULL
+                END
+                  AS animals_count,
+
+                CASE
+                  WHEN origin_weighing.id IS NOT NULL
+                    THEN origin_weighing.gross_weight_kg
+                  WHEN srt.live_weight_kg IS NOT NULL
+                    THEN srt.live_weight_kg
+                  ELSE NULL
+                END
+                  AS gross_weight_kg,
+
+                CASE
+                  WHEN origin_weighing.id IS NOT NULL
+                    THEN origin_weighing.shrink_weight_kg
+                  WHEN srt.live_weight_kg IS NOT NULL
+                    THEN
+                      srt.live_weight_kg *
+                      ($3::numeric / 100)
+                  ELSE NULL
+                END
+                  AS shrink_weight_kg,
+
+                CASE
+                  WHEN origin_weighing.id IS NOT NULL
+                    THEN origin_weighing.net_weight_kg
+                  WHEN srt.live_weight_kg IS NOT NULL
+                    THEN
+                      srt.live_weight_kg -
+                      (
+                        srt.live_weight_kg *
+                        ($3::numeric / 100)
+                      )
+                  ELSE NULL
+                END
+                  AS net_weight_kg
+
+              FROM active_troops st
+
+              LEFT JOIN LATERAL (
+                SELECT
+                  w.id,
+                  w.quantity,
+                  w.gross_weight_kg,
+                  w.shrink_weight_kg,
+                  w.net_weight_kg
+                FROM slaughterhouse_live_weighings w
+                WHERE
+                  w.company_id = $1
+                  AND w.purchase_lot_id = $2
+                  AND w.troop_id = st.id
+                  AND w.status = 'certified'
+                ORDER BY
+                  w.certified_at DESC NULLS LAST,
+                  w.id DESC
+                LIMIT 1
+              ) origin_weighing
+                ON true
+
+              LEFT JOIN slaughterhouse_reception_trucks srt
+                ON srt.id =
+                  st.reception_truck_id
+            )
+
+            SELECT
+              COUNT(*)::int
+                AS troops_count,
+
+              COUNT(*) FILTER (
+                WHERE actual_weight_source = 'origin'
+              )::int
+                AS origin_troops,
+
+              COUNT(*) FILTER (
+                WHERE actual_weight_source = 'plant'
+              )::int
+                AS plant_troops,
+
+              COUNT(*) FILTER (
+                WHERE actual_weight_source = 'none'
+              )::int
+                AS missing_weight_troops,
+
+              COALESCE(
+                SUM(animals_count) FILTER (
+                  WHERE actual_weight_source <> 'none'
+                ),
+                0
+              )::int
+                AS weighted_animals_count,
+
+              COALESCE(
+                SUM(gross_weight_kg),
+                0
+              )::numeric
+                AS gross_weight_kg,
+
+              COALESCE(
+                SUM(shrink_weight_kg),
+                0
+              )::numeric
+                AS shrink_weight_kg,
+
+              COALESCE(
+                SUM(net_weight_kg),
+                0
+              )::numeric
+                AS net_weight_kg,
+
+              CASE
+                WHEN COUNT(*) = 0
+                  THEN 'none'
+
+                WHEN COUNT(*) FILTER (
+                  WHERE actual_weight_source = 'origin'
+                ) > 0
+                AND COUNT(*) FILTER (
+                  WHERE actual_weight_source = 'plant'
+                ) > 0
+                  THEN 'mixed'
+
+                WHEN COUNT(*) FILTER (
+                  WHERE actual_weight_source = 'origin'
+                ) > 0
+                  THEN 'origin'
+
+                WHEN COUNT(*) FILTER (
+                  WHERE actual_weight_source = 'plant'
+                ) > 0
+                  THEN 'plant'
+
+                ELSE 'none'
+              END
+                AS actual_weight_source
+
+            FROM troop_weights
+          `,
+          [
+            companyId,
+            purchaseLotId,
+            shrinkPercent,
+          ],
+        );
+
+      const initialWeightSource =
+        initialWeightResult.rows[0];
+
+      // =================================================
+      // A0. KILO VIVO — LOTES MODERNOS CON TROPAS
+      //
+      // La fuente real se resuelve tropa por tropa:
+      //
+      // - origen certificado, si existe
+      // - planta como respaldo
+      // - sin peso, si no existe ninguno
+      //
+      // La falta de peso NO impide faena.
+      // Pero sí impide preliquidar por kilo vivo,
+      // porque no existe base económica completa.
+      // =================================================
+
+      if (
+        pricingBasis === 'live_kg' &&
+        activeTroops > 0
+      ) {
+        const missingWeightTroops =
+          Number(
+            initialWeightSource
+              .missing_weight_troops || 0
+          );
+
+        if (missingWeightTroops > 0) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'Existen tropas sin peso vivo inicial. '
+              + 'La faena puede realizarse, pero la compra por kilo vivo '
+              + 'no puede preliquidarse hasta completar el peso.',
+            missing_weight_troops:
+              missingWeightTroops,
+            origin_troops:
+              Number(
+                initialWeightSource
+                  .origin_troops || 0
+              ),
+            plant_troops:
+              Number(
+                initialWeightSource
+                  .plant_troops || 0
+              ),
+          });
+        }
+
+        const actualWeightSource =
+          initialWeightSource
+            .actual_weight_source
+            ?.toString() ||
+          'none';
+
+        if (actualWeightSource === 'origin') {
+          sourceType =
+            'certified_origin_weighings';
+        } else if (
+          actualWeightSource === 'plant'
+        ) {
+          sourceType =
+            'plant_live_weight';
+        } else if (
+          actualWeightSource === 'mixed'
+        ) {
+          sourceType =
+            'mixed_initial_live_weight';
+        } else {
+          sourceType =
+            'initial_live_weight';
+        }
+
+        quantity =
+          Number(
+            initialWeightSource
+              .weighted_animals_count || 0
+          );
+
+        grossWeightKg =
+          Number(
+            initialWeightSource
+              .gross_weight_kg || 0
+          );
+
+        shrinkWeightKg =
+          Number(
+            initialWeightSource
+              .shrink_weight_kg || 0
+          );
+
+        netWeightKg =
+          Number(
+            initialWeightSource
+              .net_weight_kg || 0
+          );
+
+        liveWeightKg =
+          grossWeightKg;
+
+        shrinkPercent =
+          grossWeightKg > 0
+            ? (
+                shrinkWeightKg /
+                grossWeightKg
+              ) * 100
+            : 0;
+
+        baseAmount =
+          netWeightKg *
+          unitPrice;
+
+        pricePerKg =
+          unitPrice;
+
+        source = {
+          animals_count:
+            quantity,
+
+          distinct_prices:
+            1,
+
+          troops_count:
+            Number(
+              initialWeightSource
+                .troops_count || 0
+            ),
+
+          actual_weight_source:
+            actualWeightSource,
+
+          origin_troops:
+            Number(
+              initialWeightSource
+                .origin_troops || 0
+            ),
+
+          plant_troops:
+            Number(
+              initialWeightSource
+                .plant_troops || 0
+            ),
+
+          missing_weight_troops:
+            missingWeightTroops,
+
+          gross_weight_kg:
+            grossWeightKg,
+
+          shrink_weight_kg:
+            shrinkWeightKg,
+
+          net_weight_kg:
+            netWeightKg,
+        };
+      }
+
+      // =================================================
       // A. KILO VIVO + PESO EN ORIGEN
       // =================================================
 
       if (
         pricingBasis ===
           'live_kg' &&
+        activeTroops === 0 &&
         weightSource ===
           'origin'
       ) {
@@ -39081,6 +39439,7 @@ exports.generatePreliquidationDraft =
       if (
         pricingBasis ===
           'live_kg' &&
+        activeTroops === 0 &&
         weightSource ===
           'plant'
       ) {
@@ -39425,17 +39784,43 @@ exports.generatePreliquidationDraft =
           unitPrice;
 
 
+        // =================================================
+        // CONSERVAR PESO INICIAL FÍSICO
+        //
+        // El peso inicial NO determina el pago por kilo
+        // gancho. Solo se conserva como dato productivo.
+        // =================================================
+
         grossWeightKg =
-          0;
+          Number(
+            initialWeightSource
+              .gross_weight_kg || 0
+          );
 
         shrinkWeightKg =
-          0;
+          Number(
+            initialWeightSource
+              .shrink_weight_kg || 0
+          );
 
         netWeightKg =
-          0;
+          Number(
+            initialWeightSource
+              .net_weight_kg || 0
+          );
+
+        liveWeightKg =
+          grossWeightKg > 0
+            ? grossWeightKg
+            : null;
 
         shrinkPercent =
-          0;
+          grossWeightKg > 0
+            ? (
+                shrinkWeightKg /
+                grossWeightKg
+              ) * 100
+            : 0;
 
 
         source = {
@@ -39453,6 +39838,39 @@ exports.generatePreliquidationDraft =
 
           hook_weight_kg:
             hookWeightKg,
+
+          initial_weight: {
+            actual_weight_source:
+              initialWeightSource
+                .actual_weight_source,
+
+            origin_troops:
+              Number(
+                initialWeightSource
+                  .origin_troops || 0
+              ),
+
+            plant_troops:
+              Number(
+                initialWeightSource
+                  .plant_troops || 0
+              ),
+
+            missing_weight_troops:
+              Number(
+                initialWeightSource
+                  .missing_weight_troops || 0
+              ),
+
+            gross_weight_kg:
+              grossWeightKg,
+
+            shrink_weight_kg:
+              shrinkWeightKg,
+
+            net_weight_kg:
+              netWeightKg,
+          },
         };
       }
 
@@ -39545,17 +39963,43 @@ exports.generatePreliquidationDraft =
           unitPrice;
 
 
+        // =================================================
+        // CONSERVAR PESO INICIAL FÍSICO
+        //
+        // El peso inicial NO determina el pago por cabeza.
+        // Solo se conserva como dato productivo.
+        // =================================================
+
         grossWeightKg =
-          0;
+          Number(
+            initialWeightSource
+              .gross_weight_kg || 0
+          );
 
         shrinkWeightKg =
-          0;
+          Number(
+            initialWeightSource
+              .shrink_weight_kg || 0
+          );
 
         netWeightKg =
-          0;
+          Number(
+            initialWeightSource
+              .net_weight_kg || 0
+          );
+
+        liveWeightKg =
+          grossWeightKg > 0
+            ? grossWeightKg
+            : null;
 
         shrinkPercent =
-          0;
+          grossWeightKg > 0
+            ? (
+                shrinkWeightKg /
+                grossWeightKg
+              ) * 100
+            : 0;
 
         pricePerKg =
           null;
@@ -39573,6 +40017,39 @@ exports.generatePreliquidationDraft =
               quantitySource
                 .troops_count || 0
             ),
+
+          initial_weight: {
+            actual_weight_source:
+              initialWeightSource
+                .actual_weight_source,
+
+            origin_troops:
+              Number(
+                initialWeightSource
+                  .origin_troops || 0
+              ),
+
+            plant_troops:
+              Number(
+                initialWeightSource
+                  .plant_troops || 0
+              ),
+
+            missing_weight_troops:
+              Number(
+                initialWeightSource
+                  .missing_weight_troops || 0
+              ),
+
+            gross_weight_kg:
+              grossWeightKg,
+
+            shrink_weight_kg:
+              shrinkWeightKg,
+
+            net_weight_kg:
+              netWeightKg,
+          },
         };
       }
 
@@ -45558,18 +46035,162 @@ exports.approvePreliquidation =
 
       }
 
+      // =================================================
+      // DATOS PARA REVALIDACIÓN ECONÓMICA
+      // =================================================
+
+      const approvalPricingBasis =
+        preliquidation
+          .pricing_basis
+          ?.toString()
+          .trim();
+
+      const approvalUnitPrice =
+        Number(
+          preliquidation
+            .unit_price || 0
+        );
+
+      const approvalShrinkPercent =
+        Number(
+          preliquidation
+            .shrink_percent || 0
+        );
+
 
       // =================================================
-      // 3. REVALIDAR FUENTE CERTIFICADA
+      // PESO INICIAL REAL ACTUAL
+      //
+      // Se reconstruye nuevamente al aprobar para detectar
+      // cualquier cambio ocurrido después de generar la
+      // preliquidación.
       // =================================================
 
-      const sourceResult =
+      const approvalInitialWeightResult =
         await client.query(
           `
-            SELECT
+            WITH active_troops AS (
+              SELECT
+                st.id,
+                st.received_quantity,
+                st.reception_truck_id
+              FROM slaughterhouse_troops st
+              WHERE
+                st.company_id = $1
+                AND st.purchase_lot_id = $2
+                AND st.status <> 'cancelled'
+            ),
 
+            troop_weights AS (
+              SELECT
+                st.id
+                  AS troop_id,
+
+                CASE
+                  WHEN origin_weighing.id IS NOT NULL
+                    THEN 'origin'
+                  WHEN srt.live_weight_kg IS NOT NULL
+                    THEN 'plant'
+                  ELSE 'none'
+                END
+                  AS actual_weight_source,
+
+                CASE
+                  WHEN origin_weighing.id IS NOT NULL
+                    THEN origin_weighing.quantity
+                  WHEN srt.live_weight_kg IS NOT NULL
+                    THEN st.received_quantity
+                  ELSE NULL
+                END
+                  AS animals_count,
+
+                CASE
+                  WHEN origin_weighing.id IS NOT NULL
+                    THEN origin_weighing.gross_weight_kg
+                  WHEN srt.live_weight_kg IS NOT NULL
+                    THEN srt.live_weight_kg
+                  ELSE NULL
+                END
+                  AS gross_weight_kg,
+
+                CASE
+                  WHEN origin_weighing.id IS NOT NULL
+                    THEN origin_weighing.shrink_weight_kg
+                  WHEN srt.live_weight_kg IS NOT NULL
+                    THEN
+                      srt.live_weight_kg *
+                      ($3::numeric / 100)
+                  ELSE NULL
+                END
+                  AS shrink_weight_kg,
+
+                CASE
+                  WHEN origin_weighing.id IS NOT NULL
+                    THEN origin_weighing.net_weight_kg
+                  WHEN srt.live_weight_kg IS NOT NULL
+                    THEN
+                      srt.live_weight_kg -
+                      (
+                        srt.live_weight_kg *
+                        ($3::numeric / 100)
+                      )
+                  ELSE NULL
+                END
+                  AS net_weight_kg
+
+              FROM active_troops st
+
+              LEFT JOIN LATERAL (
+                SELECT
+                  w.id,
+                  w.quantity,
+                  w.gross_weight_kg,
+                  w.shrink_weight_kg,
+                  w.net_weight_kg
+                FROM slaughterhouse_live_weighings w
+                WHERE
+                  w.company_id = $1
+                  AND w.purchase_lot_id = $2
+                  AND w.troop_id = st.id
+                  AND w.status = 'certified'
+                ORDER BY
+                  w.certified_at DESC NULLS LAST,
+                  w.id DESC
+                LIMIT 1
+              ) origin_weighing
+                ON true
+
+              LEFT JOIN slaughterhouse_reception_trucks srt
+                ON srt.id =
+                  st.reception_truck_id
+            )
+
+            SELECT
               COUNT(*)::int
-                AS weighings_count,
+                AS troops_count,
+
+              COUNT(*) FILTER (
+                WHERE actual_weight_source = 'origin'
+              )::int
+                AS origin_troops,
+
+              COUNT(*) FILTER (
+                WHERE actual_weight_source = 'plant'
+              )::int
+                AS plant_troops,
+
+              COUNT(*) FILTER (
+                WHERE actual_weight_source = 'none'
+              )::int
+                AS missing_weight_troops,
+
+              COALESCE(
+                SUM(animals_count) FILTER (
+                  WHERE actual_weight_source <> 'none'
+                ),
+                0
+              )::int
+                AS weighted_animals_count,
 
               COALESCE(
                 SUM(gross_weight_kg),
@@ -45587,98 +46208,38 @@ exports.approvePreliquidation =
                 SUM(net_weight_kg),
                 0
               )::numeric
-                AS net_weight_kg,
+                AS net_weight_kg
 
-              COALESCE(
-                SUM(total_amount),
-                0
-              )::numeric
-                AS base_amount,
-
-              COUNT(*) FILTER (
-                WHERE
-                  gross_weight_kg IS NULL
-                  OR shrink_weight_kg IS NULL
-                  OR net_weight_kg IS NULL
-                  OR price_per_kg IS NULL
-                  OR total_amount IS NULL
-              )::int
-                AS incomplete_weighings
-
-            FROM slaughterhouse_live_weighings
-            WHERE
-              company_id = $1
-              AND purchase_lot_id = $2
-              AND status = 'certified'
+            FROM troop_weights
           `,
           [
             companyId,
             preliquidation
               .purchase_lot_id,
+            approvalShrinkPercent,
           ],
         );
 
+      const approvalInitialWeight =
+        approvalInitialWeightResult
+          .rows[0];
 
-      const source =
-        sourceResult.rows[0];
-
-
-      if (
-        Number(
-          source.weighings_count || 0
-        ) === 0
-      ) {
-
-        await client.query(
-          'ROLLBACK'
-        );
-
-        return res.status(409).json({
-          error:
-            'El lote ya no tiene pesajes certificados vigentes',
-        });
-
-      }
-
-
-      if (
-        Number(
-          source.incomplete_weighings || 0
-        ) > 0
-      ) {
-
-        await client.query(
-          'ROLLBACK'
-        );
-
-        return res.status(409).json({
-          error:
-            'Existen pesajes certificados vigentes con información incompleta',
-        });
-
-      }
-
-
-      const sourceGross =
-        Number(
-          source.gross_weight_kg || 0
-        );
-
-      const sourceShrink =
-        Number(
-          source.shrink_weight_kg || 0
-        );
-
-      const sourceNet =
-        Number(
-          source.net_weight_kg || 0
-        );
-
-      const sourceBase =
-        Number(
-          source.base_amount || 0
-        );
-
+      // =================================================
+      // 3. REVALIDAR FUENTE ECONÓMICA Y FÍSICA
+      //
+      // Cada modalidad se valida contra su fuente real:
+      //
+      // live_kg
+      //   → peso inicial real: origen / planta / mixto
+      //
+      // hook_kg
+      //   → peso gancho para el importe
+      //   → peso inicial solo como dato físico
+      //
+      // per_head
+      //   → cantidad recibida para el importe
+      //   → peso inicial solo como dato físico
+      // =================================================
 
       const preliqGross =
         Number(
@@ -45704,49 +46265,526 @@ exports.approvePreliquidation =
             .base_amount || 0
         );
 
+      const preliqQuantity =
+        Number(
+          preliquidation
+            .quantity || 0
+        );
 
-      const weightsChanged =
+      const preliqHookWeight =
+        Number(
+          preliquidation
+            .hook_weight_kg || 0
+        );
+
+
+      const currentInitialGross =
+        Number(
+          approvalInitialWeight
+            .gross_weight_kg || 0
+        );
+
+      const currentInitialShrink =
+        Number(
+          approvalInitialWeight
+            .shrink_weight_kg || 0
+        );
+
+      const currentInitialNet =
+        Number(
+          approvalInitialWeight
+            .net_weight_kg || 0
+        );
+
+      const currentTroopsCount =
+        Number(
+          approvalInitialWeight
+            .troops_count || 0
+        );
+
+
+      const initialWeightsChanged =
         Math.abs(
-          sourceGross -
+          currentInitialGross -
           preliqGross
         ) > 0.001
         ||
         Math.abs(
-          sourceShrink -
+          currentInitialShrink -
           preliqShrink
         ) > 0.001
         ||
         Math.abs(
-          sourceNet -
+          currentInitialNet -
           preliqNet
         ) > 0.001;
 
 
-      const amountChanged =
-        Math.abs(
-          sourceBase -
-          preliqBase
-        ) > 0.01;
-
+      // =================================================
+      // A. KILO VIVO
+      // =================================================
 
       if (
-        weightsChanged ||
-        amountChanged
+        approvalPricingBasis ===
+          'live_kg'
       ) {
 
-        await client.query(
-          'ROLLBACK'
-        );
+        // ===============================================
+        // LOTES MODERNOS CON TROPAS
+        // ===============================================
 
-        return res.status(409).json({
-          error:
-            'Los pesajes certificados del lote cambiaron después de generar la preliquidación',
-          requires_new_version:
-            true,
-        });
+        if (
+          currentTroopsCount > 0
+        ) {
 
+          const missingWeightTroops =
+            Number(
+              approvalInitialWeight
+                .missing_weight_troops || 0
+            );
+
+          if (
+            missingWeightTroops > 0
+          ) {
+            await client.query(
+              'ROLLBACK'
+            );
+
+            return res.status(409).json({
+              error:
+                'Existen tropas sin peso vivo inicial. '
+                + 'La faena puede realizarse, pero la preliquidación '
+                + 'por kilo vivo no puede aprobarse con pesos incompletos.',
+              missing_weight_troops:
+                missingWeightTroops,
+              requires_new_version:
+                true,
+            });
+          }
+
+
+          const currentQuantity =
+            Number(
+              approvalInitialWeight
+                .weighted_animals_count || 0
+            );
+
+          const currentBase =
+            currentInitialNet *
+            approvalUnitPrice;
+
+
+          const quantityChanged =
+            currentQuantity !==
+            preliqQuantity;
+
+          const amountChanged =
+            Math.abs(
+              currentBase -
+              preliqBase
+            ) > 0.01;
+
+
+          if (
+            initialWeightsChanged ||
+            quantityChanged ||
+            amountChanged
+          ) {
+            await client.query(
+              'ROLLBACK'
+            );
+
+            return res.status(409).json({
+              error:
+                'El peso inicial o el importe del lote cambió después de generar la preliquidación',
+              requires_new_version:
+                true,
+            });
+          }
+
+        } else {
+
+          // =============================================
+          // FALLBACK HISTÓRICO
+          //
+          // Conservamos compatibilidad con preliquidaciones
+          // antiguas creadas antes del modelo por tropas.
+          // =============================================
+
+          const legacySourceResult =
+            await client.query(
+              `
+                SELECT
+                  COUNT(*)::int
+                    AS weighings_count,
+
+                  COALESCE(
+                    SUM(gross_weight_kg),
+                    0
+                  )::numeric
+                    AS gross_weight_kg,
+
+                  COALESCE(
+                    SUM(shrink_weight_kg),
+                    0
+                  )::numeric
+                    AS shrink_weight_kg,
+
+                  COALESCE(
+                    SUM(net_weight_kg),
+                    0
+                  )::numeric
+                    AS net_weight_kg,
+
+                  COALESCE(
+                    SUM(total_amount),
+                    0
+                  )::numeric
+                    AS base_amount,
+
+                  COUNT(*) FILTER (
+                    WHERE
+                      gross_weight_kg IS NULL
+                      OR shrink_weight_kg IS NULL
+                      OR net_weight_kg IS NULL
+                      OR price_per_kg IS NULL
+                      OR total_amount IS NULL
+                  )::int
+                    AS incomplete_weighings
+
+                FROM slaughterhouse_live_weighings
+
+                WHERE
+                  company_id = $1
+                  AND purchase_lot_id = $2
+                  AND status = 'certified'
+              `,
+              [
+                companyId,
+                preliquidation
+                  .purchase_lot_id,
+              ],
+            );
+
+
+          const legacySource =
+            legacySourceResult.rows[0];
+
+
+          if (
+            Number(
+              legacySource
+                .weighings_count || 0
+            ) === 0
+          ) {
+            await client.query(
+              'ROLLBACK'
+            );
+
+            return res.status(409).json({
+              error:
+                'El lote ya no tiene pesajes certificados vigentes',
+            });
+          }
+
+
+          if (
+            Number(
+              legacySource
+                .incomplete_weighings || 0
+            ) > 0
+          ) {
+            await client.query(
+              'ROLLBACK'
+            );
+
+            return res.status(409).json({
+              error:
+                'Existen pesajes certificados vigentes con información incompleta',
+            });
+          }
+
+
+          const legacyGross =
+            Number(
+              legacySource
+                .gross_weight_kg || 0
+            );
+
+          const legacyShrink =
+            Number(
+              legacySource
+                .shrink_weight_kg || 0
+            );
+
+          const legacyNet =
+            Number(
+              legacySource
+                .net_weight_kg || 0
+            );
+
+          const legacyBase =
+            Number(
+              legacySource
+                .base_amount || 0
+            );
+
+
+          const legacyChanged =
+            Math.abs(
+              legacyGross -
+              preliqGross
+            ) > 0.001
+            ||
+            Math.abs(
+              legacyShrink -
+              preliqShrink
+            ) > 0.001
+            ||
+            Math.abs(
+              legacyNet -
+              preliqNet
+            ) > 0.001
+            ||
+            Math.abs(
+              legacyBase -
+              preliqBase
+            ) > 0.01;
+
+
+          if (
+            legacyChanged
+          ) {
+            await client.query(
+              'ROLLBACK'
+            );
+
+            return res.status(409).json({
+              error:
+                'Los pesajes certificados del lote cambiaron después de generar la preliquidación',
+              requires_new_version:
+                true,
+            });
+          }
+        }
       }
 
+
+      // =================================================
+      // B. KILO GANCHO
+      // =================================================
+
+      if (
+        approvalPricingBasis ===
+          'hook_kg'
+      ) {
+
+        const hookResult =
+          await client.query(
+            `
+              SELECT
+                COUNT(sc.id)::int
+                  AS carcass_halves_count,
+
+                COALESCE(
+                  SUM(
+                    sc.hook_weight_kg
+                  ),
+                  0
+                )::numeric
+                  AS hook_weight_kg
+
+              FROM slaughterhouse_carcasses sc
+
+              JOIN slaughterhouse_troops st
+                ON st.id =
+                  sc.troop_id
+
+              WHERE
+                st.company_id = $1
+                AND st.purchase_lot_id = $2
+                AND st.status <> 'cancelled'
+            `,
+            [
+              companyId,
+              preliquidation
+                .purchase_lot_id,
+            ],
+          );
+
+
+        const hookSource =
+          hookResult.rows[0];
+
+        const carcassHalvesCount =
+          Number(
+            hookSource
+              .carcass_halves_count || 0
+          );
+
+
+        if (
+          carcassHalvesCount === 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El lote ya no tiene pesos gancho registrados',
+            requires_new_version:
+              true,
+          });
+        }
+
+
+        const currentHookWeight =
+          Number(
+            hookSource
+              .hook_weight_kg || 0
+          );
+
+        const currentBase =
+          currentHookWeight *
+          approvalUnitPrice;
+
+
+        const hookWeightChanged =
+          Math.abs(
+            currentHookWeight -
+            preliqHookWeight
+          ) > 0.001;
+
+        const amountChanged =
+          Math.abs(
+            currentBase -
+            preliqBase
+          ) > 0.01;
+
+
+        if (
+          hookWeightChanged ||
+          amountChanged ||
+          initialWeightsChanged
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El peso gancho o los datos físicos del lote cambiaron después de generar la preliquidación',
+            requires_new_version:
+              true,
+          });
+        }
+      }
+
+
+      // =================================================
+      // C. COMPRA POR CABEZA
+      // =================================================
+
+      if (
+        approvalPricingBasis ===
+          'per_head'
+      ) {
+
+        const quantityResult =
+          await client.query(
+            `
+              SELECT
+                COUNT(*)::int
+                  AS troops_count,
+
+                COALESCE(
+                  SUM(received_quantity),
+                  0
+                )::int
+                  AS animals_count
+
+              FROM slaughterhouse_troops
+
+              WHERE
+                company_id = $1
+                AND purchase_lot_id = $2
+                AND status <> 'cancelled'
+            `,
+            [
+              companyId,
+              preliquidation
+                .purchase_lot_id,
+            ],
+          );
+
+
+        const quantitySource =
+          quantityResult.rows[0];
+
+        const troopsCount =
+          Number(
+            quantitySource
+              .troops_count || 0
+          );
+
+        const currentQuantity =
+          Number(
+            quantitySource
+              .animals_count || 0
+          );
+
+
+        if (
+          troopsCount === 0 ||
+          currentQuantity <= 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El lote ya no tiene animales recibidos válidos para preliquidar por cabeza',
+            requires_new_version:
+              true,
+          });
+        }
+
+
+        const currentBase =
+          currentQuantity *
+          approvalUnitPrice;
+
+
+        const quantityChanged =
+          currentQuantity !==
+          preliqQuantity;
+
+        const amountChanged =
+          Math.abs(
+            currentBase -
+            preliqBase
+          ) > 0.01;
+
+
+        if (
+          quantityChanged ||
+          amountChanged ||
+          initialWeightsChanged
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'La cantidad recibida o los datos físicos del lote cambiaron después de generar la preliquidación',
+            requires_new_version:
+              true,
+          });
+        }
+      }
 
       // =================================================
       // 4. RECALCULAR AJUSTES

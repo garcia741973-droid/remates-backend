@@ -8463,9 +8463,75 @@ exports.getSlaughterhouseExportCatalog =
                 field:
                   'live_weight_kg',
                 label:
-                  'Peso vivo',
+                  'Peso registrado en planta',
                 default_header:
-                  'PESO_VIVO',
+                  'PESO_VIVO_PLANTA',
+                type:
+                  'decimal',
+              },
+
+              {
+                field:
+                  'pricing_basis',
+                label:
+                  'Modalidad de compra',
+                default_header:
+                  'MODALIDAD_COMPRA',
+                type:
+                  'text',
+              },
+
+              {
+                field:
+                  'weight_source',
+                label:
+                  'Fuente de peso planificada',
+                default_header:
+                  'FUENTE_PESO_PLANIFICADA',
+                type:
+                  'text',
+              },
+
+              {
+                field:
+                  'actual_weight_source',
+                label:
+                  'Fuente real del peso inicial',
+                default_header:
+                  'FUENTE_PESO_REAL',
+                type:
+                  'text',
+              },
+
+              {
+                field:
+                  'initial_gross_weight_kg',
+                label:
+                  'Peso inicial bruto',
+                default_header:
+                  'PESO_INICIAL_BRUTO',
+                type:
+                  'decimal',
+              },
+
+              {
+                field:
+                  'initial_shrink_weight_kg',
+                label:
+                  'Merma peso inicial',
+                default_header:
+                  'MERMA_PESO_INICIAL',
+                type:
+                  'decimal',
+              },
+
+              {
+                field:
+                  'initial_net_weight_kg',
+                label:
+                  'Peso inicial neto',
+                default_header:
+                  'PESO_INICIAL_NETO',
                 type:
                   'decimal',
               },
@@ -8829,7 +8895,17 @@ exports.getSlaughterhouseExportCatalog =
     'guide_quantity',
     'received_quantity',
     'quantity_difference',
+
     'live_weight_kg',
+
+    'pricing_basis',
+    'weight_source',
+    'actual_weight_source',
+
+    'initial_gross_weight_kg',
+    'initial_shrink_weight_kg',
+    'initial_net_weight_kg',
+
     'origin_snapshot',
     'destination_snapshot',
     'transport_delivered_at',
@@ -10702,8 +10778,79 @@ exports.exportSlaughterhouseReceptionCsv =
 
               srt.live_weight_kg,
 
-              srt.origin_snapshot,
+              troop_info.pricing_basis,
+              troop_info.weight_source,
 
+              CASE
+                WHEN origin_weighing.id IS NOT NULL
+                  THEN 'origin'
+
+                WHEN
+                  srt.live_weight_kg IS NOT NULL
+                  AND srt.live_weight_kg > 0
+                  THEN 'plant'
+
+                ELSE 'none'
+              END
+                AS actual_weight_source,
+
+              CASE
+                WHEN origin_weighing.id IS NOT NULL
+                  THEN origin_weighing.gross_weight_kg
+
+                WHEN
+                  srt.live_weight_kg IS NOT NULL
+                  AND srt.live_weight_kg > 0
+                  THEN srt.live_weight_kg
+
+                ELSE NULL
+              END
+                AS initial_gross_weight_kg,
+
+              CASE
+                WHEN origin_weighing.id IS NOT NULL
+                  THEN origin_weighing.shrink_weight_kg
+
+                WHEN
+                  srt.live_weight_kg IS NOT NULL
+                  AND srt.live_weight_kg > 0
+                  THEN
+                    srt.live_weight_kg *
+                    (
+                      COALESCE(
+                        troop_info.shrink_percent,
+                        0
+                      ) / 100
+                    )
+
+                ELSE NULL
+              END
+                AS initial_shrink_weight_kg,
+
+              CASE
+                WHEN origin_weighing.id IS NOT NULL
+                  THEN origin_weighing.net_weight_kg
+
+                WHEN
+                  srt.live_weight_kg IS NOT NULL
+                  AND srt.live_weight_kg > 0
+                  THEN
+                    srt.live_weight_kg -
+                    (
+                      srt.live_weight_kg *
+                      (
+                        COALESCE(
+                          troop_info.shrink_percent,
+                          0
+                        ) / 100
+                      )
+                    )
+
+                ELSE NULL
+              END
+                AS initial_net_weight_kg,
+
+              srt.origin_snapshot,
               srt.destination_snapshot,
 
               srt.transport_delivered_at,
@@ -10717,6 +10864,90 @@ exports.exportSlaughterhouseReceptionCsv =
             JOIN slaughterhouse_reception_trucks srt
               ON srt.reception_id =
                 sr.id
+
+
+            -- ================================================
+            -- TROPA VINCULADA AL CAMIÓN
+            -- ================================================
+
+            LEFT JOIN LATERAL (
+              SELECT
+                st.id
+                  AS troop_id,
+
+                st.purchase_lot_id,
+
+                spl.pricing_basis,
+
+                spl.weight_source,
+
+                spl.shrink_percent
+
+              FROM slaughterhouse_troops st
+
+              JOIN slaughterhouse_purchase_lots spl
+                ON spl.id =
+                  st.purchase_lot_id
+
+                AND spl.company_id =
+                  st.company_id
+
+              WHERE
+                st.company_id =
+                  sr.company_id
+
+                AND st.reception_truck_id =
+                  srt.id
+
+                AND st.status <>
+                  'cancelled'
+
+              ORDER BY
+                st.id DESC
+
+              LIMIT 1
+
+            ) troop_info
+              ON true
+
+
+            -- ================================================
+            -- PESAJE INICIAL CERTIFICADO EN ORIGEN
+            -- ================================================
+
+            LEFT JOIN LATERAL (
+              SELECT
+                w.id,
+
+                w.gross_weight_kg,
+
+                w.shrink_weight_kg,
+
+                w.net_weight_kg
+
+              FROM slaughterhouse_live_weighings w
+
+              WHERE
+                w.company_id =
+                  sr.company_id
+
+                AND w.troop_id =
+                  troop_info.troop_id
+
+                AND w.status =
+                  'certified'
+
+              ORDER BY
+                w.certified_at DESC NULLS LAST,
+
+                w.id DESC
+
+              LIMIT 1
+
+            ) origin_weighing
+              ON troop_info.troop_id
+                IS NOT NULL
+
 
             WHERE
               sr.id = $1
@@ -10875,13 +11106,80 @@ exports.exportSlaughterhouseReceptionCsv =
 
                 COALESCE(
                   SUM(
-                    srt.live_weight_kg
+                    CASE
+                      WHEN origin_weighing.id IS NOT NULL
+                        THEN origin_weighing.gross_weight_kg
+
+                      WHEN
+                        srt.live_weight_kg IS NOT NULL
+                        AND srt.live_weight_kg > 0
+                        THEN srt.live_weight_kg
+
+                      ELSE 0
+                    END
                   ),
                   0
                 )::numeric
                   AS live_weight_total_kg
 
               FROM slaughterhouse_reception_trucks srt
+
+
+              LEFT JOIN LATERAL (
+
+                SELECT
+                  st.id
+                    AS troop_id
+
+                FROM slaughterhouse_troops st
+
+                WHERE
+                  st.company_id =
+                    sr.company_id
+
+                  AND st.reception_truck_id =
+                    srt.id
+
+                  AND st.status <>
+                    'cancelled'
+
+                ORDER BY
+                  st.id DESC
+
+                LIMIT 1
+
+              ) troop_info
+                ON true
+
+
+              LEFT JOIN LATERAL (
+
+                SELECT
+                  w.id,
+                  w.gross_weight_kg
+
+                FROM slaughterhouse_live_weighings w
+
+                WHERE
+                  w.company_id =
+                    sr.company_id
+
+                  AND w.troop_id =
+                    troop_info.troop_id
+
+                  AND w.status =
+                    'certified'
+
+                ORDER BY
+                  w.certified_at DESC NULLS LAST,
+                  w.id DESC
+
+                LIMIT 1
+
+              ) origin_weighing
+                ON troop_info.troop_id
+                  IS NOT NULL
+
 
               WHERE
                 srt.reception_id =
@@ -11722,7 +12020,9 @@ exports.exportSlaughterhouseReceptionsCsv =
             FROM slaughterhouse_receptions sr
 
             LEFT JOIN LATERAL (
+
               SELECT
+
                 COUNT(*)::int
                   AS trucks_count,
 
@@ -11744,7 +12044,17 @@ exports.exportSlaughterhouseReceptionsCsv =
 
                 COALESCE(
                   SUM(
-                    srt.live_weight_kg
+                    CASE
+                      WHEN origin_weighing.id IS NOT NULL
+                        THEN origin_weighing.gross_weight_kg
+
+                      WHEN
+                        srt.live_weight_kg IS NOT NULL
+                        AND srt.live_weight_kg > 0
+                        THEN srt.live_weight_kg
+
+                      ELSE 0
+                    END
                   ),
                   0
                 )::numeric
@@ -11752,9 +12062,67 @@ exports.exportSlaughterhouseReceptionsCsv =
 
               FROM slaughterhouse_reception_trucks srt
 
+
+              LEFT JOIN LATERAL (
+
+                SELECT
+                  st.id
+                    AS troop_id
+
+                FROM slaughterhouse_troops st
+
+                WHERE
+                  st.company_id =
+                    sr.company_id
+
+                  AND st.reception_truck_id =
+                    srt.id
+
+                  AND st.status <>
+                    'cancelled'
+
+                ORDER BY
+                  st.id DESC
+
+                LIMIT 1
+
+              ) troop_info
+                ON true
+
+
+              LEFT JOIN LATERAL (
+
+                SELECT
+                  w.id,
+                  w.gross_weight_kg
+
+                FROM slaughterhouse_live_weighings w
+
+                WHERE
+                  w.company_id =
+                    sr.company_id
+
+                  AND w.troop_id =
+                    troop_info.troop_id
+
+                  AND w.status =
+                    'certified'
+
+                ORDER BY
+                  w.certified_at DESC NULLS LAST,
+                  w.id DESC
+
+                LIMIT 1
+
+              ) origin_weighing
+                ON troop_info.troop_id
+                  IS NOT NULL
+
+
               WHERE
                 srt.reception_id =
                   sr.id
+
             ) trucks
               ON true
 
