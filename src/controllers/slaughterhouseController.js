@@ -410,6 +410,24 @@ exports.getSlaughterhouseReceptionCandidates =
             )
               AS requires_plant_live_weight,
 
+            (origin_weighing.id IS NOT NULL)
+              AS origin_weighing_exists,
+
+            origin_weighing.id
+              AS origin_weighing_id,
+
+            origin_weighing.quantity
+              AS origin_weighing_quantity,
+
+            origin_weighing.gross_weight_kg
+              AS origin_gross_weight_kg,
+
+            origin_weighing.shrink_weight_kg
+              AS origin_shrink_weight_kg,
+
+            origin_weighing.net_weight_kg
+              AS origin_net_weight_kg,
+
             tn.status,
             tn.trip_started_at,
             tn.delivered_at,
@@ -610,14 +628,37 @@ exports.getSlaughterhouseReceptionCandidates =
                 AND st.company_id =
                   $1
 
-              JOIN slaughterhouse_purchase_lots spl
-                ON spl.id =
-                  st.purchase_lot_id
+                JOIN slaughterhouse_purchase_lots spl
+                  ON spl.id =
+                    st.purchase_lot_id
+                  AND spl.company_id =
+                    st.company_id
 
-                AND spl.company_id =
-                  st.company_id
+                LEFT JOIN LATERAL (
+                  SELECT
+                    w.id,
+                    w.quantity,
+                    w.gross_weight_kg,
+                    w.shrink_weight_kg,
+                    w.net_weight_kg
+                  FROM slaughterhouse_live_weighings w
+                  WHERE
+                    w.company_id =
+                      st.company_id
+                    AND w.purchase_lot_id =
+                      st.purchase_lot_id
+                    AND w.troop_id =
+                      st.id
+                    AND w.status =
+                      'certified'
+                  ORDER BY
+                    w.certified_at DESC NULLS LAST,
+                    w.id DESC
+                  LIMIT 1
+                ) origin_weighing
+                  ON true
 
-              JOIN transporter_trucks tt
+                JOIN transporter_trucks tt
                 ON tt.id =
                   tn.truck_id
 
@@ -2960,99 +3001,7 @@ exports.startSlaughterhouseSlaughter =
               pendingLotTroopsResult.rows,
           });
         }
-      }
-
-
-      // =================================================
-      // VALIDAR PESO VIVO DE PLANTA
-      //
-      // Solo es obligatorio para:
-      // live_kg + plant
-      // =================================================
-
-      const plantWeightValidation =
-        await client.query(
-          `
-          SELECT
-            COUNT(*) FILTER (
-              WHERE
-                spl.pricing_basis =
-                  'live_kg'
-                AND spl.weight_source =
-                  'plant'
-            )::int
-              AS required_troops,
-
-            COUNT(*) FILTER (
-              WHERE
-                spl.pricing_basis =
-                  'live_kg'
-                AND spl.weight_source =
-                  'plant'
-                AND (
-                  st.reception_truck_id
-                    IS NULL
-                  OR srt.live_weight_kg
-                    IS NULL
-                )
-            )::int
-              AS missing_weight_troops
-
-          FROM slaughterhouse_troops st
-
-          JOIN slaughterhouse_purchase_lots spl
-            ON spl.id =
-              st.purchase_lot_id
-
-          LEFT JOIN slaughterhouse_reception_trucks srt
-            ON srt.id =
-              st.reception_truck_id
-
-          WHERE
-            st.company_id = $1
-            AND st.reception_id = $2
-            AND st.status <>
-              'cancelled'
-            AND (
-              $3::INTEGER IS NULL
-              OR st.id = $3
-            )
-          `,
-          [
-            companyId,
-            receptionId,
-            troopId,
-          ],
-        );
-
-      const plantWeightStatus =
-        plantWeightValidation.rows[0];
-
-      if (
-        Number(
-          plantWeightStatus
-            .missing_weight_troops || 0,
-        ) > 0
-      ) {
-        await client.query(
-          'ROLLBACK',
-        );
-
-        return res.status(409).json({
-          error:
-            'Existe ganado comprado por kilo vivo con peso en planta que todavía no tiene peso vivo registrado',
-          required_troops:
-            Number(
-              plantWeightStatus
-                .required_troops || 0,
-            ),
-          missing_weight_troops:
-            Number(
-              plantWeightStatus
-                .missing_weight_troops || 0,
-            ),
-        });
-      }      
+      }  
 
       // =================================================
       // TROPA ESPECÍFICA
