@@ -1334,7 +1334,7 @@ exports.syncFieldLotCapture =
 //
 // Reglas:
 // - Solo captador asignado.
-// - Solo live_kg + origin.
+// - Solo weight_source = origin.
 // - Requiere troop_id.
 // - La tropa YA debe existir desde Transporte.
 // - Campo NO crea tropas.
