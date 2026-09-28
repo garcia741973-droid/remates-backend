@@ -3693,6 +3693,12 @@ exports.getSlaughterhouseSlaughterReceptions =
                     'purchase_lot_id',
                       troop_info.purchase_lot_id,
 
+                    'pricing_basis',
+                      troop_info.pricing_basis,
+
+                    'weight_source',
+                      troop_info.weight_source,
+
                     'plate',
                       srt.plate_snapshot,
 
@@ -3701,6 +3707,24 @@ exports.getSlaughterhouseSlaughterReceptions =
 
                     'live_weight_kg',
                       srt.live_weight_kg,
+
+                    'origin_weighing_exists',
+                      origin_weighing.id IS NOT NULL,
+
+                    'origin_weighing_id',
+                      origin_weighing.id,
+
+                    'origin_weighing_quantity',
+                      origin_weighing.quantity,
+
+                    'origin_gross_weight_kg',
+                      origin_weighing.gross_weight_kg,
+
+                    'origin_shrink_weight_kg',
+                      origin_weighing.shrink_weight_kg,
+
+                    'origin_net_weight_kg',
+                      origin_weighing.net_weight_kg,
 
 
                     -- ====================================
@@ -3809,19 +3833,23 @@ exports.getSlaughterhouseSlaughterReceptions =
             LEFT JOIN LATERAL (
 
               SELECT
-
                 st2.id
                   AS troop_id,
-
                 st2.troop_number,
-
                 st2.status
                   AS troop_status,
-
-                st2.purchase_lot_id
+                st2.purchase_lot_id,
+                spl2.pricing_basis,
+                spl2.weight_source
 
               FROM
                 slaughterhouse_troops st2
+
+              JOIN slaughterhouse_purchase_lots spl2
+                ON spl2.id =
+                  st2.purchase_lot_id
+                AND spl2.company_id =
+                  st2.company_id
 
               WHERE
                 st2.company_id =
@@ -3841,7 +3869,33 @@ exports.getSlaughterhouseSlaughterReceptions =
             ) troop_info
               ON true
 
+            -- ============================================
+            -- PESAJE INICIAL CERTIFICADO EN ORIGEN
+            -- ============================================
 
+            LEFT JOIN LATERAL (
+              SELECT
+                w.id,
+                w.quantity,
+                w.gross_weight_kg,
+                w.shrink_weight_kg,
+                w.net_weight_kg
+              FROM
+                slaughterhouse_live_weighings w
+              WHERE
+                w.company_id =
+                  sr.company_id
+                AND w.troop_id =
+                  troop_info.troop_id
+                AND w.status =
+                  'certified'
+              ORDER BY
+                w.certified_at DESC NULLS LAST,
+                w.id DESC
+              LIMIT 1
+            ) origin_weighing
+              ON troop_info.troop_id
+                IS NOT NULL
             -- ============================================
             -- PROGRESO DE FAENA DE ESA TROPA
             -- ============================================
