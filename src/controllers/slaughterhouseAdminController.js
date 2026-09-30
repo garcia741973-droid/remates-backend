@@ -55482,58 +55482,62 @@ exports.exportFinalLotXlsx =
               );
 
 
-            let commissionBaseAmount =
-              0;
+            const {
+              calculateSlaughterhouseCommission,
+              resolveCommissionWeights,
+            } = require('../utils/slaughterhouseCommission');
 
+            // Peso gancho realmente registrado en faena.
+            const excelHookWeightKg =
+              carcassRows.reduce(
+                (total, row) =>
+                  total + Number(row.hook_weight_kg || 0),
+                0
+              );
 
-            if (
-              commissionType ===
-                'fixed' &&
-              Number.isFinite(
-                commissionValue
-              )
-            ) {
-              commissionBaseAmount =
-                commissionValue;
-            }
+            // No considerar completa una faena que
+            // contiene medias reses sin peso válido.
+            const excelHasMissingHalfWeights =
+              carcassRows.some(
+                (row) =>
+                  !Number.isFinite(Number(row.hook_weight_kg)) ||
+                  Number(row.hook_weight_kg) <= 0
+              );
 
+            const commissionWeights =
+              resolveCommissionWeights({
+                sourceSnapshot:
+                  preliq.source_snapshot,
 
-            if (
-              commissionType ===
-                'per_head' &&
-              Number.isFinite(
-                commissionValue
-              )
-            ) {
-              commissionBaseAmount =
-                receivedQuantity *
-                commissionValue;
-            }
+                receivedAnimals:
+                  receivedQuantity,
 
+                slaughteredAnimals:
+                  excelCompletedAnimals,
 
-            if (
-              commissionType ===
-                'percent' &&
-              Number.isFinite(
-                commissionValue
-              )
-            ) {
-              commissionBaseAmount =
-                (
-                  sellerNetPayable *
-                  commissionValue
-                ) / 100;
-            }
+                incompleteAnimals:
+                  excelIncompleteAnimals +
+                  (excelHasMissingHalfWeights ? 1 : 0),
 
+                hookWeightKg:
+                  excelHookWeightKg,
+              });
 
-            commissionBaseAmount =
-              Math.round(
-                (
-                  commissionBaseAmount +
-                  Number.EPSILON
-                ) *
-                100
-              ) / 100;
+            const calculatedCommission =
+              calculateSlaughterhouseCommission({
+                commissionType,
+                commissionValue,
+
+                receivedAnimals:
+                  receivedQuantity,
+
+                sellerNetPayable,
+
+                ...commissionWeights,
+              });
+
+            const commissionBaseAmount =
+              calculatedCommission.base_amount;
 
 
             const relatedAdjustments =
@@ -55592,15 +55596,16 @@ exports.exportFinalLotXlsx =
 
 
             const commissionerNetPayable =
-              Math.round(
-                (
-                  commissionBaseAmount -
-                  discountsTotal +
-                  additionsTotal +
-                  Number.EPSILON
-                ) *
-                100
-              ) / 100;
+              calculatedCommission.calculation_pending
+                ? null
+                : Math.round(
+                    (
+                      commissionBaseAmount -
+                      discountsTotal +
+                      additionsTotal +
+                      Number.EPSILON
+                    ) * 100
+                  ) / 100;
 
 
             commissioner = {
@@ -55611,6 +55616,15 @@ exports.exportFinalLotXlsx =
 
               commission_value:
                 commissionValue,
+
+              calculation_pending:
+                calculatedCommission.calculation_pending,
+
+              pending_reason:
+                calculatedCommission.pending_reason,
+
+              weight_basis_kg:
+                calculatedCommission.weight_basis_kg,
 
               adjustments:
                 relatedAdjustments,
@@ -55778,11 +55792,21 @@ exports.exportFinalLotXlsx =
 
 
           commissioner: {
+            calculation_pending:
+              commissionerPending,
+
+            pending_reason:
+              commissionerSummary.pending_reason || null,
+
+            weight_basis_kg:
+              commissionerSummary.weight_basis_kg ?? null,
+
             base_amount:
-              Number(
-                commissionerSummary
-                  .base_amount || 0
-              ),
+              commissionerPending
+                ? null
+                : Number(
+                    commissionerSummary.base_amount || 0
+                  ),
 
             discounts_total:
               Number(
@@ -58107,18 +58131,16 @@ exports.exportFinalLotXlsx =
                 .commission_value,
               '',
               '',
-              number(
-                commissionerSummary
-                  .base_amount
-              ),
+              commissionerSummary.calculation_pending === true
+                ? 'PENDIENTE'
+                : number(commissionerSummary.base_amount),
               number(
                 commissionerSummary
                   .discounts_total
               ),
-              number(
-                commissionerSummary
-                  .additions_total
-              ),
+              commissionerSummary.calculation_pending === true
+                ? 'PENDIENTE'
+                : number(commissionerSummary.net_payable),
               number(
                 commissionerSummary
                   .net_payable
@@ -58240,18 +58262,17 @@ exports.exportFinalLotXlsx =
               '',
               '',
               '',
-              number(
-                values.base_amount
-              ),
-              number(
-                values.discounts_total
-              ),
-              number(
-                values.additions_total
-              ),
-              number(
-                values.net_payable
-              ),
+              values.calculation_pending === true
+                ? 'PENDIENTE'
+                : number(values.base_amount),
+
+              number(values.discounts_total),
+
+              number(values.additions_total),
+
+              values.calculation_pending === true
+                ? 'PENDIENTE'
+                : number(values.net_payable),
             ]);
 
 
@@ -58279,10 +58300,9 @@ exports.exportFinalLotXlsx =
             '',
             '',
             '',
-            number(
-              financialSummary
-                .total_obligations
-            ),
+            financialSummary.total_obligations === null
+              ? 'PENDIENTE'
+              : number(financialSummary.total_obligations),
           ]);
 
 
