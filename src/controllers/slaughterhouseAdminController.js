@@ -38527,7 +38527,10 @@ exports.generatePreliquidationDraft =
               weight_source,
               price_per_unit,
               shrink_percent,
-              capture_sheet_id
+              capture_sheet_id,
+              commissioner_person_id,
+              commission_type,
+              commission_value
             FROM slaughterhouse_purchase_lots
             WHERE
               id = $1
@@ -40204,9 +40207,41 @@ exports.generatePreliquidationDraft =
       };
 
 
+      const snapshotCommissionerPersonId =
+        lot.commissioner_person_id !== null &&
+        lot.commissioner_person_id !== undefined
+          ? Number(
+              lot.commissioner_person_id
+            )
+          : null;
+
+      const snapshotCommissionType =
+        lot.commission_type
+          ?.toString()
+          .trim() ||
+        null;
+
+      const snapshotCommissionValue =
+        lot.commission_value !== null &&
+        lot.commission_value !== undefined
+          ? Number(
+              lot.commission_value
+            )
+          : null;
+
+
       const sourceSnapshot = {
         source_type:
           sourceType,
+
+        commissioner_person_id:
+          snapshotCommissionerPersonId,
+
+        commission_type:
+          snapshotCommissionType,
+
+        commission_value:
+          snapshotCommissionValue,
 
         pricing_basis:
           pricingBasis,
@@ -41696,11 +41731,32 @@ exports.getPreliquidationById =
         await pool.query(
           `
             SELECT
-              spl.commissioner_person_id,
+              CASE
+                WHEN $3::jsonb ? 'commissioner_person_id'
+                  THEN NULLIF(
+                    $3::jsonb ->> 'commissioner_person_id',
+                    ''
+                  )::integer
+                ELSE spl.commissioner_person_id
+              END AS commissioner_person_id,
 
-              spl.commission_type,
+              CASE
+                WHEN $3::jsonb ? 'commission_type'
+                  THEN NULLIF(
+                    $3::jsonb ->> 'commission_type',
+                    ''
+                  )
+                ELSE spl.commission_type
+              END AS commission_type,
 
-              spl.commission_value,
+              CASE
+                WHEN $3::jsonb ? 'commission_value'
+                  THEN NULLIF(
+                    $3::jsonb ->> 'commission_value',
+                    ''
+                  )::numeric
+                ELSE spl.commission_value
+              END AS commission_value,
 
 
               commissioner.full_name
@@ -41745,7 +41801,14 @@ exports.getPreliquidationById =
 
             LEFT JOIN slaughterhouse_people commissioner
               ON commissioner.id =
-                spl.commissioner_person_id
+                CASE
+                  WHEN $3::jsonb ? 'commissioner_person_id'
+                    THEN NULLIF(
+                      $3::jsonb ->> 'commissioner_person_id',
+                      ''
+                    )::integer
+                  ELSE spl.commissioner_person_id
+                END
 
 
             LEFT JOIN LATERAL (
@@ -41781,6 +41844,7 @@ exports.getPreliquidationById =
           [
             preliquidation.purchase_lot_id,
             companyId,
+            preliquidation.source_snapshot || {},
           ],
         );
 
