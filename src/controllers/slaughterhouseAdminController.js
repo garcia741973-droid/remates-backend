@@ -49517,7 +49517,11 @@ exports.getReportsCatalog =
               },
               {
                 field: 'commission_amount',
-                label: 'Monto comisión',
+                label: 'Base comisión',
+              },
+              {
+                field: 'commission_net_payable',
+                label: 'Neto comisión',
               },
               {
                 field: 'preliquidation_status',
