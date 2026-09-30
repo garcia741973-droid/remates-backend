@@ -13815,6 +13815,8 @@ exports.addCaptureSheetLot =
         'per_head',
         'percent',
         'fixed',
+        'per_kg_origin',
+        'per_kg_hook',
       ];
 
 
@@ -15376,11 +15378,13 @@ exports.createPurchaseLot =
       }
 
       const allowedCommissionTypes =
-        [
+      [
           'per_head',
           'percent',
           'fixed',
-        ];
+          'per_kg_origin',
+          'per_kg_hook',
+      ];
 
 
       if (
@@ -17120,6 +17124,8 @@ exports.updatePurchaseLot =
           'per_head',
           'percent',
           'fixed',
+          'per_kg_origin',
+          'per_kg_hook',
         ];
 
 
@@ -42098,23 +42104,27 @@ exports.getPreliquidationById =
         );
 
 
-      const commissionerNetPayable =
-        Number(
-          commissionerSummary
-            .net_payable || 0
-        );
+      const commissionerPending =
+        commissionerSummary.calculation_pending === true;
 
+      const commissionerNetPayable =
+        commissionerPending
+          ? null
+          : Number(
+              commissionerSummary.net_payable || 0
+            );
 
       const totalObligations =
-        Math.round(
-          (
-            sellerNetPayable +
-            transportNetPayable +
-            commissionerNetPayable +
-            Number.EPSILON
-          ) *
-          100
-        ) / 100;
+        commissionerPending
+          ? null
+          : Math.round(
+              (
+                sellerNetPayable +
+                transportNetPayable +
+                commissionerNetPayable +
+                Number.EPSILON
+              ) * 100
+            ) / 100;
 
 
       const financialSummary = {
@@ -55643,23 +55653,27 @@ exports.exportFinalLotXlsx =
           );
 
 
-        const commissionerNetPayable =
-          Number(
-            commissionerSummary
-              .net_payable || 0
-          );
+        const commissionerPending =
+          commissionerSummary.calculation_pending === true;
 
+        const commissionerNetPayable =
+          commissionerPending
+            ? null
+            : Number(
+                commissionerSummary.net_payable || 0
+              );
 
         const totalObligations =
-          Math.round(
-            (
-              sellerNetPayable +
-              transportNetPayable +
-              commissionerNetPayable +
-              Number.EPSILON
-            ) *
-            100
-          ) / 100;
+          commissionerPending
+            ? null
+            : Math.round(
+                (
+                  sellerNetPayable +
+                  transportNetPayable +
+                  commissionerNetPayable +
+                  Number.EPSILON
+                ) * 100
+              ) / 100;
 
 
         const financialSummary = {
