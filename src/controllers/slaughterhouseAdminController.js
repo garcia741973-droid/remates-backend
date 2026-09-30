@@ -49116,11 +49116,19 @@ exports.getReportsCatalog =
               },
               {
                 field: 'captador_name',
-                label: 'Captador / comisionista',
+                label: 'Captador',
               },
               {
                 field: 'captador_document_number',
-                label: 'CI / documento',
+                label: 'Documento captador',
+              },
+              {
+                field: 'commissioner_name',
+                label: 'Comisionista / beneficiario',
+              },
+              {
+                field: 'commissioner_document_number',
+                label: 'Documento comisionista',
               },
               {
                 field: 'seller_name',
@@ -49914,6 +49922,9 @@ exports.getCaptadorPaymentsReport =
               )::int
                 AS received_quantity,
 
+              carcass_summary.carcasses
+                AS commission_carcasses,
+
 
               preliq.id
                 AS preliquidation_id,
@@ -49923,6 +49934,9 @@ exports.getCaptadorPaymentsReport =
 
               preliq.total_payable
                 AS purchase_total_payable,
+
+              preliq.source_snapshot
+                AS commission_source_snapshot,
 
 
               CASE
@@ -50135,14 +50149,46 @@ exports.getCaptadorPaymentsReport =
                 AND st.status <>
                   'cancelled'
 
-            ) troop_summary
-              ON true
+                ) troop_summary
+                  ON true
 
 
-            LEFT JOIN LATERAL (
+                LEFT JOIN LATERAL (
 
-              SELECT
-                sp.*
+                  SELECT
+                    COALESCE(
+                      jsonb_agg(
+                        jsonb_build_object(
+                          'troop_id', sc.troop_id,
+                          'animal_sequence_number',
+                            sc.animal_sequence_number,
+                          'half_number', sc.half_number,
+                          'hook_weight_kg', sc.hook_weight_kg
+                        )
+                      ) FILTER (
+                        WHERE sc.id IS NOT NULL
+                      ),
+                      '[]'::jsonb
+                    ) AS carcasses
+
+                  FROM slaughterhouse_troops st
+
+                  LEFT JOIN slaughterhouse_carcasses sc
+                    ON sc.troop_id = st.id
+
+                  WHERE
+                    st.company_id = spl.company_id
+                    AND st.purchase_lot_id = spl.id
+                    AND st.status <> 'cancelled'
+
+                ) carcass_summary
+                  ON true
+
+
+                LEFT JOIN LATERAL (
+
+                  SELECT
+                    sp.*
 
               FROM
                 slaughterhouse_preliquidations sp
@@ -50240,41 +50286,302 @@ exports.getCaptadorPaymentsReport =
           ],
         );
 
+        const {
+          calculateSlaughterhouseCommission,
+          resolveCommissionWeights,
+        } = require('../utils/slaughterhouseCommission');
 
-      const totalCommission =
-        result.rows.reduce(
-          (
-            total,
-            row
-          ) =>
-            total +
-            Number(
-              row.commission_amount ||
-              0
-            ),
-          0
-        );
+        // =================================================
+        // AJUSTES FINANCIEROS DE LOS COMISIONISTAS
+        // =================================================
+
+        const commissionAdjustmentTotals = new Map();
+
+        const commissionPreliquidationIds = [
+          ...new Set(
+            result.rows
+              .map((row) => Number(row.preliquidation_id))
+              .filter(
+                (id) => Number.isInteger(id) && id > 0
+              )
+          ),
+        ];
+
+        if (commissionPreliquidationIds.length > 0) {
+          const commissionAdjustmentsResult =
+            await pool.query(
+              `
+                SELECT
+                  spa.preliquidation_id,
+                  spa.commissioner_person_id,
+
+                  COALESCE(
+                    SUM(spa.amount) FILTER (
+                      WHERE spa.adjustment_type = 'discount'
+                    ),
+                    0
+                  ) AS discounts_total,
+
+                  COALESCE(
+                    SUM(spa.amount) FILTER (
+                      WHERE spa.adjustment_type = 'addition'
+                    ),
+                    0
+                  ) AS additions_total
+
+                FROM slaughterhouse_preliquidation_adjustments spa
+
+                JOIN slaughterhouse_preliquidations sp
+                  ON sp.id = spa.preliquidation_id
+
+                WHERE
+                  sp.company_id = $1
+                  AND spa.target_type = 'commissioner'
+                  AND spa.preliquidation_id = ANY($2::int[])
+
+                GROUP BY
+                  spa.preliquidation_id,
+                  spa.commissioner_person_id
+              `,
+              [
+                companyId,
+                commissionPreliquidationIds,
+              ]
+            );
+
+          for (const adjustment of commissionAdjustmentsResult.rows) {
+            const key =
+              `${adjustment.preliquidation_id}:` +
+              `${adjustment.commissioner_person_id}`;
+
+            commissionAdjustmentTotals.set(key, {
+              discounts_total:
+                Number(adjustment.discounts_total),
+              additions_total:
+                Number(adjustment.additions_total),
+            });
+          }
+        }
+
+        const reportRows =
+          result.rows.map((row) => {
+            const carcasses =
+              Array.isArray(row.commission_carcasses)
+                ? row.commission_carcasses
+                : [];
+
+            const modernAnimals = new Map();
+            let legacyAnimals = 0;
+            let incompleteAnimals = 0;
+            let hasMissingWeights = false;
+            let hookWeightKg = 0;
+
+            for (const carcass of carcasses) {
+              const weight =
+                Number(carcass.hook_weight_kg);
+
+              if (
+                !Number.isFinite(weight) ||
+                weight <= 0
+              ) {
+                hasMissingWeights = true;
+              } else {
+                hookWeightKg += weight;
+              }
+
+              if (
+                carcass.animal_sequence_number == null ||
+                carcass.half_number == null
+              ) {
+                legacyAnimals += 1;
+                continue;
+              }
+
+              const key =
+                `${carcass.troop_id}:` +
+                `${carcass.animal_sequence_number}`;
+
+              if (!modernAnimals.has(key)) {
+                modernAnimals.set(key, new Set());
+              }
+
+              modernAnimals
+                .get(key)
+                .add(Number(carcass.half_number));
+            }
+
+            let completedAnimals = legacyAnimals;
+
+            for (const halves of modernAnimals.values()) {
+              if (halves.size >= 2) {
+                completedAnimals += 1;
+              } else {
+                incompleteAnimals += 1;
+              }
+            }
+
+            if (hasMissingWeights) {
+              incompleteAnimals += 1;
+            }
+
+            const weights =
+              resolveCommissionWeights({
+                sourceSnapshot:
+                  row.commission_source_snapshot,
+
+                receivedAnimals:
+                  Number(row.received_quantity || 0),
+
+                slaughteredAnimals:
+                  completedAnimals,
+
+                incompleteAnimals,
+
+                hookWeightKg,
+              });
+
+            const calculated =
+              !row.commission_type ||
+              row.commission_value == null
+                ? {
+                    base_amount: null,
+                    calculation_pending: true,
+                    pending_reason:
+                      'Comisión sin configurar',
+                    weight_basis_kg: null,
+                  }
+                : row.commission_type === 'percent' &&
+                  row.purchase_total_payable == null
+                ? {
+                    base_amount: null,
+                    calculation_pending: true,
+                    pending_reason:
+                      'Falta preliquidación',
+                    weight_basis_kg: null,
+                  }
+                : calculateSlaughterhouseCommission({
+                    commissionType:
+                      row.commission_type,
+
+                    commissionValue:
+                      row.commission_value,
+
+                    receivedAnimals:
+                      Number(row.received_quantity || 0),
+
+                    sellerNetPayable:
+                      Number(
+                        row.purchase_total_payable || 0
+                      ),
+
+                    ...weights,
+                  });
+
+                  const adjustmentKey =
+                    `${row.preliquidation_id}:` +
+                    `${row.commissioner_person_id}`;
+
+                  const adjustments =
+                    commissionAdjustmentTotals.get(adjustmentKey) || {
+                      discounts_total: 0,
+                      additions_total: 0,
+                    };
+
+                  const discountsTotal =
+                    Number(adjustments.discounts_total);
+
+                  const additionsTotal =
+                    Number(adjustments.additions_total);
+
+                  const commissionNetPayable =
+                    calculated.calculation_pending
+                      ? null
+                      : Math.round(
+                          (
+                            calculated.base_amount -
+                            discountsTotal +
+                            additionsTotal +
+                            Number.EPSILON
+                          ) * 100
+                        ) / 100;
+
+        return {
+          ...row,
+
+          commission_amount:
+            calculated.base_amount,
+
+          commission_discounts_total:
+            discountsTotal,
+
+          commission_additions_total:
+            additionsTotal,
+
+          commission_net_payable:
+            commissionNetPayable,
+
+          commission_calculation_pending:
+            calculated.calculation_pending,
+
+          commission_pending_reason:
+            calculated.pending_reason,
+
+          commission_weight_basis_kg:
+            calculated.weight_basis_kg,
+          };
+
+          });
+
+          // =================================================
+          // RESUMEN DE COMISIONES CALCULADAS Y PENDIENTES
+          // =================================================
+
+          const pendingCommissionCount =
+            reportRows.filter(
+              (row) =>
+                row.commission_calculation_pending === true
+            ).length;
+
+          const totalCommission =
+            reportRows
+              .filter(
+                (row) =>
+                  row.commission_calculation_pending !== true &&
+                  row.commission_net_payable !== null
+              )
+              .reduce(
+                (total, row) =>
+                  total + Number(row.commission_net_payable),
+                0
+              );
+
+          const totalCommissionRounded =
+            Math.round(
+              (totalCommission + Number.EPSILON) * 100
+            ) / 100;
 
 
-      return res.json({
 
-        success:
-          true,
+            return res.json({
+              success: true,
 
-        rows:
-          result.rows,
+              rows:
+                reportRows,
 
-        summary: {
+              summary: {
+                count:
+                  reportRows.length,
 
-          count:
-            result.rows.length,
+                total_amount:
+                  totalCommissionRounded,
 
-          total_amount:
-            totalCommission,
+                pending_count:
+                  pendingCommissionCount,
 
-        },
-
-      });
+                total_is_partial:
+                  pendingCommissionCount > 0,
+              },
+            });
 
     } catch (error) {
 

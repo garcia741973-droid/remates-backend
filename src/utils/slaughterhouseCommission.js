@@ -178,7 +178,119 @@ function resolveCommissionWeights({
   };
 }
 
+function settleSlaughterhouseCommission({
+  calculation,
+  discountsTotal = 0,
+  additionsTotal = 0,
+  overrideAmount = null,
+}) {
+  const roundMoney = (value) =>
+    Math.round(
+      (value + Number.EPSILON) * 100
+    ) / 100;
+
+  const discounts = Number(discountsTotal);
+  const additions = Number(additionsTotal);
+
+  if (
+    !Number.isFinite(discounts) ||
+    !Number.isFinite(additions) ||
+    discounts < 0 ||
+    additions < 0
+  ) {
+    throw new Error(
+      'Ajustes de comisión inválidos'
+    );
+  }
+
+  const baseAmount =
+    calculation.base_amount;
+
+  // IMPORTE FINAL AUTORIZADO POR ADMINISTRACIÓN
+  // Cero significa comisión anulada.
+  // Null significa cálculo automático.
+  if (
+    overrideAmount !== null &&
+    overrideAmount !== undefined
+  ) {
+    if (
+      overrideAmount === '' ||
+      !Number.isFinite(Number(overrideAmount)) ||
+      Number(overrideAmount) < 0
+    ) {
+      throw new Error(
+        'Importe final autorizado inválido'
+      );
+    }
+
+    return {
+      base_amount: baseAmount,
+      discounts_total: discounts,
+      additions_total: additions,
+      net_payable: roundMoney(
+        Number(overrideAmount)
+      ),
+      override_active: true,
+      calculation_pending: false,
+      base_calculation_pending:
+        calculation.calculation_pending === true,
+      pending_reason: null,
+    };
+  }
+
+  // CÁLCULO AUTOMÁTICO PENDIENTE
+  if (
+    calculation.calculation_pending ||
+    baseAmount === null
+  ) {
+    return {
+      base_amount: baseAmount,
+      discounts_total: discounts,
+      additions_total: additions,
+      net_payable: null,
+      override_active: false,
+      calculation_pending: true,
+      base_calculation_pending: true,
+      pending_reason:
+        calculation.pending_reason,
+    };
+  }
+
+  const netPayable = roundMoney(
+    Number(baseAmount) -
+    discounts +
+    additions
+  );
+
+  // NUNCA GENERAR UNA DEUDA NEGATIVA
+  if (netPayable < 0) {
+    return {
+      base_amount: baseAmount,
+      discounts_total: discounts,
+      additions_total: additions,
+      net_payable: null,
+      override_active: false,
+      calculation_pending: true,
+      base_calculation_pending: false,
+      pending_reason:
+        'Los descuentos superan la comisión disponible',
+    };
+  }
+
+  return {
+    base_amount: baseAmount,
+    discounts_total: discounts,
+    additions_total: additions,
+    net_payable: netPayable,
+    override_active: false,
+    calculation_pending: false,
+    base_calculation_pending: false,
+    pending_reason: null,
+  };
+}
+
 module.exports = {
   calculateSlaughterhouseCommission,
   resolveCommissionWeights,
+  settleSlaughterhouseCommission,
 };
