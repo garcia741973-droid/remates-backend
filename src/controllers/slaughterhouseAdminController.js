@@ -41882,6 +41882,7 @@ exports.getPreliquidationById =
         const {
           calculateSlaughterhouseCommission,
           resolveCommissionWeights,
+          settleSlaughterhouseCommission,
         } = require('../utils/slaughterhouseCommission');
 
         const commissionWeights =
@@ -41968,17 +41969,26 @@ exports.getPreliquidationById =
             );
 
 
-        const commissionerNetPayable =
-          calculatedCommission.calculation_pending
+        const overrideAmount =
+          preliquidation.commission_override_amount === null ||
+          preliquidation.commission_override_amount === undefined
             ? null
-            : Math.round(
-                (
-                  commissionBaseAmount -
-                  discountsTotal +
-                  additionsTotal +
-                  Number.EPSILON
-                ) * 100
-              ) / 100;
+            : Number(
+                preliquidation.commission_override_amount
+              );
+
+        const settledCommission =
+          settleSlaughterhouseCommission({
+            calculation:
+              calculatedCommission,
+
+            discountsTotal,
+            additionsTotal,
+            overrideAmount,
+          });
+
+        const commissionerNetPayable =
+          settledCommission.net_payable;
 
 
         commissioner = {
@@ -42005,10 +42015,28 @@ exports.getPreliquidationById =
             commissionValue,
 
           calculation_pending:
-            calculatedCommission.calculation_pending,
+            settledCommission.calculation_pending,
+
+          base_calculation_pending:
+            settledCommission.base_calculation_pending,
 
           pending_reason:
-            calculatedCommission.pending_reason,
+            settledCommission.pending_reason,
+
+          override_active:
+            settledCommission.override_active,
+
+          override_amount:
+            overrideAmount,
+
+          override_reason:
+            preliquidation.commission_override_reason,
+
+          override_by:
+            preliquidation.commission_override_by,
+
+          override_at:
+            preliquidation.commission_override_at,
 
           weight_basis_kg:
             calculatedCommission.weight_basis_kg,
@@ -42302,6 +42330,272 @@ exports.getPreliquidationById =
 // El servidor calcula amount.
 // No confía en un amount calculado por el cliente.
 // =====================================================
+
+// =====================================================
+// MODIFICAR O ANULAR COMISIÓN DEL COMISIONISTA
+//
+// amount = null → volver al cálculo automático
+// amount = 0    → anular comisión
+// amount > 0    → establecer importe definitivo
+// =====================================================
+
+exports.setPreliquidationCommissionOverride =
+  async (req, res) => {
+    const companyId =
+      Number(req.slaughterhouseAdmin.company_id);
+
+    const userId =
+      Number(req.slaughterhouseAdmin.user_id);
+
+    const preliquidationId =
+      Number(req.params.id);
+
+    const rawAmount = req.body?.amount;
+
+    const reason =
+      String(req.body?.reason ?? '').trim();
+
+    if (
+      !Number.isInteger(preliquidationId) ||
+      preliquidationId <= 0 ||
+      !Number.isInteger(userId) ||
+      userId <= 0 ||
+      !Number.isInteger(companyId) ||
+      companyId <= 0
+    ) {
+      return res.status(400).json({
+        error: 'Identificación inválida',
+      });
+    }
+
+    if (!reason) {
+      return res.status(400).json({
+        error: 'El motivo es obligatorio',
+      });
+    }
+
+    if (
+      !Object.prototype.hasOwnProperty.call(
+        req.body || {},
+        'amount'
+      )
+    ) {
+      return res.status(400).json({
+        error: 'Debe indicar el importe final',
+      });
+    }
+
+    const clearOverride = rawAmount === null;
+
+    const amountText =
+      clearOverride
+        ? null
+        : String(rawAmount).trim();
+
+    const validAmount =
+      clearOverride ||
+      /^\d{1,12}(\.\d{1,2})?$/.test(
+        amountText
+      );
+
+    const amount =
+      clearOverride
+        ? null
+        : Number(amountText);
+
+    if (
+      !validAmount ||
+      (
+        !clearOverride &&
+        (
+          !Number.isFinite(amount) ||
+          !Number.isSafeInteger(
+            Math.round(amount * 100)
+          )
+        )
+      )
+    ) {
+      return res.status(400).json({
+        error:
+          'El importe debe ser cero o un monto positivo con máximo dos decimales',
+      });
+    }
+
+    let client;
+
+    try {
+      client = await pool.connect();
+
+      await client.query('BEGIN');
+
+      // Bloquear la preliquidación y verificar
+      // que pertenece a este frigorífico.
+
+      const preliqResult = await client.query(
+        `
+          SELECT
+            sp.*,
+            spl.commissioner_person_id
+          FROM slaughterhouse_preliquidations sp
+          LEFT JOIN slaughterhouse_purchase_lots spl
+            ON spl.id = sp.purchase_lot_id
+            AND spl.company_id = sp.company_id
+          WHERE
+            sp.id = $1
+            AND sp.company_id = $2
+          FOR UPDATE OF sp
+        `,
+        [preliquidationId, companyId]
+      );
+
+      if (preliqResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+
+        return res.status(404).json({
+          error: 'Preliquidación no encontrada',
+        });
+      }
+
+      const preliq = preliqResult.rows[0];
+
+      if (preliq.status !== 'draft') {
+        await client.query('ROLLBACK');
+
+        return res.status(409).json({
+          error:
+            'Solo puede modificarse una preliquidación en borrador',
+        });
+      }
+
+      if (
+        !clearOverride &&
+        preliq.commissioner_person_id == null
+      ) {
+        await client.query('ROLLBACK');
+
+        return res.status(409).json({
+          error:
+            'El lote no tiene comisionista asociado',
+        });
+      }
+
+      // Conservar los datos anteriores
+      // para el registro de auditoría.
+
+      const previous = {
+        amount:
+          preliq.commission_override_amount,
+        reason:
+          preliq.commission_override_reason,
+        user_id:
+          preliq.commission_override_by,
+        authorized_at:
+          preliq.commission_override_at,
+      };
+
+      const updatedResult = await client.query(
+        `
+          UPDATE slaughterhouse_preliquidations
+          SET
+            commission_override_amount = $1,
+            commission_override_reason = $2,
+            commission_override_by = $3,
+            commission_override_at = $4,
+            updated_at = NOW()
+          WHERE
+            id = $5
+            AND company_id = $6
+          RETURNING *
+        `,
+        [
+          amount,
+          clearOverride ? null : reason,
+          clearOverride ? null : userId,
+          clearOverride ? null : new Date(),
+          preliquidationId,
+          companyId,
+        ]
+      );
+
+      const updated = updatedResult.rows[0];
+
+      // El motivo de retirar una autorización
+      // también queda registrado en auditoría.
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            new_data
+          )
+          VALUES (
+            $1,
+            $2,
+            'preliquidation',
+            $3,
+            'commission_override',
+            $4::jsonb
+          )
+        `,
+        [
+          companyId,
+          userId,
+          String(preliquidationId),
+          JSON.stringify({
+            previous,
+            new_amount: amount,
+            reason,
+            operation:
+              clearOverride
+                ? 'restore_automatic'
+                : amount === 0
+                  ? 'cancel_commission'
+                  : 'set_final_amount',
+          }),
+        ]
+      );
+
+      await client.query('COMMIT');
+
+      return res.json({
+        success: true,
+        message:
+          clearOverride
+            ? 'Se restauró el cálculo automático'
+            : amount === 0
+              ? 'Comisión anulada correctamente'
+              : 'Importe definitivo autorizado',
+        commission_override_amount:
+          updated.commission_override_amount,
+      });
+
+    } catch (error) {
+      if (client) {
+        try {
+          await client.query('ROLLBACK');
+        } catch (_) {}
+      }
+
+      console.error(
+        'COMMISSION OVERRIDE ERROR:',
+        error
+      );
+
+      return res.status(500).json({
+        error:
+          'Error modificando la comisión',
+      });
+
+    } finally {
+      if (client) {
+        client.release();
+      }
+    }
+  };
 
 exports.addPreliquidationAdjustment =
   async (req, res) => {
@@ -42639,6 +42933,22 @@ exports.addPreliquidationAdjustment =
 
       }
 
+      // =================================================
+      // PROTEGER COMISIÓN CON IMPORTE DEFINITIVO
+      // =================================================
+
+      if (
+        targetType === 'commissioner' &&
+        preliquidation.commission_override_amount != null
+      ) {
+        await client.query('ROLLBACK');
+
+        return res.status(409).json({
+          error:
+            'Esta comisión tiene un importe definitivo autorizado. ' +
+            'Debe restaurar el cálculo automático antes de agregar ajustes.',
+        });
+      }
 
       const baseAmount =
         Number(
@@ -45228,6 +45538,36 @@ exports.deletePreliquidationAdjustment =
 
       }
 
+      // =================================================
+      // IMPEDIR ELIMINAR AJUSTES DE UNA COMISIÓN FIJADA
+      // =================================================
+
+      if (
+        preliquidation.commission_override_amount != null
+      ) {
+        const adjustmentCheck = await client.query(
+          `
+            SELECT target_type
+            FROM slaughterhouse_preliquidation_adjustments
+            WHERE id = $1
+              AND preliquidation_id = $2
+          `,
+          [adjustmentId, preliquidationId]
+        );
+
+        if (
+          adjustmentCheck.rows[0]?.target_type ===
+          'commissioner'
+        ) {
+          await client.query('ROLLBACK');
+
+          return res.status(409).json({
+            error:
+              'Restaure primero el cálculo automático ' +
+              'para modificar los ajustes de esta comisión.',
+          });
+        }
+      }
 
       // =================================================
       // 3. ELIMINAR AJUSTE

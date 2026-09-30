@@ -188,6 +188,8 @@ const {
 
   getPreliquidationById,
 
+  setPreliquidationCommissionOverride,
+
   addPreliquidationAdjustment,
 
   reviewPreliquidationIncident,
@@ -1514,6 +1516,20 @@ router.get(
 
   getPreliquidationById,
 
+);
+
+// =====================================================
+// MODIFICAR O ANULAR COMISIÓN DEL COMISIONISTA
+// =====================================================
+
+router.patch(
+  '/preliquidations/:id/commission-override',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission(
+    'preliquidation.manage'
+  ),
+  setPreliquidationCommissionOverride,
 );
 
 router.post(
