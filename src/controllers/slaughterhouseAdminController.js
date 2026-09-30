@@ -42133,6 +42133,9 @@ exports.getPreliquidationById =
       const commissionerPending =
         commissionerSummary.calculation_pending === true;
 
+      const commissionerBasePending =
+        commissionerSummary.base_calculation_pending === true;
+
       const commissionerNetPayable =
         commissionerPending
           ? null
@@ -42206,6 +42209,24 @@ exports.getPreliquidationById =
           calculation_pending:
             commissionerPending,
 
+          base_calculation_pending:
+            commissionerBasePending,
+
+          override_active:
+            commissionerSummary.override_active === true,
+
+          override_amount:
+            commissionerSummary.override_amount ?? null,
+
+          override_reason:
+            commissionerSummary.override_reason ?? null,
+
+          override_by:
+            commissionerSummary.override_by ?? null,
+
+          override_at:
+            commissionerSummary.override_at ?? null,
+
           pending_reason:
             commissionerSummary.pending_reason || null,
 
@@ -42213,7 +42234,7 @@ exports.getPreliquidationById =
             commissionerSummary.weight_basis_kg ?? null,
 
           base_amount:
-            commissionerPending
+            commissionerBasePending
               ? null
               : Number(
                   commissionerSummary.base_amount || 0
@@ -50278,61 +50299,17 @@ exports.getCaptadorPaymentsReport =
               preliq.source_snapshot
                 AS commission_source_snapshot,
 
+              preliq.commission_override_amount
+                AS commission_override_amount,
 
-              CASE
+              preliq.commission_override_reason
+                AS commission_override_reason,
 
-                WHEN
-                  spl.commission_type =
-                    'fixed'
-                  AND
-                  spl.commission_value
-                    IS NOT NULL
+              preliq.commission_override_by
+                AS commission_override_by,
 
-                THEN
-                  spl.commission_value
-
-
-                WHEN
-                  spl.commission_type =
-                    'per_head'
-                  AND
-                  spl.commission_value
-                    IS NOT NULL
-
-                THEN
-                  COALESCE(
-                    troop_summary.received_quantity,
-                    0
-                  )
-                  *
-                  spl.commission_value
-
-
-                WHEN
-                  spl.commission_type =
-                    'percent'
-                  AND
-                  spl.commission_value
-                    IS NOT NULL
-                  AND
-                  preliq.total_payable
-                    IS NOT NULL
-
-                THEN
-                  (
-                    preliq.total_payable
-                    *
-                    spl.commission_value
-                  )
-                  /
-                  100
-
-
-                ELSE
-                  NULL
-
-              END
-                AS commission_amount,
+              preliq.commission_override_at
+                AS commission_override_at,
 
 
               payment_method.id
@@ -50629,6 +50606,7 @@ exports.getCaptadorPaymentsReport =
         const {
           calculateSlaughterhouseCommission,
           resolveCommissionWeights,
+          settleSlaughterhouseCommission,
         } = require('../utils/slaughterhouseCommission');
 
         // =================================================
@@ -50833,17 +50811,26 @@ exports.getCaptadorPaymentsReport =
                   const additionsTotal =
                     Number(adjustments.additions_total);
 
-                  const commissionNetPayable =
-                    calculated.calculation_pending
+                  const overrideAmount =
+                    row.commission_override_amount === null ||
+                    row.commission_override_amount === undefined
                       ? null
-                      : Math.round(
-                          (
-                            calculated.base_amount -
-                            discountsTotal +
-                            additionsTotal +
-                            Number.EPSILON
-                          ) * 100
-                        ) / 100;
+                      : Number(
+                          row.commission_override_amount
+                        );
+
+                  const settledCommission =
+                    settleSlaughterhouseCommission({
+                      calculation:
+                        calculated,
+
+                      discountsTotal,
+                      additionsTotal,
+                      overrideAmount,
+                    });
+
+                  const commissionNetPayable =
+                    settledCommission.net_payable;
 
         return {
           ...row,
@@ -50861,13 +50848,31 @@ exports.getCaptadorPaymentsReport =
             commissionNetPayable,
 
           commission_calculation_pending:
-            calculated.calculation_pending,
+            settledCommission.calculation_pending,
+
+          commission_base_calculation_pending:
+            settledCommission.base_calculation_pending,
 
           commission_pending_reason:
-            calculated.pending_reason,
+            settledCommission.pending_reason,
 
           commission_weight_basis_kg:
             calculated.weight_basis_kg,
+
+          commission_override_active:
+            settledCommission.override_active,
+
+          commission_override_amount:
+            overrideAmount,
+
+          commission_override_reason:
+            row.commission_override_reason,
+
+          commission_override_by:
+            row.commission_override_by,
+
+          commission_override_at:
+            row.commission_override_at,
           };
 
           });
@@ -55155,6 +55160,14 @@ exports.exportFinalLotXlsx =
 
                 sp.total_payable,
 
+                sp.commission_override_amount,
+
+                sp.commission_override_reason,
+
+                sp.commission_override_by,
+
+                sp.commission_override_at,
+
                 sp.generated_at,
                 sp.generated_at
                   AT TIME ZONE 'UTC'
@@ -56164,6 +56177,7 @@ exports.exportFinalLotXlsx =
             const {
               calculateSlaughterhouseCommission,
               resolveCommissionWeights,
+              settleSlaughterhouseCommission,
             } = require('../utils/slaughterhouseCommission');
 
             // Peso gancho realmente registrado en faena.
@@ -56274,17 +56288,26 @@ exports.exportFinalLotXlsx =
                 );
 
 
-            const commissionerNetPayable =
-              calculatedCommission.calculation_pending
-                ? null
-                : Math.round(
-                    (
-                      commissionBaseAmount -
-                      discountsTotal +
-                      additionsTotal +
-                      Number.EPSILON
-                    ) * 100
-                  ) / 100;
+                const overrideAmount =
+                  preliq.commission_override_amount === null ||
+                  preliq.commission_override_amount === undefined
+                    ? null
+                    : Number(
+                        preliq.commission_override_amount
+                      );
+
+                const settledCommission =
+                  settleSlaughterhouseCommission({
+                    calculation:
+                      calculatedCommission,
+
+                    discountsTotal,
+                    additionsTotal,
+                    overrideAmount,
+                  });
+
+                const commissionerNetPayable =
+                  settledCommission.net_payable;
 
 
             commissioner = {
@@ -56297,13 +56320,31 @@ exports.exportFinalLotXlsx =
                 commissionValue,
 
               calculation_pending:
-                calculatedCommission.calculation_pending,
+                settledCommission.calculation_pending,
+
+              base_calculation_pending:
+                settledCommission.base_calculation_pending,
 
               pending_reason:
-                calculatedCommission.pending_reason,
+                settledCommission.pending_reason,
 
               weight_basis_kg:
                 calculatedCommission.weight_basis_kg,
+
+              override_active:
+                settledCommission.override_active,
+
+              override_amount:
+                overrideAmount,
+
+              override_reason:
+                preliq.commission_override_reason,
+
+              override_by:
+                preliq.commission_override_by,
+
+              override_at:
+                preliq.commission_override_at,
 
               adjustments:
                 relatedAdjustments,
@@ -56319,6 +56360,33 @@ exports.exportFinalLotXlsx =
 
               commission_value:
                 commissionValue,
+
+              calculation_pending:
+                settledCommission.calculation_pending,
+
+              base_calculation_pending:
+                settledCommission.base_calculation_pending,
+
+              pending_reason:
+                settledCommission.pending_reason,
+
+              weight_basis_kg:
+                calculatedCommission.weight_basis_kg,
+
+              override_active:
+                settledCommission.override_active,
+
+              override_amount:
+                overrideAmount,
+
+              override_reason:
+                preliq.commission_override_reason,
+
+              override_by:
+                preliq.commission_override_by,
+
+              override_at:
+                preliq.commission_override_at,
 
               configuration_without_person:
                 false,
@@ -56395,6 +56463,9 @@ exports.exportFinalLotXlsx =
 
         const commissionerPending =
           commissionerSummary.calculation_pending === true;
+
+        const commissionerBasePending =
+          commissionerSummary.base_calculation_pending === true;
 
         const commissionerNetPayable =
           commissionerPending
@@ -56474,6 +56545,18 @@ exports.exportFinalLotXlsx =
             calculation_pending:
               commissionerPending,
 
+            base_calculation_pending:
+              commissionerBasePending,
+
+            override_active:
+              commissionerSummary.override_active === true,
+
+            override_amount:
+              commissionerSummary.override_amount ?? null,
+
+            override_reason:
+              commissionerSummary.override_reason ?? null,
+
             pending_reason:
               commissionerSummary.pending_reason || null,
 
@@ -56481,7 +56564,7 @@ exports.exportFinalLotXlsx =
               commissionerSummary.weight_basis_kg ?? null,
 
             base_amount:
-              commissionerPending
+              commissionerBasePending
                 ? null
                 : Number(
                     commissionerSummary.base_amount || 0
@@ -58806,24 +58889,35 @@ exports.exportFinalLotXlsx =
                 commissionerSummary
                   .commission_type
               ),
+
               commissionerSummary
                 .commission_value,
+
               '',
+
               '',
-              commissionerSummary.calculation_pending === true
+
+              commissionerSummary.base_calculation_pending === true
                 ? 'PENDIENTE'
-                : number(commissionerSummary.base_amount),
+                : number(
+                    commissionerSummary.base_amount
+                  ),
+
               number(
                 commissionerSummary
                   .discounts_total
               ),
-              commissionerSummary.calculation_pending === true
-                ? 'PENDIENTE'
-                : number(commissionerSummary.net_payable),
+
               number(
                 commissionerSummary
-                  .net_payable
+                  .additions_total
               ),
+
+              commissionerSummary.calculation_pending === true
+                ? 'PENDIENTE'
+                : number(
+                    commissionerSummary.net_payable
+                  ),
             ]);
 
 
@@ -58840,6 +58934,42 @@ exports.exportFinalLotXlsx =
                 moneyFormat;
           }
 
+          if (
+            commissionerSummary.override_active === true
+          ) {
+            const overrideAmount =
+              Number(
+                commissionerSummary.override_amount || 0
+              );
+
+            const overrideRow =
+              preliqSheet.addRow([
+                'DECISIÓN COMISIONISTA',
+
+                overrideAmount === 0
+                  ? 'COMISIÓN ANULADA'
+                  : 'IMPORTE DEFINITIVO',
+
+                'Motivo',
+
+                text(
+                  commissionerSummary.override_reason
+                ) || 'SIN MOTIVO',
+
+                '',
+
+                '',
+
+                '',
+
+                overrideAmount,
+              ]);
+
+            overrideRow
+              .getCell(8)
+              .numFmt =
+                moneyFormat;
+          }
 
           if (
             Array.isArray(
@@ -58935,24 +59065,40 @@ exports.exportFinalLotXlsx =
           of financialRows
         ) {
 
-          const row =
-            preliqSheet.addRow([
-              label,
-              '',
-              '',
-              '',
-              values.calculation_pending === true
-                ? 'PENDIENTE'
-                : number(values.base_amount),
+        const basePending =
+          values.base_calculation_pending === true ||
+          (
+            values.base_calculation_pending == null &&
+            values.calculation_pending === true
+          );
 
-              number(values.discounts_total),
+        const row =
+          preliqSheet.addRow([
+            label,
+            '',
+            '',
+            '',
 
-              number(values.additions_total),
+            basePending
+              ? 'PENDIENTE'
+              : number(
+                  values.base_amount
+                ),
 
-              values.calculation_pending === true
-                ? 'PENDIENTE'
-                : number(values.net_payable),
-            ]);
+            number(
+              values.discounts_total
+            ),
+
+            number(
+              values.additions_total
+            ),
+
+            values.calculation_pending === true
+              ? 'PENDIENTE'
+              : number(
+                  values.net_payable
+                ),
+          ]);
 
 
           for (
