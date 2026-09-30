@@ -49846,6 +49846,15 @@ exports.getCaptadorPaymentsReport =
               captador.document_number
                 AS captador_document_number,
 
+              commissioner.id
+                AS commissioner_person_id,
+
+              commissioner.full_name
+                AS commissioner_name,
+
+              commissioner.document_number
+                AS commissioner_document_number,
+
 
               seller.id
                 AS seller_person_id,
@@ -49879,6 +49888,16 @@ exports.getCaptadorPaymentsReport =
                   'fixed'
                 THEN
                   'MONTO FIJO'
+
+                WHEN spl.commission_type =
+                  'per_kg_initial'
+                THEN
+                  'BS/KG VIVO INICIAL'
+
+                WHEN spl.commission_type =
+                  'per_kg_hook'
+                THEN
+                  'BS/KG GANCHO'
 
                 ELSE
                   NULL
@@ -50030,13 +50049,22 @@ exports.getCaptadorPaymentsReport =
                 spl.company_id
 
 
-            JOIN
+            LEFT JOIN
               slaughterhouse_people captador
 
               ON captador.id =
                 spl.captador_person_id
 
               AND captador.company_id =
+                spl.company_id
+
+            JOIN
+              slaughterhouse_people commissioner
+
+              ON commissioner.id =
+                spl.commissioner_person_id
+
+              AND commissioner.company_id =
                 spl.company_id
 
 
@@ -50060,7 +50088,7 @@ exports.getCaptadorPaymentsReport =
 
               WHERE
                 spp.person_id =
-                  captador.id
+                  commissioner.id
 
                 AND spp.is_active =
                   true
@@ -50140,7 +50168,7 @@ exports.getCaptadorPaymentsReport =
 
               spl.company_id = $1
 
-              AND spl.captador_person_id
+              AND spl.commissioner_person_id
                 IS NOT NULL
 
               AND (
@@ -50169,6 +50197,10 @@ exports.getCaptadorPaymentsReport =
                 $5::TEXT IS NULL
 
                 OR captador.full_name
+                  ILIKE
+                  '%' || $5 || '%'
+
+                OR commissioner.full_name
                   ILIKE
                   '%' || $5 || '%'
 
