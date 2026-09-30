@@ -50307,31 +50307,31 @@ exports.getCaptadorPaymentsReport =
                 AS estate_name,
 
 
-              spl.commission_type,
+              commission_config.commission_type,
 
               CASE
 
-                WHEN spl.commission_type =
+                WHEN commission_config.commission_type =
                   'per_head'
                 THEN
                   'POR CABEZA'
 
-                WHEN spl.commission_type =
+                WHEN commission_config.commission_type =
                   'percent'
                 THEN
                   'PORCENTAJE'
 
-                WHEN spl.commission_type =
+                WHEN commission_config.commission_type =
                   'fixed'
                 THEN
                   'MONTO FIJO'
 
-                WHEN spl.commission_type =
+                WHEN commission_config.commission_type =
                   'per_kg_initial'
                 THEN
                   'BS/KG VIVO INICIAL'
 
-                WHEN spl.commission_type =
+                WHEN commission_config.commission_type =
                   'per_kg_hook'
                 THEN
                   'BS/KG GANCHO'
@@ -50341,6 +50341,8 @@ exports.getCaptadorPaymentsReport =
 
               END
                 AS commission_type_label,
+
+              commission_config.commission_value,
 
               spl.commission_value,
 
@@ -50457,11 +50459,83 @@ exports.getCaptadorPaymentsReport =
               AND captador.company_id =
                 spl.company_id
 
+            LEFT JOIN LATERAL (
+
+              SELECT
+                sp.*
+
+              FROM
+                slaughterhouse_preliquidations sp
+
+              WHERE
+                sp.company_id =
+                  spl.company_id
+
+                AND sp.purchase_lot_id =
+                  spl.id
+
+              ORDER BY
+                sp.version DESC,
+                sp.id DESC
+
+              LIMIT 1
+
+            ) preliq
+              ON true
+
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+
+                CASE
+                  WHEN preliq.source_snapshot ?
+                    'commissioner_person_id'
+                  THEN NULLIF(
+                    preliq.source_snapshot
+                      ->> 'commissioner_person_id',
+                    ''
+                  )::integer
+                  ELSE
+                    spl.commissioner_person_id
+                END
+                  AS commissioner_person_id,
+
+                CASE
+                  WHEN preliq.source_snapshot ?
+                    'commission_type'
+                  THEN NULLIF(
+                    preliq.source_snapshot
+                      ->> 'commission_type',
+                    ''
+                  )
+                  ELSE
+                    spl.commission_type
+                END
+                  AS commission_type,
+
+                CASE
+                  WHEN preliq.source_snapshot ?
+                    'commission_value'
+                  THEN NULLIF(
+                    preliq.source_snapshot
+                      ->> 'commission_value',
+                    ''
+                  )::numeric
+                  ELSE
+                    spl.commission_value
+                END
+                  AS commission_value
+
+            ) commission_config
+              ON true
+
+
             JOIN
               slaughterhouse_people commissioner
 
               ON commissioner.id =
-                spl.commissioner_person_id
+                commission_config.commissioner_person_id
 
               AND commissioner.company_id =
                 spl.company_id
@@ -50570,25 +50644,6 @@ exports.getCaptadorPaymentsReport =
                   ON true
 
 
-                LEFT JOIN LATERAL (
-
-                  SELECT
-                    sp.*
-
-              FROM
-                slaughterhouse_preliquidations sp
-
-              WHERE
-                sp.company_id =
-                  spl.company_id
-
-                AND sp.purchase_lot_id =
-                  spl.id
-
-              ORDER BY
-                sp.version DESC,
-                sp.id DESC
-
               LIMIT 1
 
             ) preliq
@@ -50599,7 +50654,7 @@ exports.getCaptadorPaymentsReport =
 
               spl.company_id = $1
 
-              AND spl.commissioner_person_id
+              AND commission_config.commissioner_person_id
                 IS NOT NULL
 
               AND (
@@ -56090,9 +56145,32 @@ exports.exportFinalLotXlsx =
             await pool.query(
               `
                 SELECT
-                  spl.commissioner_person_id,
-                  spl.commission_type,
-                  spl.commission_value,
+                  CASE
+                    WHEN $3::jsonb ? 'commissioner_person_id'
+                    THEN NULLIF(
+                      $3::jsonb ->> 'commissioner_person_id',
+                      ''
+                    )::integer
+                    ELSE spl.commissioner_person_id
+                  END AS commissioner_person_id,
+
+                  CASE
+                    WHEN $3::jsonb ? 'commission_type'
+                    THEN NULLIF(
+                      $3::jsonb ->> 'commission_type',
+                      ''
+                    )
+                    ELSE spl.commission_type
+                  END AS commission_type,
+
+                  CASE
+                    WHEN $3::jsonb ? 'commission_value'
+                    THEN NULLIF(
+                      $3::jsonb ->> 'commission_value',
+                      ''
+                    )::numeric
+                    ELSE spl.commission_value
+                  END AS commission_value,
 
                   commissioner.full_name
                     AS commissioner_name,
@@ -56124,7 +56202,14 @@ exports.exportFinalLotXlsx =
                 LEFT JOIN
                   slaughterhouse_people commissioner
                   ON commissioner.id =
-                    spl.commissioner_person_id
+                    CASE
+                      WHEN $3::jsonb ? 'commissioner_person_id'
+                      THEN NULLIF(
+                        $3::jsonb ->> 'commissioner_person_id',
+                        ''
+                      )::integer
+                      ELSE spl.commissioner_person_id
+                    END
 
                 LEFT JOIN LATERAL (
                   SELECT
@@ -56155,6 +56240,7 @@ exports.exportFinalLotXlsx =
               [
                 purchaseLotId,
                 companyId,
+                preliq.source_snapshot || {},
               ],
             );
 
