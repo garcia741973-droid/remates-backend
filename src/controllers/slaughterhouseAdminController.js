@@ -13815,7 +13815,7 @@ exports.addCaptureSheetLot =
         'per_head',
         'percent',
         'fixed',
-        'per_kg_origin',
+        'per_kg_initial',
         'per_kg_hook',
       ];
 
@@ -15382,7 +15382,7 @@ exports.createPurchaseLot =
           'per_head',
           'percent',
           'fixed',
-          'per_kg_origin',
+          'per_kg_initial',
           'per_kg_hook',
       ];
 
@@ -17124,7 +17124,7 @@ exports.updatePurchaseLot =
           'per_head',
           'percent',
           'fixed',
-          'per_kg_origin',
+          'per_kg_initial',
           'per_kg_hook',
         ];
 
@@ -41879,55 +41879,43 @@ exports.getPreliquidationById =
           );
 
 
-        let commissionBaseAmount =
-          0;
+        const {
+          calculateSlaughterhouseCommission,
+          resolveCommissionWeights,
+        } = require('../utils/slaughterhouseCommission');
 
+        const commissionWeights =
+          resolveCommissionWeights({
+            sourceSnapshot:
+              preliquidation.source_snapshot,
 
-        if (
-          commissionType === 'fixed' &&
-          Number.isFinite(
-            commissionValue
-          )
-        ) {
-          commissionBaseAmount =
-            commissionValue;
-        }
+            receivedAnimals:
+              slaughter.received_animals,
 
+            slaughteredAnimals:
+              slaughter.slaughtered_animals,
 
-        if (
-          commissionType === 'per_head' &&
-          Number.isFinite(
-            commissionValue
-          )
-        ) {
-          commissionBaseAmount =
-            receivedAnimals *
-            commissionValue;
-        }
+            incompleteAnimals:
+              slaughter.incomplete_animals,
 
+            hookWeightKg:
+              slaughter.hook_weight_kg,
+          });
 
-        if (
-          commissionType === 'percent' &&
-          Number.isFinite(
-            commissionValue
-          )
-        ) {
-          commissionBaseAmount =
-            (
-              sellerNetPayable *
-              commissionValue
-            ) / 100;
-        }
+        const calculatedCommission =
+          calculateSlaughterhouseCommission({
+            commissionType,
+            commissionValue,
 
+            receivedAnimals,
 
-        commissionBaseAmount =
-          Math.round(
-            (
-              commissionBaseAmount +
-              Number.EPSILON
-            ) *
-            100
-          ) / 100;
+            sellerNetPayable,
+
+            ...commissionWeights,
+          });
+
+        const commissionBaseAmount =
+          calculatedCommission.base_amount;
 
 
         const relatedAdjustments =
@@ -41981,15 +41969,16 @@ exports.getPreliquidationById =
 
 
         const commissionerNetPayable =
-          Math.round(
-            (
-              commissionBaseAmount -
-              discountsTotal +
-              additionsTotal +
-              Number.EPSILON
-            ) *
-            100
-          ) / 100;
+          calculatedCommission.calculation_pending
+            ? null
+            : Math.round(
+                (
+                  commissionBaseAmount -
+                  discountsTotal +
+                  additionsTotal +
+                  Number.EPSILON
+                ) * 100
+              ) / 100;
 
 
         commissioner = {
@@ -42014,6 +42003,15 @@ exports.getPreliquidationById =
 
           commission_value:
             commissionValue,
+
+          calculation_pending:
+            calculatedCommission.calculation_pending,
+
+          pending_reason:
+            calculatedCommission.pending_reason,
+
+          weight_basis_kg:
+            calculatedCommission.weight_basis_kg,
 
           configuration_without_person:
             false,
@@ -42177,22 +42175,30 @@ exports.getPreliquidationById =
 
 
         commissioner: {
+          calculation_pending:
+            commissionerPending,
+
+          pending_reason:
+            commissionerSummary.pending_reason || null,
+
+          weight_basis_kg:
+            commissionerSummary.weight_basis_kg ?? null,
+
           base_amount:
-            Number(
-              commissionerSummary
-                .base_amount || 0
-            ),
+            commissionerPending
+              ? null
+              : Number(
+                  commissionerSummary.base_amount || 0
+                ),
 
           discounts_total:
             Number(
-              commissionerSummary
-                .discounts_total || 0
+              commissionerSummary.discounts_total || 0
             ),
 
           additions_total:
             Number(
-              commissionerSummary
-                .additions_total || 0
+              commissionerSummary.additions_total || 0
             ),
 
           net_payable:
@@ -54450,6 +54456,8 @@ exports.exportFinalLotXlsx =
 
                 sp.hook_weight_kg,
 
+                sp.source_snapshot,
+
                 sp.gross_weight_kg,
 
                 sp.shrink_percent,
@@ -55227,6 +55235,45 @@ exports.exportFinalLotXlsx =
                 ),
           0
         );
+
+        // =================================================
+        // FAENA COMPLETA PARA COMISIONES DEL EXCEL
+        // =================================================
+
+        const excelModernAnimals = new Map();
+        let excelLegacyAnimals = 0;
+
+        for (const carcass of carcassRows) {
+          if (
+            carcass.animal_sequence_number == null ||
+            carcass.half_number == null
+          ) {
+            excelLegacyAnimals += 1;
+            continue;
+          }
+
+          const key =
+            `${carcass.troop_id}:${carcass.animal_sequence_number}`;
+
+          if (!excelModernAnimals.has(key)) {
+            excelModernAnimals.set(key, new Set());
+          }
+
+          excelModernAnimals
+            .get(key)
+            .add(Number(carcass.half_number));
+        }
+
+        let excelCompletedAnimals = excelLegacyAnimals;
+        let excelIncompleteAnimals = 0;
+
+        for (const halves of excelModernAnimals.values()) {
+          if (halves.size >= 2) {
+            excelCompletedAnimals += 1;
+          } else {
+            excelIncompleteAnimals += 1;
+          }
+        }
 
         // =================================================
         // COMISIONISTA

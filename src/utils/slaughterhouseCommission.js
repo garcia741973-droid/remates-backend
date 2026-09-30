@@ -91,6 +91,94 @@ function calculateSlaughterhouseCommission({
   };
 }
 
+function resolveCommissionWeights({
+  sourceSnapshot,
+  receivedAnimals,
+  slaughteredAnimals,
+  incompleteAnimals,
+  hookWeightKg,
+}) {
+  const snapshot =
+    typeof sourceSnapshot === 'string'
+      ? JSON.parse(sourceSnapshot)
+      : sourceSnapshot;
+
+  const details = snapshot?.details || {};
+
+  // En compras por cabeza o gancho, el peso inicial
+  // se guarda dentro de details.initial_weight.
+  // En compras por kilo vivo, está en el resumen principal.
+  const initial = details.initial_weight ||
+    (
+      snapshot?.pricing_basis === 'live_kg'
+        ? {
+            net_weight_kg: snapshot.net_weight_kg,
+            origin_troops: details.origin_troops,
+            plant_troops: details.plant_troops,
+            missing_weight_troops:
+              details.missing_weight_troops,
+          }
+        : null
+    );
+
+  const initialKg =
+    initial?.net_weight_kg == null
+      ? null
+      : Number(initial.net_weight_kg);
+
+  const weighedTroops =
+    Number(initial?.origin_troops || 0) +
+    Number(initial?.plant_troops || 0);
+
+  const modernWeightComplete =
+    weighedTroops > 0 &&
+    initial?.missing_weight_troops != null &&
+    Number(initial.missing_weight_troops) === 0;
+
+  // Compatibilidad con preliquidaciones antiguas
+  // que no registraban el desglose por tropas.
+  const legacyWeightComplete =
+    snapshot?.pricing_basis === 'live_kg' &&
+    [
+      'certified_origin_weighings',
+      'plant_live_weight',
+    ].includes(snapshot?.source_type) &&
+    initial?.missing_weight_troops == null;
+
+  const initialWeightComplete =
+    Number.isFinite(initialKg) &&
+    initialKg > 0 &&
+    (modernWeightComplete || legacyWeightComplete);
+
+  const hookKg =
+    hookWeightKg == null
+      ? null
+      : Number(hookWeightKg);
+
+  const received = Number(receivedAnimals);
+  const slaughtered = Number(slaughteredAnimals);
+  const incomplete = Number(incompleteAnimals);
+
+  const hookWeightComplete =
+    received > 0 &&
+    slaughtered === received &&
+    incomplete === 0 &&
+    Number.isFinite(hookKg) &&
+    hookKg > 0;
+
+  return {
+    initialWeightKg: initialWeightComplete
+      ? initialKg
+      : null,
+    initialWeightComplete,
+    hookWeightKg: hookWeightComplete
+      ? hookKg
+      : null,
+    hookWeightComplete,
+  };
+}
+
 module.exports = {
   calculateSlaughterhouseCommission,
+  resolveCommissionWeights,
 };
