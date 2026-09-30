@@ -50644,12 +50644,6 @@ exports.getCaptadorPaymentsReport =
                   ON true
 
 
-              LIMIT 1
-
-            ) preliq
-              ON true
-
-
             WHERE
 
               spl.company_id = $1
