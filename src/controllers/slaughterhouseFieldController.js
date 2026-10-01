@@ -226,16 +226,34 @@ exports.getAssignedCaptureSheets =
                   scs.id
                 AND spl.company_id =
                   scs.company_id
+                AND spl.captador_person_id =
+                  $2
             ) lot_summary
               ON true
 
             WHERE
               scs.company_id = $1
-              AND scs.captador_person_id = $2
+
               AND scs.status IN (
                 'draft',
                 'open',
                 'field_certified'
+              )
+
+              AND EXISTS (
+                SELECT 1
+
+                FROM slaughterhouse_purchase_lots spl_assigned
+
+                WHERE
+                  spl_assigned.company_id =
+                    scs.company_id
+
+                  AND spl_assigned.capture_sheet_id =
+                    scs.id
+
+                  AND spl_assigned.captador_person_id =
+                    $2
               )
 
             ORDER BY
@@ -439,11 +457,27 @@ exports.getAssignedCaptureSheetById =
             WHERE
               scs.id = $1
               AND scs.company_id = $2
-              AND scs.captador_person_id = $3
+
               AND scs.status IN (
                 'draft',
                 'open',
                 'field_certified'
+              )
+
+              AND EXISTS (
+                SELECT 1
+
+                FROM slaughterhouse_purchase_lots spl_assigned
+
+                WHERE
+                  spl_assigned.company_id =
+                    scs.company_id
+
+                  AND spl_assigned.capture_sheet_id =
+                    scs.id
+
+                  AND spl_assigned.captador_person_id =
+                    $3
               )
 
             LIMIT 1
@@ -488,6 +522,8 @@ exports.getAssignedCaptureSheetById =
                 AS estate_name,
 
               spl.captador_person_id,
+              spl.captador_assignment_version,
+              spl.captador_assigned_at,
               spl.commissioner_person_id,
 
               spl.classification_id,
@@ -769,6 +805,14 @@ exports.syncFieldLotCapture =
           req.body?.troop_id
         );
 
+
+      const captadorAssignmentVersion =
+        Number(
+          req.body
+            ?.captador_assignment_version
+        );
+
+
       const captureStatus =
         req.body?.status
           ?.toString()
@@ -841,6 +885,18 @@ exports.syncFieldLotCapture =
         return res.status(400).json({
           error:
             'troop_id inválido',
+        });
+      }
+
+      if (
+        !Number.isInteger(
+          captadorAssignmentVersion
+        ) ||
+        captadorAssignmentVersion <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'captador_assignment_version inválido',
         });
       }
 
@@ -943,12 +999,14 @@ exports.syncFieldLotCapture =
               spl.expected_quantity,
               spl.pricing_basis,
               spl.weight_source,
+              spl.captador_person_id,
+              spl.captador_assignment_version,
+              spl.captador_assigned_at,
               spl.status
                 AS lot_status,
 
               scs.status
-                AS capture_sheet_status,
-              scs.captador_person_id
+                AS capture_sheet_status
 
             FROM slaughterhouse_purchase_lots spl
 
@@ -962,16 +1020,14 @@ exports.syncFieldLotCapture =
               spl.id = $1
               AND spl.company_id = $2
               AND scs.id = $3
-              AND scs.captador_person_id = $4
 
             FOR UPDATE OF spl
           `,
-          [
-            purchaseLotId,
-            companyId,
-            captureSheetId,
-            captador.id,
-          ],
+            [
+              purchaseLotId,
+              companyId,
+              captureSheetId,
+            ],
         );
 
       if (
@@ -989,6 +1045,55 @@ exports.syncFieldLotCapture =
 
       const lot =
         lotResult.rows[0];
+
+      // =================================================
+      // AUTORIDAD DE ASIGNACIÓN DEL CAPTADOR
+      //
+      // El servidor manda.
+      // Si el lote fue reasignado o la versión local quedó
+      // vieja, no se acepta ningún trabajo pendiente.
+      // =================================================
+
+      const currentCaptadorPersonId =
+        lot.captador_person_id !== null
+          ? Number(
+              lot.captador_person_id
+            )
+          : null;
+
+
+      const currentAssignmentVersion =
+        Number(
+          lot.captador_assignment_version ||
+          1
+        );
+
+
+      if (
+        currentCaptadorPersonId !==
+          Number(captador.id) ||
+        currentAssignmentVersion !==
+          captadorAssignmentVersion
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'assignment_revoked',
+
+          message:
+            'La asignación de este lote cambió. Los datos locales pendientes ya no son válidos.',
+
+          purchase_lot_id:
+            purchaseLotId,
+
+          current_assignment_version:
+            currentAssignmentVersion,
+        });
+      }
 
       if (
         ![
@@ -1378,6 +1483,14 @@ exports.syncFieldLiveWeighing =
           req.body?.troop_id
         );
 
+
+      const captadorAssignmentVersion =
+        Number(
+          req.body
+            ?.captador_assignment_version
+        );
+
+
       const items =
         Array.isArray(req.body?.items)
           ? req.body.items
@@ -1436,6 +1549,18 @@ exports.syncFieldLiveWeighing =
         return res.status(400).json({
           error:
             'troop_id inválido',
+        });
+      }
+
+      if (
+        !Number.isInteger(
+          captadorAssignmentVersion
+        ) ||
+        captadorAssignmentVersion <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'captador_assignment_version inválido',
         });
       }
 
@@ -1556,6 +1681,8 @@ exports.syncFieldLiveWeighing =
               spl.capture_sheet_id,
               spl.seller_person_id,
               spl.captador_person_id,
+              spl.captador_assignment_version,
+              spl.captador_assigned_at,
               spl.classification_id,
               spl.expected_quantity,
               spl.pricing_basis,
@@ -1581,16 +1708,14 @@ exports.syncFieldLiveWeighing =
               spl.id = $1
               AND spl.company_id = $2
               AND scs.id = $3
-              AND scs.captador_person_id = $4
 
             FOR UPDATE OF spl
           `,
-          [
-            purchaseLotId,
-            companyId,
-            captureSheetId,
-            captador.id,
-          ],
+            [
+              purchaseLotId,
+              companyId,
+              captureSheetId,
+            ],
         );
 
       if (
@@ -1608,6 +1733,55 @@ exports.syncFieldLiveWeighing =
 
       const lot =
         lotResult.rows[0];
+
+      // =================================================
+      // AUTORIDAD DE ASIGNACIÓN DEL CAPTADOR
+      //
+      // El servidor manda.
+      // Una reasignación invalida cualquier pesaje
+      // pendiente guardado con una versión anterior.
+      // =================================================
+
+      const currentCaptadorPersonId =
+        lot.captador_person_id !== null
+          ? Number(
+              lot.captador_person_id
+            )
+          : null;
+
+
+      const currentAssignmentVersion =
+        Number(
+          lot.captador_assignment_version ||
+          1
+        );
+
+
+      if (
+        currentCaptadorPersonId !==
+          Number(captador.id) ||
+        currentAssignmentVersion !==
+          captadorAssignmentVersion
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'assignment_revoked',
+
+          message:
+            'La asignación de este lote cambió. Los datos locales pendientes ya no son válidos.',
+
+          purchase_lot_id:
+            purchaseLotId,
+
+          current_assignment_version:
+            currentAssignmentVersion,
+        });
+      }
 
       if (
         ![
