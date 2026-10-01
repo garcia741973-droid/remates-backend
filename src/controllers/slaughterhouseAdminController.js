@@ -15,11 +15,220 @@ const bcrypt = require('bcrypt');
 const INTERNAL_USER_ROLES = [
   'admin',
   'operations',
+  'captador',
   'gate',
   'slaughter',
   'finance',
   'reports',
 ];
+
+// =====================================================
+// CAPTADOR INTERNO -> PERSONA TÉCNICA
+//
+// El captador se administra desde Usuarios y permisos.
+// slaughterhouse_people se mantiene únicamente porque
+// los lotes/hojas/pesajes existentes usan person_id.
+// =====================================================
+
+const syncInternalCaptadorPerson =
+  async ({
+    client,
+    companyId,
+    userId,
+    adminUserId,
+    enabled,
+  }) => {
+
+    const existingResult =
+      await client.query(
+        `
+        SELECT
+          id
+        FROM slaughterhouse_people
+        WHERE
+          company_id = $1
+          AND user_id = $2
+        LIMIT 1
+        FOR UPDATE
+        `,
+        [
+          companyId,
+          userId,
+        ],
+      );
+
+    let personId =
+      existingResult.rows.length > 0
+        ? Number(existingResult.rows[0].id)
+        : null;
+
+    // -------------------------------------------------
+    // ACTIVAR / CREAR CAPTADOR
+    // -------------------------------------------------
+
+    if (enabled) {
+
+      const userResult =
+        await client.query(
+          `
+          SELECT
+            id,
+            COALESCE(
+              NULLIF(TRIM(full_name), ''),
+              NULLIF(TRIM(name), ''),
+              email
+            ) AS full_name,
+            email,
+            phone
+          FROM users
+          WHERE
+            id = $1
+            AND is_active = true
+            AND deleted_at IS NULL
+          LIMIT 1
+          `,
+          [
+            userId,
+          ],
+        );
+
+      if (
+        userResult.rows.length === 0
+      ) {
+        throw new Error(
+          'Usuario interno no disponible para sincronizar captador'
+        );
+      }
+
+      const user =
+        userResult.rows[0];
+
+      if (personId === null) {
+
+        const insertedPerson =
+          await client.query(
+            `
+            INSERT INTO slaughterhouse_people (
+              company_id,
+              user_id,
+              person_type,
+              full_name,
+              phone,
+              email,
+              export_enabled,
+              notes,
+              is_active,
+              created_by
+            )
+            VALUES (
+              $1,
+              $2,
+              'natural',
+              $3,
+              $4,
+              $5,
+              false,
+              'Registro técnico generado desde Usuarios y permisos',
+              true,
+              $6
+            )
+            RETURNING id
+            `,
+            [
+              companyId,
+              userId,
+              user.full_name,
+              user.phone,
+              user.email,
+              adminUserId,
+            ],
+          );
+
+        personId =
+          Number(
+            insertedPerson.rows[0].id
+          );
+
+      } else {
+
+        await client.query(
+          `
+          UPDATE slaughterhouse_people
+          SET
+            full_name = $1,
+            phone = $2,
+            email = $3,
+            is_active = true,
+            updated_at = NOW()
+          WHERE
+            id = $4
+            AND company_id = $5
+          `,
+          [
+            user.full_name,
+            user.phone,
+            user.email,
+            personId,
+            companyId,
+          ],
+        );
+      }
+
+      await client.query(
+        `
+        INSERT INTO slaughterhouse_person_roles (
+          person_id,
+          role,
+          is_active
+        )
+        VALUES (
+          $1,
+          'captador',
+          true
+        )
+        ON CONFLICT (
+          person_id,
+          role
+        )
+        DO UPDATE SET
+          is_active = true,
+          updated_at = NOW()
+        `,
+        [
+          personId,
+        ],
+      );
+
+      return personId;
+    }
+
+    // -------------------------------------------------
+    // QUITAR ROL CAPTADOR
+    //
+    // No borramos la persona porque puede estar
+    // referenciada históricamente por lotes/pesajes.
+    // -------------------------------------------------
+
+    if (personId !== null) {
+
+      await client.query(
+        `
+        UPDATE slaughterhouse_person_roles
+        SET
+          is_active = false,
+          updated_at = NOW()
+        WHERE
+          person_id = $1
+          AND role = 'captador'
+        `,
+        [
+          personId,
+        ],
+      );
+    }
+
+    return personId;
+  };
 
 // =====================================================
 // 👤 SESIÓN ADMIN FRIGORÍFICOS
@@ -656,6 +865,15 @@ exports.createAdminUser =
           roles,
         ],
       );
+
+      await syncInternalCaptadorPerson({
+        client,
+        companyId,
+        userId,
+        adminUserId,
+        enabled:
+          roles.includes('captador'),
+      });
 
       // -----------------------------------------------
       // AUDITORÍA
@@ -1453,6 +1671,15 @@ exports.updateAdminUserRoles =
         ],
       );
 
+      await syncInternalCaptadorPerson({
+        client,
+        companyId,
+        userId,
+        adminUserId,
+        enabled:
+          roles.includes('captador'),
+      });
+
       await client.query(
         `
         INSERT INTO
@@ -2209,7 +2436,6 @@ exports.createPerson =
       const allowedRoles =
         [
           'seller',
-          'captador',
           'commissioner',
           'transporter',
           'driver',
@@ -2232,25 +2458,6 @@ exports.createPerson =
             `Rol inválido: ${invalidRole}`,
         });
 
-      }
-
-      // =================================================
-      // CAPTADOR / COMPRADOR
-      //
-      // Para trabajar en la app móvil debe estar
-      // vinculado a un usuario de Plaza Ganadera.
-      // =================================================
-
-      if (
-        roles.includes(
-          'captador'
-        ) &&
-        linkedUserId === null
-      ) {
-        return res.status(400).json({
-          error:
-            'Un captador/comprador debe estar vinculado a un usuario de Plaza Ganadera',
-        });
       }
 
       await client.query(
@@ -2850,7 +3057,6 @@ exports.updatePerson =
       const allowedRoles =
         [
           'seller',
-          'captador',
           'commissioner',
           'transporter',
           'driver',
@@ -2953,28 +3159,6 @@ exports.updatePerson =
                   )
                 : null
             );
-
-
-      // =================================================
-      // CAPTADOR / COMPRADOR
-      // =================================================
-
-      if (
-        roles.includes(
-          'captador'
-        ) &&
-        effectiveLinkedUserId === null
-      ) {
-        await client.query(
-          'ROLLBACK'
-        );
-
-        return res.status(400).json({
-          error:
-            'Un captador/comprador debe estar vinculado a un usuario de Plaza Ganadera',
-        });
-      }
-
 
       // =================================================
       // VALIDAR USUARIO PLAZA GANADERA
