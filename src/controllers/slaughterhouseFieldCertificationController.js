@@ -237,6 +237,14 @@ exports.certifyFieldLot =
           req.body?.troop_id
         );
 
+
+      const captadorAssignmentVersion =
+        Number(
+          req.body
+            ?.captador_assignment_version
+        );
+
+
       const qrPayload =
         req.body?.qr_payload;
 
@@ -342,6 +350,20 @@ exports.certifyFieldLot =
         fail(
           400,
           'troop_id inválido'
+        );
+
+      }
+
+      if (
+        !Number.isInteger(
+          captadorAssignmentVersion
+        ) ||
+        captadorAssignmentVersion <= 0
+      ) {
+
+        fail(
+          400,
+          'captador_assignment_version inválido'
         );
 
       }
@@ -616,6 +638,8 @@ exports.certifyFieldLot =
               spl.capture_sheet_id,
               spl.seller_person_id,
               spl.captador_person_id,
+              spl.captador_assignment_version,
+              spl.captador_assigned_at,
               spl.estate_id,
               spl.classification_id,
               spl.purchase_type,
@@ -683,16 +707,14 @@ exports.certifyFieldLot =
               spl.id = $1
               AND spl.company_id = $2
               AND scs.id = $3
-              AND scs.captador_person_id = $4
 
             FOR UPDATE OF spl
           `,
-          [
-            purchaseLotId,
-            companyId,
-            captureSheetId,
-            captador.id,
-          ],
+            [
+              purchaseLotId,
+              companyId,
+              captureSheetId,
+            ],
         );
 
       if (
@@ -707,6 +729,41 @@ exports.certifyFieldLot =
 
       const lot =
         lotResult.rows[0];
+
+      // ===============================================
+      // AUTORIDAD DE ASIGNACIÓN DEL CAPTADOR
+      //
+      // Una certificación pendiente offline también
+      // queda invalidada si el lote fue reasignado.
+      // ===============================================
+
+      const currentCaptadorPersonId =
+        lot.captador_person_id !== null
+          ? Number(
+              lot.captador_person_id
+            )
+          : null;
+
+
+      const currentAssignmentVersion =
+        Number(
+          lot.captador_assignment_version
+        );
+
+
+      if (
+        currentCaptadorPersonId !==
+          Number(captador.id) ||
+        currentAssignmentVersion !==
+          captadorAssignmentVersion
+      ) {
+
+        fail(
+          409,
+          'assignment_revoked'
+        );
+
+      }
 
       if (
         ![
