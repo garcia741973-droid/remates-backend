@@ -12504,11 +12504,50 @@ exports.updateCaptureSheet =
 
           return res.status(409).json({
             error:
-              'El captador debe estar vinculado a un usuario de Plaza Ganadera',
+              'El captador debe tener un usuario interno habilitado',
           });
         }
       }
 
+      // =================================================
+      // CAPTADOR NO SE CAMBIA DESDE EDICIÓN DE HOJA
+      //
+      // La reasignación debe pasar exclusivamente por
+      // /purchase-lots/:id/reassign-captador
+      // para conservar versión, historial y reglas de campo.
+      // =================================================
+
+      if (hasCaptador) {
+
+        const currentCaptadorPersonId =
+          previous.captador_person_id !== null
+            ? Number(
+                previous.captador_person_id
+              )
+            : null;
+
+        const requestedCaptadorPersonId =
+          captadorPersonId !== null
+            ? Number(
+                captadorPersonId
+              )
+            : null;
+
+        if (
+          currentCaptadorPersonId !==
+          requestedCaptadorPersonId
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El captador no puede cambiarse desde la edición de la hoja. Use la reasignación de captador del lote.',
+          });
+        }
+      }
 
       // =================================================
       // VALORES EFECTIVOS
@@ -17531,6 +17570,44 @@ exports.updatePurchaseLot =
             `El lote ya está en estado ${previous.status} y sus datos comerciales no pueden modificarse`,
         });
 
+      }
+
+      // =================================================
+      // CAPTADOR NO SE CAMBIA DESDE EDICIÓN GENERAL
+      //
+      // Todo cambio de captador debe pasar por:
+      //
+      // PATCH
+      // /purchase-lots/:id/reassign-captador
+      //
+      // Así se conserva:
+      // - assignment_version
+      // - historial
+      // - auditoría
+      // - reglas de trabajo de campo
+      // =================================================
+
+      const currentCaptadorPersonId =
+        previous.captador_person_id !== null
+          ? Number(
+              previous.captador_person_id
+            )
+          : null;
+
+
+      if (
+        currentCaptadorPersonId !==
+        captadorPersonId
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El captador no puede modificarse desde la edición general del lote. Use la reasignación de captador.',
+        });
       }
 
       // =================================================
