@@ -132,6 +132,8 @@ const {
 
   updatePurchaseLot,
 
+  reassignPurchaseLotCaptador,
+
   cancelPurchaseLot,
   reactivatePurchaseLot,
   requestTransportForPurchaseLot,
@@ -1265,6 +1267,22 @@ router.put(
   ),
 
   updatePurchaseLot,
+
+);
+
+router.patch(
+
+  '/purchase-lots/:id/reassign-captador',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'lots.manage'
+  ),
+
+  reassignPurchaseLotCaptador,
 
 );
 

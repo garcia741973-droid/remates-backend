@@ -17910,6 +17910,490 @@ exports.updatePurchaseLot =
   };
   
 // =====================================================
+// PATCH /slaughterhouse/admin/purchase-lots/:id/reassign-captador
+//
+// Reasigna el captador responsable de un lote.
+//
+// REGLAS:
+// - nuevo captador activo
+// - debe tener rol captador
+// - debe estar vinculado a usuario PG
+// - no permite reasignar al mismo captador
+// - incrementa captador_assignment_version
+// - actualiza hoja de captación vinculada, si existe
+// - registra historial y auditoría
+// =====================================================
+
+exports.reassignPurchaseLotCaptador =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin.user_id
+        );
+
+      const purchaseLotId =
+        Number(
+          req.params.id
+        );
+
+      const newCaptadorPersonId =
+        Number(
+          req.body.captador_person_id
+        );
+
+      const reason =
+        req.body.reason
+          ?.toString()
+          .trim() ||
+        '';
+
+
+      if (
+        !Number.isInteger(
+          purchaseLotId
+        ) ||
+        purchaseLotId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'ID de lote inválido',
+        });
+      }
+
+
+      if (
+        !Number.isInteger(
+          newCaptadorPersonId
+        ) ||
+        newCaptadorPersonId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'captador_person_id inválido',
+        });
+      }
+
+
+      if (!reason) {
+        return res.status(400).json({
+          error:
+            'Debe indicar el motivo de la reasignación',
+        });
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // 1. BLOQUEAR LOTE
+      // =================================================
+
+      const lotResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              company_id,
+              lot_number,
+              status,
+              capture_sheet_id,
+              captador_person_id,
+              captador_assignment_version,
+              captador_assigned_at
+
+            FROM slaughterhouse_purchase_lots
+
+            WHERE
+              id = $1
+              AND company_id = $2
+
+            FOR UPDATE
+          `,
+          [
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        lotResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'Lote de compra no encontrado',
+        });
+      }
+
+
+      const previous =
+        lotResult.rows[0];
+
+
+      if (
+        previous.status ===
+        'cancelled'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'No se puede reasignar el captador de un lote cancelado',
+        });
+      }
+
+
+      const previousCaptadorPersonId =
+        previous.captador_person_id !== null
+          ? Number(
+              previous.captador_person_id
+            )
+          : null;
+
+
+      if (
+        previousCaptadorPersonId ===
+        newCaptadorPersonId
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El captador seleccionado ya es el responsable del lote',
+        });
+      }
+
+
+      // =================================================
+      // 2. VALIDAR NUEVO CAPTADOR
+      // =================================================
+
+      const captadorResult =
+        await client.query(
+          `
+            SELECT
+              sp.id,
+              sp.full_name,
+              sp.user_id
+
+            FROM slaughterhouse_people sp
+
+            WHERE
+              sp.id = $1
+              AND sp.company_id = $2
+              AND sp.is_active = true
+              AND sp.user_id IS NOT NULL
+
+              AND EXISTS (
+                SELECT 1
+
+                FROM slaughterhouse_person_roles spr
+
+                WHERE
+                  spr.person_id = sp.id
+                  AND spr.role = 'captador'
+                  AND spr.is_active = true
+              )
+
+            LIMIT 1
+          `,
+          [
+            newCaptadorPersonId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        captadorResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(400).json({
+          error:
+            'El nuevo captador no existe, está inactivo, no tiene rol captador o no está vinculado a un usuario de Plaza Ganadera',
+        });
+      }
+
+
+      const newCaptador =
+        captadorResult.rows[0];
+
+
+      const previousVersion =
+        Number(
+          previous
+            .captador_assignment_version ||
+          1
+        );
+
+      const newVersion =
+        previousVersion + 1;
+
+
+      // =================================================
+      // 3. ACTUALIZAR LOTE
+      // =================================================
+
+      const updateResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_purchase_lots
+
+            SET
+              captador_person_id = $1,
+              captador_assignment_version = $2,
+              captador_assigned_at = NOW(),
+              updated_at = NOW()
+
+            WHERE
+              id = $3
+              AND company_id = $4
+
+            RETURNING *
+          `,
+          [
+            newCaptadorPersonId,
+            newVersion,
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+
+      const updatedLot =
+        updateResult.rows[0];
+
+
+      // =================================================
+      // 4. MANTENER HOJA DE CAPTACIÓN SINCRONIZADA
+      // =================================================
+
+      if (
+        previous.capture_sheet_id !== null
+      ) {
+
+        const captureUpdateResult =
+          await client.query(
+            `
+              UPDATE slaughterhouse_capture_sheets
+
+              SET
+                captador_person_id = $1,
+                updated_at = NOW()
+
+              WHERE
+                id = $2
+                AND company_id = $3
+
+              RETURNING id
+            `,
+            [
+              newCaptadorPersonId,
+              previous.capture_sheet_id,
+              companyId,
+            ],
+          );
+
+
+        if (
+          captureUpdateResult.rows.length === 0
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'La hoja de captación vinculada al lote no existe',
+          });
+        }
+      }
+
+
+      // =================================================
+      // 5. HISTORIAL DE REASIGNACIÓN
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_captador_assignments (
+            company_id,
+            purchase_lot_id,
+            previous_captador_person_id,
+            new_captador_person_id,
+            assignment_version,
+            reason,
+            changed_by,
+            changed_at
+          )
+
+          VALUES (
+            $1,
+            $2,
+            $3,
+            $4,
+            $5,
+            $6,
+            $7,
+            NOW()
+          )
+        `,
+        [
+          companyId,
+          purchaseLotId,
+          previousCaptadorPersonId,
+          newCaptadorPersonId,
+          newVersion,
+          reason,
+          userId,
+        ],
+      );
+
+
+      // =================================================
+      // 6. AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'purchase_lot',
+            $3,
+            'captador_reassignment',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+          userId,
+          String(
+            purchaseLotId
+          ),
+          JSON.stringify({
+            captador_person_id:
+              previousCaptadorPersonId,
+
+            captador_assignment_version:
+              previousVersion,
+          }),
+          JSON.stringify({
+            captador_person_id:
+              newCaptadorPersonId,
+
+            captador_name:
+              newCaptador.full_name,
+
+            captador_assignment_version:
+              newVersion,
+
+            reason,
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.json({
+        success: true,
+
+        message:
+          'Captador reasignado correctamente',
+
+        purchase_lot_id:
+          purchaseLotId,
+
+        lot_number:
+          updatedLot.lot_number,
+
+        previous_captador_person_id:
+          previousCaptadorPersonId,
+
+        captador_person_id:
+          newCaptadorPersonId,
+
+        captador_name:
+          newCaptador.full_name,
+
+        captador_assignment_version:
+          newVersion,
+
+        captador_assigned_at:
+          updatedLot.captador_assigned_at,
+      });
+
+    } catch (error) {
+
+      try {
+        await client.query(
+          'ROLLBACK'
+        );
+      } catch (_) {}
+
+      console.error(
+        'REASSIGN PURCHASE LOT CAPTADOR ERROR:',
+        error
+      );
+
+      return res.status(500).json({
+        error:
+          'No se pudo reasignar el captador',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+  };
+
+// =====================================================
 // ❌ CANCELAR LOTE DE COMPRA
 // PATCH /slaughterhouse/admin/purchase-lots/:id/cancel
 //
