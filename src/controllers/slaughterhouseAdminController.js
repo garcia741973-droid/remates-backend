@@ -18101,7 +18101,7 @@ exports.updatePurchaseLot =
 // REGLAS:
 // - nuevo captador activo
 // - debe tener rol captador
-// - debe estar vinculado a usuario PG
+// - debe estar vinculado a un usuario interno
 // - no permite reasignar al mismo captador
 // - incrementa captador_assignment_version
 // - actualiza hoja de captación vinculada, si existe
@@ -18248,6 +18248,100 @@ exports.reassignPurchaseLotCaptador =
         });
       }
 
+      // =================================================
+      // NO REASIGNAR DESPUÉS DE INICIAR TRABAJO DE CAMPO
+      //
+      // La reasignación es administrativa y debe ocurrir
+      // antes de que el captador empiece a trabajar.
+      // =================================================
+
+      if (
+        ![
+          'draft',
+          'open',
+        ].includes(
+          previous.status
+        )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El captador solo puede reasignarse antes de iniciar el trabajo de campo',
+        });
+      }
+
+
+      // =================================================
+      // VERIFICAR ACTIVIDAD REAL DE CAMPO
+      //
+      // Aunque el lote siga OPEN, cualquier captura o
+      // pesaje significa que el captador ya comenzó.
+      // =================================================
+
+      const fieldActivityResult =
+        await client.query(
+          `
+            SELECT
+              EXISTS (
+                SELECT 1
+
+                FROM slaughterhouse_live_weighings slw
+
+                WHERE
+                  slw.company_id = $1
+                  AND slw.purchase_lot_id = $2
+              )
+                AS has_weighings,
+
+              EXISTS (
+                SELECT 1
+
+                FROM slaughterhouse_troops st
+
+                WHERE
+                  st.company_id = $1
+                  AND st.purchase_lot_id = $2
+
+                  AND (
+                    st.field_captured_at IS NOT NULL
+
+                    OR st.field_capture_status IN (
+                      'captured',
+                      'certified'
+                    )
+                  )
+              )
+                AS has_field_capture
+          `,
+          [
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+
+      const fieldActivity =
+        fieldActivityResult.rows[0];
+
+
+      if (
+        fieldActivity.has_weighings ||
+        fieldActivity.has_field_capture
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'No se puede reasignar el captador porque ya existe trabajo de campo registrado',
+        });
+      }
 
       const previousCaptadorPersonId =
         previous.captador_person_id !== null
@@ -18323,7 +18417,7 @@ exports.reassignPurchaseLotCaptador =
 
         return res.status(400).json({
           error:
-            'El nuevo captador no existe, está inactivo, no tiene rol captador o no está vinculado a un usuario de Plaza Ganadera',
+            'El nuevo captador no existe, está inactivo o no tiene acceso interno como captador',
         });
       }
 
