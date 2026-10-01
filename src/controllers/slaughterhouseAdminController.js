@@ -18326,37 +18326,14 @@ exports.reassignPurchaseLotCaptador =
       }
 
       // =================================================
-      // NO REASIGNAR DESPUÉS DE INICIAR TRABAJO DE CAMPO
-      //
-      // La reasignación es administrativa y debe ocurrir
-      // antes de que el captador empiece a trabajar.
-      // =================================================
-
-      if (
-        ![
-          'draft',
-          'open',
-        ].includes(
-          previous.status
-        )
-      ) {
-
-        await client.query(
-          'ROLLBACK'
-        );
-
-        return res.status(409).json({
-          error:
-            'El captador solo puede reasignarse antes de iniciar el trabajo de campo',
-        });
-      }
-
-
-      // =================================================
       // VERIFICAR ACTIVIDAD REAL DE CAMPO
       //
-      // Aunque el lote siga OPEN, cualquier captura o
-      // pesaje significa que el captador ya comenzó.
+      // El estado del lote puede pertenecer al flujo de
+      // transporte y NO determina si el captador comenzó.
+      //
+      // La autoridad para permitir o impedir la
+      // reasignación es la actividad real de campo:
+      // captura o pesaje.
       // =================================================
 
       const fieldActivityResult =
