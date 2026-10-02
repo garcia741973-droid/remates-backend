@@ -43640,7 +43640,7 @@ exports.updatePreliquidationUnitPrice =
             UPDATE slaughterhouse_preliquidations
 
             SET
-              unit_price = $1,
+              unit_price = $1::numeric,
 
               price_per_kg =
                 CASE
@@ -43648,7 +43648,7 @@ exports.updatePreliquidationUnitPrice =
                     'live_kg',
                     'hook_kg'
                   )
-                    THEN $1
+                    THEN $1::numeric
                   ELSE NULL
                 END,
 
