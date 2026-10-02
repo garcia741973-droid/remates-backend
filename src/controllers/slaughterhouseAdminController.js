@@ -17,6 +17,7 @@ const INTERNAL_USER_ROLES = [
   'operations',
   'captador',
   'gate',
+  'reception',
   'balanza',
   'slaughter',
   'finance',
