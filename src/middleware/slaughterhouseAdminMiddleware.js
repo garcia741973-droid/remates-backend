@@ -299,6 +299,105 @@ const requireSlaughterhousePermission =
 
   };
 
+// =====================================================
+// 🔐 REQUIERE CUALQUIERA DE VARIOS PERMISOS
+//
+// Ejemplo:
+//
+// requireAnySlaughterhousePermission([
+//   'slaughter.view',
+//   'plant_weight.view',
+// ])
+// =====================================================
+
+const requireAnySlaughterhousePermission =
+  (permissionCodes = []) => {
+
+    return async (
+      req,
+      res,
+      next
+    ) => {
+
+      try {
+
+        let context =
+          req.slaughterhouseAdmin;
+
+
+        if (!context) {
+
+          context =
+            await loadSlaughterhouseAdminContext(
+              req
+            );
+
+        }
+
+
+        if (!context) {
+
+          return res.status(403).json({
+            error:
+              'No autorizado para Admin Frigoríficos',
+          });
+
+        }
+
+
+        const permissions =
+          Array.isArray(
+            context.permissions
+          )
+            ? context.permissions
+            : [];
+
+
+        const hasPermission =
+          permissionCodes.some(
+            (permissionCode) =>
+              permissions.includes(
+                permissionCode
+              )
+          );
+
+
+        if (!hasPermission) {
+
+          return res.status(403).json({
+            error:
+              'No tienes permiso para realizar esta acción',
+            permissions:
+              permissionCodes,
+          });
+
+        }
+
+
+        req.slaughterhouseAdmin =
+          context;
+
+
+        return next();
+
+      } catch (error) {
+
+        console.error(
+          'SLAUGHTERHOUSE ANY PERMISSION ERROR:',
+          error
+        );
+
+
+        return res.status(500).json({
+          error:
+            'Error validando permisos',
+        });
+
+      }
+
+    };
+
+  };
 
 module.exports = {
 
@@ -307,5 +406,7 @@ module.exports = {
   requireSlaughterhouseAdmin,
 
   requireSlaughterhousePermission,
+
+  requireAnySlaughterhousePermission,
 
 };

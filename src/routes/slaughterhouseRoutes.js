@@ -14,6 +14,7 @@ const {
 const {
   requireSlaughterhouseAdmin,
   requireSlaughterhousePermission,
+  requireAnySlaughterhousePermission,
 } = require(
   '../middleware/slaughterhouseAdminMiddleware'
 );
@@ -140,7 +141,7 @@ router.patch(
   '/receptions/:id/trucks/:truckId/live-weight',
 
   requireSlaughterhousePermission(
-    'slaughter.manage'
+    'plant_weight.manage'
   ),
 
   updateSlaughterhouseReceptionTruckLiveWeight,
@@ -165,9 +166,10 @@ router.post(
 
 router.get(
   '/slaughter',
-  requireSlaughterhousePermission(
-    'slaughter.view'
-  ),
+  requireAnySlaughterhousePermission([
+    'slaughter.view',
+    'plant_weight.view',
+  ]),
   getSlaughterhouseSlaughterReceptions,
 );
 

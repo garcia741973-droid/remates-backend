@@ -3119,6 +3119,130 @@ exports.startSlaughterhouseSlaughter =
 
       }
 
+      // =================================================
+      // PESO VIVO EN PLANTA OBLIGATORIO
+      //
+      // REGLA FRIGOSI:
+      // - Todo ganado que entra a faena debe haber sido
+      //   pesado previamente en planta.
+      // - El peso en origen puede existir o no existir.
+      // - weight_source define la fuente comercial para
+      //   liquidación, NO si debe pesarse en planta.
+      //
+      // Faena por tropa:
+      //   valida el camión asociado a esa tropa.
+      //
+      // Faena de recepción completa:
+      //   valida todos los camiones recepcionados.
+      // =================================================
+
+      let missingPlantWeightsResult;
+
+      if (
+        troopId !== null
+      ) {
+
+        missingPlantWeightsResult =
+          await client.query(
+            `
+              SELECT
+                srt.id
+                  AS reception_truck_id,
+
+                srt.plate_snapshot,
+
+                srt.received_quantity,
+
+                srt.live_weight_kg,
+
+                st.id
+                  AS troop_id,
+
+                st.troop_number
+
+              FROM slaughterhouse_troops st
+
+              JOIN slaughterhouse_reception_trucks srt
+                ON srt.id =
+                  st.reception_truck_id
+
+              WHERE
+                st.id = $1
+                AND st.company_id = $2
+                AND st.reception_id = $3
+
+                AND (
+                  srt.live_weight_kg IS NULL
+                  OR srt.live_weight_kg <= 0
+                )
+
+              LIMIT 1
+            `,
+            [
+              troopId,
+              companyId,
+              receptionId,
+            ],
+          );
+
+      } else {
+
+        missingPlantWeightsResult =
+          await client.query(
+            `
+              SELECT
+                srt.id
+                  AS reception_truck_id,
+
+                srt.plate_snapshot,
+
+                srt.received_quantity,
+
+                srt.live_weight_kg
+
+              FROM slaughterhouse_reception_trucks srt
+
+              WHERE
+                srt.reception_id = $1
+
+                AND (
+                  srt.live_weight_kg IS NULL
+                  OR srt.live_weight_kg <= 0
+                )
+
+              ORDER BY
+                srt.id ASC
+            `,
+            [
+              receptionId,
+            ],
+          );
+      }
+
+
+      if (
+        missingPlantWeightsResult.rows.length > 0
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(409).json({
+
+          error:
+            troopId !== null
+              ? 'La tropa no puede iniciar faena porque falta registrar su peso vivo en planta'
+              : 'No puede iniciarse la faena porque existen camiones sin peso vivo registrado en planta',
+
+          code:
+            'plant_live_weight_required',
+
+          missing_plant_weights:
+            missingPlantWeightsResult.rows,
+
+        });
+      }
 
       // =================================================
       // ACTUALIZAR TROPAS
