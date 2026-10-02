@@ -17,6 +17,7 @@ const {
   getAssignedCaptureSheetById,
   syncFieldLotCapture,
   syncFieldLiveWeighing,
+  updateFieldCaptadorNotes,
 } = require(
   '../controllers/slaughterhouseFieldController'
 );
@@ -60,6 +61,15 @@ router.get(
 router.post(
   '/capture-sheets/:captureSheetId/lots/:purchaseLotId/sync-capture',
   syncFieldLotCapture,
+);
+
+// =====================================================
+// 📝 OBSERVACIÓN DEL CAPTADOR SOBRE EL LOTE
+// =====================================================
+
+router.patch(
+  '/capture-sheets/:captureSheetId/lots/:purchaseLotId/captador-notes',
+  updateFieldCaptadorNotes,
 );
 
 // =====================================================

@@ -542,6 +542,9 @@ exports.getAssignedCaptureSheetById =
               spl.planned_date,
               spl.status,
               spl.notes,
+              spl.captador_notes,
+              spl.captador_notes_updated_at,
+              spl.captador_notes_updated_by,
 
               COALESCE(
                 troop_summary.troop_count,
@@ -1420,6 +1423,447 @@ exports.syncFieldLotCapture =
       return res.status(500).json({
         error:
           'Error sincronizando captura de campo',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+// =====================================================
+// 📝 OBSERVACIÓN DEL CAPTADOR SOBRE EL LOTE
+//
+// PATCH
+// /slaughterhouse/field/
+// capture-sheets/:captureSheetId/
+// lots/:purchaseLotId/captador-notes
+//
+// - La observación es opcional.
+// - Pertenece al lote, no a una tropa concreta.
+// - Solo puede modificarla el captador actualmente
+//   asignado al lote.
+// - Respeta captador_assignment_version.
+// - No modifica precio ni datos comerciales.
+// =====================================================
+
+exports.updateFieldCaptadorNotes =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      const userId =
+        Number(
+          req.user?.user_id ??
+          req.user?.id
+        );
+
+      const companyId =
+        Number(
+          req.user?.company_id
+        );
+
+      const captureSheetId =
+        Number(
+          req.params.captureSheetId
+        );
+
+      const purchaseLotId =
+        Number(
+          req.params.purchaseLotId
+        );
+
+      const captadorAssignmentVersion =
+        Number(
+          req.body
+            ?.captador_assignment_version
+        );
+
+      const rawNotes =
+        req.body?.captador_notes;
+
+      const captadorNotes =
+        rawNotes === undefined ||
+        rawNotes === null
+          ? null
+          : rawNotes
+              .toString()
+              .trim() || null;
+
+
+      // =================================================
+      // VALIDACIONES BÁSICAS
+      // =================================================
+
+      if (
+        !Number.isInteger(userId) ||
+        userId <= 0
+      ) {
+        return res.status(401).json({
+          error:
+            'Usuario autenticado inválido',
+        });
+      }
+
+      if (
+        !Number.isInteger(companyId) ||
+        companyId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Contexto de empresa inválido',
+        });
+      }
+
+      if (
+        !Number.isInteger(
+          captureSheetId
+        ) ||
+        captureSheetId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'captureSheetId inválido',
+        });
+      }
+
+      if (
+        !Number.isInteger(
+          purchaseLotId
+        ) ||
+        purchaseLotId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'purchaseLotId inválido',
+        });
+      }
+
+      if (
+        !Number.isInteger(
+          captadorAssignmentVersion
+        ) ||
+        captadorAssignmentVersion <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'captador_assignment_version inválido',
+        });
+      }
+
+      if (
+        captadorNotes !== null &&
+        captadorNotes.length > 4000
+      ) {
+        return res.status(400).json({
+          error:
+            'La observación no puede superar 4000 caracteres',
+        });
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // IDENTIFICAR CAPTADOR AUTENTICADO
+      // =================================================
+
+      const captadorResult =
+        await client.query(
+          `
+            SELECT
+              sp.id,
+              sp.full_name
+
+            FROM slaughterhouse_people sp
+
+            JOIN slaughterhouse_person_roles spr
+              ON spr.person_id = sp.id
+              AND spr.role = 'captador'
+              AND spr.is_active = true
+
+            WHERE
+              sp.company_id = $1
+              AND sp.user_id = $2
+              AND sp.is_active = true
+
+            LIMIT 1
+          `,
+          [
+            companyId,
+            userId,
+          ],
+        );
+
+
+      if (
+        captadorResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(403).json({
+          error:
+            'El usuario no está habilitado como captador/comprador en este frigorífico',
+        });
+      }
+
+
+      const captador =
+        captadorResult.rows[0];
+
+
+      // =================================================
+      // BLOQUEAR Y VALIDAR LOTE + HOJA
+      // =================================================
+
+      const lotResult =
+        await client.query(
+          `
+            SELECT
+              spl.id,
+              spl.lot_number,
+              spl.capture_sheet_id,
+              spl.captador_person_id,
+              spl.captador_assignment_version,
+              spl.captador_notes,
+              spl.captador_notes_updated_at,
+              spl.captador_notes_updated_by,
+              spl.status,
+
+              scs.status
+                AS capture_sheet_status
+
+            FROM slaughterhouse_purchase_lots spl
+
+            JOIN slaughterhouse_capture_sheets scs
+              ON scs.id =
+                spl.capture_sheet_id
+              AND scs.company_id =
+                spl.company_id
+
+            WHERE
+              spl.id = $1
+              AND spl.company_id = $2
+              AND scs.id = $3
+
+            FOR UPDATE OF spl
+          `,
+          [
+            purchaseLotId,
+            companyId,
+            captureSheetId,
+          ],
+        );
+
+
+      if (
+        lotResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'Lote no encontrado o no pertenece a esta hoja de captación',
+        });
+      }
+
+
+      const previous =
+        lotResult.rows[0];
+
+
+      // =================================================
+      // AUTORIDAD DE ASIGNACIÓN
+      // =================================================
+
+      const currentCaptadorPersonId =
+        previous.captador_person_id !== null
+          ? Number(
+              previous.captador_person_id
+            )
+          : null;
+
+      const currentAssignmentVersion =
+        Number(
+          previous.captador_assignment_version ||
+          1
+        );
+
+
+      if (
+        currentCaptadorPersonId !==
+          Number(captador.id) ||
+        currentAssignmentVersion !==
+          captadorAssignmentVersion
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'assignment_revoked',
+
+          message:
+            'La asignación de este lote cambió. Ya no puedes modificar sus observaciones.',
+
+          purchase_lot_id:
+            purchaseLotId,
+
+          current_assignment_version:
+            currentAssignmentVersion,
+        });
+      }
+
+
+      // =================================================
+      // ACTUALIZAR OBSERVACIÓN
+      // =================================================
+
+      const updateResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_purchase_lots
+
+            SET
+              captador_notes = $1,
+              captador_notes_updated_at = NOW(),
+              captador_notes_updated_by = $2,
+              updated_at = NOW()
+
+            WHERE
+              id = $3
+              AND company_id = $4
+
+            RETURNING
+              id,
+              lot_number,
+              captador_person_id,
+              captador_assignment_version,
+              captador_notes,
+              captador_notes_updated_at,
+              captador_notes_updated_by
+          `,
+          [
+            captadorNotes,
+            userId,
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+
+      const updatedLot =
+        updateResult.rows[0];
+
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'purchase_lot',
+            $3,
+            'captador_notes_update',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+          userId,
+          String(purchaseLotId),
+          JSON.stringify({
+            captador_notes:
+              previous.captador_notes,
+            captador_notes_updated_at:
+              previous.captador_notes_updated_at,
+            captador_notes_updated_by:
+              previous.captador_notes_updated_by,
+          }),
+          JSON.stringify({
+            captador_notes:
+              updatedLot.captador_notes,
+            captador_notes_updated_at:
+              updatedLot.captador_notes_updated_at,
+            captador_notes_updated_by:
+              updatedLot.captador_notes_updated_by,
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.json({
+        success: true,
+
+        purchase_lot_id:
+          purchaseLotId,
+
+        lot_number:
+          updatedLot.lot_number,
+
+        captador_notes:
+          updatedLot.captador_notes,
+
+        captador_notes_updated_at:
+          updatedLot
+            .captador_notes_updated_at,
+
+        captador_notes_updated_by:
+          updatedLot
+            .captador_notes_updated_by,
+      });
+
+    } catch (error) {
+
+      try {
+        await client.query(
+          'ROLLBACK'
+        );
+      } catch (_) {}
+
+      console.error(
+        'UPDATE FIELD CAPTADOR NOTES ERROR:',
+        error
+      );
+
+      return res.status(500).json({
+        error:
+          'Error guardando observación del captador',
       });
 
     } finally {
