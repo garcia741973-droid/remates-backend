@@ -56739,6 +56739,12 @@ exports.exportFinalLotXlsx =
 
                 sp.commission_override_at,
 
+                sp.price_override_reason,
+
+                sp.price_overridden_by,
+
+                sp.price_overridden_at,
+
                 sp.generated_at,
                 sp.generated_at
                   AT TIME ZONE 'UTC'
@@ -59877,6 +59883,113 @@ exports.exportFinalLotXlsx =
           .numFmt =
             moneyFormat;
 
+        // =============================================
+        // AJUSTE ADMINISTRATIVO DE PRECIO
+        // =============================================
+
+        if (
+          preliq.price_override_reason &&
+          String(
+            preliq.price_override_reason
+          ).trim() !== ''
+        ) {
+
+          const sourceSnapshot =
+            preliq.source_snapshot &&
+            typeof preliq.source_snapshot ===
+              'object'
+              ? preliq.source_snapshot
+              : {};
+
+          const originalUnitPrice =
+            sourceSnapshot.unit_price !==
+              null &&
+            sourceSnapshot.unit_price !==
+              undefined
+              ? Number(
+                  sourceSnapshot.unit_price
+                )
+              : null;
+
+          const currentUnitPrice =
+            preliq.unit_price !== null &&
+            preliq.unit_price !== undefined
+              ? Number(
+                  preliq.unit_price
+                )
+              : null;
+
+          const priceDifference =
+            originalUnitPrice !== null &&
+            currentUnitPrice !== null
+              ? Math.round(
+                  (
+                    currentUnitPrice -
+                    originalUnitPrice +
+                    Number.EPSILON
+                  ) * 100
+                ) / 100
+              : null;
+
+
+          preliqSheet.addRow([]);
+
+          addPreliqSection(
+            'AJUSTE ADMINISTRATIVO DE PRECIO'
+          );
+
+
+          const priceOverrideRow =
+            addInfoRow([
+              'Precio original',
+              originalUnitPrice,
+
+              'Precio liquidación',
+              currentUnitPrice,
+
+              'Diferencia',
+              priceDifference,
+
+              'Usuario ID',
+              preliq.price_overridden_by ||
+                '',
+            ]);
+
+
+          priceOverrideRow
+            .getCell(2)
+            .numFmt =
+              moneyFormat;
+
+          priceOverrideRow
+            .getCell(4)
+            .numFmt =
+              moneyFormat;
+
+          priceOverrideRow
+            .getCell(6)
+            .numFmt =
+              moneyFormat;
+
+
+          addInfoRow([
+            'Motivo',
+            text(
+              preliq.price_override_reason
+            ),
+
+            'Fecha modificación',
+            dateText(
+              preliq.price_overridden_at
+            ),
+
+            '',
+            '',
+
+            '',
+            '',
+          ]);
+        }
 
         // =============================================
         // AJUSTES DEL GANADERO
