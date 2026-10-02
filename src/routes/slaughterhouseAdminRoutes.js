@@ -190,6 +190,8 @@ const {
 
   getPreliquidationById,
 
+  updatePreliquidationUnitPrice,
+
   setPreliquidationCommissionOverride,
 
   addPreliquidationAdjustment,
@@ -1407,6 +1409,24 @@ router.get(
   ),
 
   getPurchaseLotPreliquidations,
+
+);
+
+router.patch(
+
+  '/preliquidations/:id/unit-price',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'preliquidation.manage'
+
+  ),
+
+  updatePreliquidationUnitPrice,
 
 );
 

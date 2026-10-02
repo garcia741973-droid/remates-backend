@@ -41531,6 +41531,10 @@ exports.getPreliquidationById =
               spl.pricing_basis,
               spl.weight_source,
 
+              spl.captador_notes,
+              spl.captador_notes_updated_at,
+              spl.captador_notes_updated_by,
+
               spl.planned_payment_date,
               spl.payment_terms,
 
@@ -43192,6 +43196,679 @@ exports.getPreliquidationById =
 // El servidor calcula amount.
 // No confía en un amount calculado por el cliente.
 // =====================================================
+
+// =====================================================
+// 💰 MODIFICAR PRECIO FINAL DE PRELIQUIDACIÓN
+//
+// PATCH
+// /slaughterhouse/admin/preliquidations/:id/unit-price
+//
+// IMPORTANTE:
+//
+// - Solo puede modificarse mientras esté draft.
+// - NO modifica slaughterhouse_purchase_lots.price_per_unit.
+// - source_snapshot.unit_price conserva el precio original.
+// - unit_price representa el precio final de liquidación.
+// - El motivo es obligatorio.
+// - Recalcula base_amount y total_payable.
+// =====================================================
+
+exports.updatePreliquidationUnitPrice =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin
+            .company_id
+        );
+
+      const userId =
+        Number(
+          req.slaughterhouseAdmin
+            .user_id
+        );
+
+      const preliquidationId =
+        Number(
+          req.params.id
+        );
+
+      const rawUnitPrice =
+        req.body?.unit_price;
+
+      const reason =
+        String(
+          req.body?.reason ?? ''
+        ).trim();
+
+
+      // =================================================
+      // 1. VALIDACIONES BÁSICAS
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          preliquidationId
+        ) ||
+        preliquidationId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'ID de preliquidación inválido',
+        });
+      }
+
+
+      if (
+        !Number.isInteger(userId) ||
+        userId <= 0 ||
+        !Number.isInteger(companyId) ||
+        companyId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Identificación inválida',
+        });
+      }
+
+
+      if (!reason) {
+        return res.status(400).json({
+          error:
+            'El motivo del cambio de precio es obligatorio',
+        });
+      }
+
+
+      if (
+        reason.length > 1000
+      ) {
+        return res.status(400).json({
+          error:
+            'El motivo no puede superar 1000 caracteres',
+        });
+      }
+
+
+      const unitPriceText =
+        String(
+          rawUnitPrice ?? ''
+        ).trim();
+
+
+      if (
+        !/^\d{1,12}(\.\d{1,4})?$/
+          .test(unitPriceText)
+      ) {
+        return res.status(400).json({
+          error:
+            'El precio debe ser un número positivo con máximo cuatro decimales',
+        });
+      }
+
+
+      const newUnitPrice =
+        Number(unitPriceText);
+
+
+      if (
+        !Number.isFinite(
+          newUnitPrice
+        ) ||
+        newUnitPrice <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'El precio debe ser mayor a cero',
+        });
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // 2. BLOQUEAR PRELIQUIDACIÓN
+      // =================================================
+
+      const preliqResult =
+        await client.query(
+          `
+            SELECT
+              *
+
+            FROM slaughterhouse_preliquidations
+
+            WHERE
+              id = $1
+              AND company_id = $2
+
+            FOR UPDATE
+          `,
+          [
+            preliquidationId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        preliqResult.rows.length === 0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'Preliquidación no encontrada',
+        });
+      }
+
+
+      const preliquidation =
+        preliqResult.rows[0];
+
+
+      if (
+        preliquidation.status !==
+        'draft'
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Solo puede modificarse el precio de una preliquidación en borrador',
+          status:
+            preliquidation.status,
+        });
+      }
+
+
+      // =================================================
+      // 3. VALIDAR MODALIDAD
+      // =================================================
+
+      const pricingBasis =
+        preliquidation
+          .pricing_basis
+          ?.toString()
+          .trim();
+
+
+      if (
+        ![
+          'live_kg',
+          'hook_kg',
+          'per_head',
+        ].includes(
+          pricingBasis
+        )
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'La modalidad de precio de esta preliquidación no es válida',
+          pricing_basis:
+            pricingBasis,
+        });
+      }
+
+
+      // =================================================
+      // 4. RECALCULAR IMPORTE BASE
+      //
+      // live_kg:
+      //   peso líquido x precio
+      //
+      // hook_kg:
+      //   peso gancho x precio
+      //
+      // per_head:
+      //   cantidad x precio
+      // =================================================
+
+      let calculationBasis =
+        null;
+
+
+      if (
+        pricingBasis ===
+        'live_kg'
+      ) {
+        calculationBasis =
+          Number(
+            preliquidation
+              .net_weight_kg
+          );
+      }
+
+
+      if (
+        pricingBasis ===
+        'hook_kg'
+      ) {
+        calculationBasis =
+          Number(
+            preliquidation
+              .hook_weight_kg
+          );
+      }
+
+
+      if (
+        pricingBasis ===
+        'per_head'
+      ) {
+        calculationBasis =
+          Number(
+            preliquidation
+              .quantity
+          );
+      }
+
+
+      if (
+        !Number.isFinite(
+          calculationBasis
+        ) ||
+        calculationBasis <= 0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'La preliquidación no tiene una base válida para recalcular el precio',
+          pricing_basis:
+            pricingBasis,
+        });
+      }
+
+
+      const newBaseAmount =
+        Math.round(
+          (
+            calculationBasis *
+            newUnitPrice +
+            Number.EPSILON
+          ) *
+          100
+        ) / 100;
+
+
+      // =================================================
+      // 5. RECALCULAR AJUSTES DEL GANADERO
+      //
+      // Transporte y comisionista NO participan aquí.
+      // =================================================
+
+      const totalsResult =
+        await client.query(
+          `
+            SELECT
+
+              COALESCE(
+                SUM(amount) FILTER (
+                  WHERE
+                    adjustment_type =
+                    'discount'
+                ),
+                0
+              )::numeric
+                AS discounts_total,
+
+              COALESCE(
+                SUM(amount) FILTER (
+                  WHERE
+                    adjustment_type =
+                    'addition'
+                ),
+                0
+              )::numeric
+                AS additions_total
+
+            FROM slaughterhouse_preliquidation_adjustments
+
+            WHERE
+              preliquidation_id = $1
+              AND target_type =
+                'seller'
+          `,
+          [
+            preliquidationId,
+          ],
+        );
+
+
+      const discountsTotal =
+        Number(
+          totalsResult.rows[0]
+            .discounts_total || 0
+        );
+
+
+      const additionsTotal =
+        Number(
+          totalsResult.rows[0]
+            .additions_total || 0
+        );
+
+
+      const newTotalPayable =
+        Math.round(
+          (
+            newBaseAmount -
+            discountsTotal +
+            additionsTotal +
+            Number.EPSILON
+          ) *
+          100
+        ) / 100;
+
+
+      if (
+        newTotalPayable < 0
+      ) {
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Los descuentos superan el importe disponible con el nuevo precio',
+        });
+      }
+
+
+      // =================================================
+      // 6. PRECIO ORIGINAL
+      //
+      // Se toma del snapshot inmutable generado
+      // al crear la preliquidación.
+      // =================================================
+
+      const sourceSnapshot =
+        preliquidation
+          .source_snapshot &&
+        typeof preliquidation
+          .source_snapshot ===
+          'object'
+          ? preliquidation
+              .source_snapshot
+          : {};
+
+
+      const originalUnitPrice =
+        sourceSnapshot
+          .unit_price !== null &&
+        sourceSnapshot
+          .unit_price !== undefined
+          ? Number(
+              sourceSnapshot
+                .unit_price
+            )
+          : Number(
+              preliquidation
+                .unit_price
+            );
+
+
+      // =================================================
+      // 7. ACTUALIZAR PRELIQUIDACIÓN
+      //
+      // price_per_kg se conserva sincronizado
+      // únicamente para modalidades por kilo.
+      // =================================================
+
+      const updatedResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_preliquidations
+
+            SET
+              unit_price = $1,
+
+              price_per_kg =
+                CASE
+                  WHEN pricing_basis IN (
+                    'live_kg',
+                    'hook_kg'
+                  )
+                    THEN $1
+                  ELSE NULL
+                END,
+
+              base_amount = $2,
+
+              discounts_total = $3,
+              additions_total = $4,
+              total_payable = $5,
+
+              price_override_reason = $6,
+              price_overridden_by = $7,
+              price_overridden_at = NOW(),
+
+              updated_at = NOW()
+
+            WHERE
+              id = $8
+              AND company_id = $9
+
+            RETURNING *
+          `,
+          [
+            newUnitPrice,
+            newBaseAmount,
+            discountsTotal,
+            additionsTotal,
+            newTotalPayable,
+            reason,
+            userId,
+            preliquidationId,
+            companyId,
+          ],
+        );
+
+
+      const updated =
+        updatedResult.rows[0];
+
+
+      // =================================================
+      // 8. AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'preliquidation',
+            $3,
+            'unit_price_override',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+          userId,
+          String(
+            preliquidationId
+          ),
+
+          JSON.stringify({
+            original_unit_price:
+              originalUnitPrice,
+
+            unit_price:
+              Number(
+                preliquidation
+                  .unit_price
+              ),
+
+            base_amount:
+              Number(
+                preliquidation
+                  .base_amount || 0
+              ),
+
+            discounts_total:
+              Number(
+                preliquidation
+                  .discounts_total || 0
+              ),
+
+            additions_total:
+              Number(
+                preliquidation
+                  .additions_total || 0
+              ),
+
+            total_payable:
+              Number(
+                preliquidation
+                  .total_payable || 0
+              ),
+
+            previous_override_reason:
+              preliquidation
+                .price_override_reason,
+
+            previous_overridden_by:
+              preliquidation
+                .price_overridden_by,
+
+            previous_overridden_at:
+              preliquidation
+                .price_overridden_at,
+          }),
+
+          JSON.stringify({
+            original_unit_price:
+              originalUnitPrice,
+
+            unit_price:
+              newUnitPrice,
+
+            pricing_basis:
+              pricingBasis,
+
+            calculation_basis:
+              calculationBasis,
+
+            base_amount:
+              newBaseAmount,
+
+            discounts_total:
+              discountsTotal,
+
+            additions_total:
+              additionsTotal,
+
+            total_payable:
+              newTotalPayable,
+
+            reason,
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.json({
+        success: true,
+
+        message:
+          'Precio de preliquidación actualizado correctamente',
+
+        original_unit_price:
+          originalUnitPrice,
+
+        previous_unit_price:
+          Number(
+            preliquidation
+              .unit_price
+          ),
+
+        unit_price:
+          Number(
+            updated.unit_price
+          ),
+
+        price_override_reason:
+          updated
+            .price_override_reason,
+
+        price_overridden_by:
+          updated
+            .price_overridden_by,
+
+        price_overridden_at:
+          updated
+            .price_overridden_at,
+
+        preliquidation:
+          updated,
+      });
+
+
+    } catch (error) {
+
+      try {
+        await client.query(
+          'ROLLBACK'
+        );
+      } catch (_) {}
+
+
+      console.error(
+        'UPDATE PRELIQUIDATION UNIT PRICE ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error modificando el precio de la preliquidación',
+      });
+
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
 
 // =====================================================
 // MODIFICAR O ANULAR COMISIÓN DEL COMISIONISTA
