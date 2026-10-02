@@ -36490,7 +36490,7 @@ exports.syncTroopTransportState =
   };
 
 // =====================================================
-// 🏭 RECEPCIONAR TROPA EN PORTERÍA
+// 🏭 RECEPCIONAR TROPA EN PLANTA
 // POST /slaughterhouse/admin/troops/:id/receive
 //
 // Body:
@@ -36498,7 +36498,6 @@ exports.syncTroopTransportState =
 // {
 //   "troop_number": "T-2026-00125",
 //   "received_quantity": 40,
-//   "live_weight_kg": 18450.50,
 //   "reception_notes": null
 // }
 //
@@ -36555,21 +36554,6 @@ exports.receiveTroop =
         Number(
           req.body.received_quantity
         );
-
-
-      const liveWeightRaw =
-        req.body.live_weight_kg;
-
-
-      const liveWeightKg =
-        liveWeightRaw !== undefined &&
-        liveWeightRaw !== null &&
-        liveWeightRaw !== ''
-          ? Number(
-              liveWeightRaw
-            )
-          : null;
-
 
       const receptionNotes =
         req.body.reception_notes
@@ -36638,25 +36622,7 @@ exports.receiveTroop =
             'received_quantity inválido',
         });
 
-      }
-
-
-      if (
-        liveWeightKg !== null &&
-        (
-          !Number.isFinite(
-            liveWeightKg
-          ) ||
-          liveWeightKg <= 0
-        )
-      ) {
-
-        return res.status(400).json({
-          error:
-            'live_weight_kg inválido',
-        });
-
-      }   
+      } 
 
       await client.query(
         'BEGIN'
@@ -37335,7 +37301,6 @@ exports.receiveTroop =
               female_36_plus,
 
               guide_image_url,
-              live_weight_kg,
               transport_delivered_at,
               received_at,
               received_by,
@@ -37382,8 +37347,8 @@ exports.receiveTroop =
 
               $22,
               $23,
-              $24,
               NOW(),
+              $24,
               $25,
               $26,
               $27,
@@ -37391,8 +37356,7 @@ exports.receiveTroop =
               $29,
               $30,
               $31,
-              $32,
-              $33
+              $32
             )
 
             RETURNING *
@@ -37450,8 +37414,6 @@ exports.receiveTroop =
 
             transport.guide_image_url,
 
-            liveWeightKg,
-
             transport.delivered_at,
 
             userId,
@@ -37482,7 +37444,7 @@ exports.receiveTroop =
       // =================================================
       // ACTUALIZAR TROPA
       //
-      // Portería puede asignar aquí troop_number.
+      // Recepción puede asignar aquí troop_number.
       // =================================================
 
       const updatedTroopResult =
@@ -37684,9 +37646,6 @@ exports.receiveTroop =
               difference:
                 receivedQuantity -
                 guideQuantity,
-
-              live_weight_kg:
-                liveWeightKg,
 
               official_guide_number:
                 transport.official_guide_number,

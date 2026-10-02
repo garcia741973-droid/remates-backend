@@ -1529,14 +1529,6 @@ exports.createSlaughterhouseReception =
           req.body.received_quantity,
         );
 
-      const liveWeightKg =
-        req.body.live_weight_kg == null ||
-        req.body.live_weight_kg === ''
-          ? null
-          : Number(
-              req.body.live_weight_kg,
-            );
-
       const receptionNotes =
         req.body.reception_notes
           ?.toString()
@@ -1592,24 +1584,6 @@ exports.createSlaughterhouseReception =
             'Cantidad recibida inválida',
         });
       }
-
-
-      if (
-        liveWeightKg != null &&
-        (
-          !Number.isFinite(
-            liveWeightKg,
-          ) ||
-          liveWeightKg <= 0
-        )
-      ) {
-
-        return res.status(400).json({
-          error:
-            'Peso vivo inválido',
-        });
-      }
-
 
       if (
         existingReceptionId != null &&
@@ -2173,8 +2147,6 @@ exports.createSlaughterhouseReception =
 
             guide_image_url,
 
-            live_weight_kg,
-
             transport_delivered_at,
 
             received_at,
@@ -2205,11 +2177,11 @@ exports.createSlaughterhouseReception =
 
             $17,$18,$19,$20,
 
-            $21,$22,$23,
+            $21,$22,
 
             NOW(),
 
-            $24,$25,$26,$27,$28,$29
+            $23,$24,$25,$26,$27,$28
 
           )
 
@@ -2257,8 +2229,6 @@ exports.createSlaughterhouseReception =
             transport.female_36_plus,
 
             transport.guide_image_url,
-
-            liveWeightKg,
 
             transport.delivered_at,
 
