@@ -58786,14 +58786,27 @@ exports.exportFinalLotXlsx =
         ],
 
         [
-          'Precio unitario',
+          'Precio original',
           number(
             lot.price_per_unit
           ),
+          'Precio liquidación',
+          preliq
+            ? number(
+                preliq.unit_price
+              )
+            : number(
+                lot.price_per_unit
+              ),
+        ],
+
+        [
           'Moneda',
           text(
             lot.currency
           ),
+          '',
+          '',
         ],
 
         [
