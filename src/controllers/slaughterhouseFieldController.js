@@ -759,6 +759,247 @@ exports.getAssignedCaptureSheetById =
   };
 
 // =====================================================
+// 🚛 CAMIONES APROBADOS DE LA RED DEL FRIGORÍFICO
+//
+// GET /slaughterhouse/field/transport/trucks
+//
+// Solo para Captador autenticado.
+// Devuelve únicamente:
+// - transportista aprobado por la empresa
+// - persona activa
+// - relación camión/transportista activa
+// - camión empresa activo
+// - camión Plaza Transporte activo
+// =====================================================
+
+exports.getFieldApprovedTransportTrucks =
+  async (req, res) => {
+
+    try {
+
+      const userId =
+        Number(
+          req.user?.user_id ??
+          req.user?.id
+        );
+
+      const companyId =
+        Number(
+          req.user?.company_id
+        );
+
+
+      if (
+        !Number.isInteger(userId) ||
+        userId <= 0
+      ) {
+        return res.status(401).json({
+          error:
+            'Usuario autenticado inválido',
+        });
+      }
+
+
+      if (
+        !Number.isInteger(companyId) ||
+        companyId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Contexto de empresa inválido',
+        });
+      }
+
+
+      // =================================================
+      // VALIDAR CAPTADOR ACTIVO
+      // =================================================
+
+      const captadorResult =
+        await pool.query(
+          `
+            SELECT
+              sp.id,
+              sp.full_name
+
+            FROM slaughterhouse_people sp
+
+            JOIN slaughterhouse_person_roles spr
+              ON spr.person_id = sp.id
+              AND spr.role = 'captador'
+              AND spr.is_active = true
+
+            WHERE
+              sp.company_id = $1
+              AND sp.user_id = $2
+              AND sp.is_active = true
+
+            LIMIT 1
+          `,
+          [
+            companyId,
+            userId,
+          ],
+        );
+
+
+      if (
+        captadorResult.rows.length === 0
+      ) {
+        return res.status(403).json({
+          error:
+            'El usuario no está habilitado como captador/comprador en este frigorífico',
+        });
+      }
+
+
+      // =================================================
+      // CAMIONES APROBADOS DE LA RED PRIVADA
+      // =================================================
+
+      const trucksResult =
+        await pool.query(
+          `
+            SELECT
+
+              sct.id
+                AS company_transporter_id,
+
+              sct.is_preferred,
+
+              sp.id
+                AS transporter_person_id,
+
+              sp.user_id
+                AS transporter_user_id,
+
+              sp.full_name
+                AS transporter_name,
+
+              sp.phone
+                AS transporter_phone,
+
+              sp.document_type
+                AS transporter_document_type,
+
+              sp.document_number
+                AS transporter_document_number,
+
+
+              sctt.id
+                AS company_transporter_truck_id,
+
+              sctt.is_primary,
+
+
+              sctr.id
+                AS company_truck_id,
+
+              sctr.transporter_truck_id,
+
+
+              tt.id
+                AS truck_id,
+
+              tt.plate,
+
+              tt.brand,
+
+              tt.model,
+
+              tt.year,
+
+              tt.truck_type,
+
+              tt.capacity_large,
+
+              tt.capacity_small,
+
+              tt.has_trailer,
+
+              tt.trailer_capacity,
+
+              tt.is_verified,
+
+              tt.is_available
+
+            FROM slaughterhouse_company_transporters sct
+
+            JOIN slaughterhouse_people sp
+              ON sp.id =
+                sct.person_id
+              AND sp.company_id =
+                sct.company_id
+              AND sp.is_active = true
+
+            JOIN slaughterhouse_company_transporter_trucks sctt
+              ON sctt.company_transporter_id =
+                sct.id
+              AND sctt.is_active = true
+
+            JOIN slaughterhouse_company_trucks sctr
+              ON sctr.id =
+                sctt.company_truck_id
+              AND sctr.company_id =
+                sct.company_id
+              AND sctr.is_active = true
+              AND sctr.transporter_truck_id
+                IS NOT NULL
+
+            JOIN transporter_trucks tt
+              ON tt.id =
+                sctr.transporter_truck_id
+              AND tt.user_id =
+                sp.user_id
+              AND tt.is_active = true
+
+            WHERE
+              sct.company_id = $1
+              AND sct.status =
+                'approved'
+
+            ORDER BY
+              sct.is_preferred DESC,
+              sctt.is_primary DESC,
+              sp.full_name ASC,
+              tt.plate ASC
+          `,
+          [
+            companyId,
+          ],
+        );
+
+
+      return res.json({
+
+        success: true,
+
+        count:
+          trucksResult.rows.length,
+
+        trucks:
+          trucksResult.rows,
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'GET FIELD APPROVED TRANSPORT TRUCKS ERROR:',
+        error
+      );
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo los camiones habilitados del frigorífico',
+      });
+
+    }
+
+  };
+
+// =====================================================
 // 📤 SINCRONIZAR CAPTURA DE CAMPO DE UN LOTE / CAMIÓN
 //
 // POST

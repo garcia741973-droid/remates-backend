@@ -18,6 +18,7 @@ const {
   syncFieldLotCapture,
   syncFieldLiveWeighing,
   updateFieldCaptadorNotes,
+  getFieldApprovedTransportTrucks,
 } = require(
   '../controllers/slaughterhouseFieldController'
 );
@@ -52,6 +53,15 @@ router.get(
 router.get(
   '/capture-sheets/:id',
   getAssignedCaptureSheetById,
+);
+
+// =====================================================
+// 🚛 CAMIONES HABILITADOS PARA EL CAPTADOR
+// =====================================================
+
+router.get(
+  '/transport/trucks',
+  getFieldApprovedTransportTrucks,
 );
 
 // =====================================================
