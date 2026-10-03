@@ -898,18 +898,30 @@ exports.getFieldApprovedTransportTrucks =
               sctr.transporter_truck_id,
 
 
+              -- ================================================
+              -- DATOS DEL CAMIÓN FRIGOSI
+              -- ================================================
+
+              sctr.plate,
+
+              sctr.brand,
+
+              sctr.model,
+
+              sctr.year,
+
+              sctr.truck_type,
+
+
+              -- ================================================
+              -- VÍNCULO CON PLAZA TRANSPORTE
+              --
+              -- Puede ser NULL.
+              -- El camión NO desaparece de la lista FRIGOSI.
+              -- ================================================
+
               tt.id
                 AS truck_id,
-
-              tt.plate,
-
-              tt.brand,
-
-              tt.model,
-
-              tt.year,
-
-              tt.truck_type,
 
               tt.capacity_large,
 
@@ -921,9 +933,23 @@ exports.getFieldApprovedTransportTrucks =
 
               tt.is_verified,
 
-              tt.is_available
+              tt.is_available,
+
+
+              CASE
+                WHEN
+                  sp.user_id IS NOT NULL
+                  AND sctr.transporter_truck_id IS NOT NULL
+                  AND tt.id IS NOT NULL
+                  AND tt.is_active = true
+                THEN true
+                ELSE false
+              END
+                AS has_plaza_transport
+
 
             FROM slaughterhouse_company_transporters sct
+
 
             JOIN slaughterhouse_people sp
               ON sp.id =
@@ -932,10 +958,12 @@ exports.getFieldApprovedTransportTrucks =
                 sct.company_id
               AND sp.is_active = true
 
+
             JOIN slaughterhouse_company_transporter_trucks sctt
               ON sctt.company_transporter_id =
                 sct.id
               AND sctt.is_active = true
+
 
             JOIN slaughterhouse_company_trucks sctr
               ON sctr.id =
@@ -943,26 +971,27 @@ exports.getFieldApprovedTransportTrucks =
               AND sctr.company_id =
                 sct.company_id
               AND sctr.is_active = true
-              AND sctr.transporter_truck_id
-                IS NOT NULL
 
-            JOIN transporter_trucks tt
+
+            LEFT JOIN transporter_trucks tt
               ON tt.id =
                 sctr.transporter_truck_id
               AND tt.user_id =
                 sp.user_id
               AND tt.is_active = true
 
+
             WHERE
               sct.company_id = $1
               AND sct.status =
                 'approved'
 
+
             ORDER BY
               sct.is_preferred DESC,
               sctt.is_primary DESC,
               sp.full_name ASC,
-              tt.plate ASC
+              sctr.plate ASC
           `,
           [
             companyId,
