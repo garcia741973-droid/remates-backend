@@ -51131,6 +51131,22 @@ exports.getReportsCatalog =
                 label: 'Precio viaje',
               },
               {
+                field: 'transport_discounts_total',
+                label: 'Descuentos transporte',
+              },
+              {
+                field: 'transport_additions_total',
+                label: 'Adiciones transporte',
+              },
+              {
+                field: 'transport_net_payable',
+                label: 'Neto a pagar transporte',
+              },
+              {
+                field: 'transport_adjustment_notes',
+                label: 'Glosa ajustes transporte',
+              },
+              {
                 field: 'authorization_status',
                 label: 'Estado autorización',
               },
