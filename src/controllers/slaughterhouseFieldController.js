@@ -1,6 +1,10 @@
 const { pool } = require('../config/db');
 
 
+const {
+  sendUserNotification,
+} = require('../services/notificationService');
+
 // =====================================================
 // 📱 HOJAS ASIGNADAS AL CAPTADOR AUTENTICADO
 //
@@ -2511,6 +2515,206 @@ exports.assignFieldPurchaseLotTransport =
         'COMMIT'
       );
 
+      // =====================================================
+      // 🔔 NOTIFICAR AL CAMIONERO
+      //
+      // Fuera de la transacción:
+      // si falla la notificación, NO se deshace la asignación.
+      //
+      // No hubo propuesta ni aceptación dentro de la app.
+      // Es solamente un aviso informativo de viaje asignado.
+      // =====================================================
+
+      try {
+
+        await sendUserNotification({
+
+          userId:
+            truck.transporter_user_id,
+
+          title:
+            'FRIGOSI te asignó un transporte',
+
+          body:
+            `Lote ${lot.lot_number} · ` +
+            `${expectedQuantity} animales. ` +
+            'Ingresa a Mis viajes → Preparar viaje.',
+
+          data: {
+
+            type:
+              'transport_paid',
+
+            negotiation_id:
+              negotiation.id,
+
+            request_id:
+              transportRequest.id,
+
+            purchase_lot_id:
+              purchaseLotId,
+
+            troop_id:
+              troop.id,
+
+          },
+
+        });
+
+
+        console.log(
+          '✅ FIELD DIRECT TRANSPORTER NOTIFIED =>',
+          truck.transporter_user_id,
+        );
+
+
+      } catch (notificationError) {
+
+        console.error(
+          '❌ FIELD DIRECT TRANSPORTER NOTIFICATION ERROR:',
+          notificationError,
+        );
+
+      }
+
+      // =====================================================
+      // 🔔 NOTIFICAR A OPERACIONES / ADMIN
+      //
+      // El Captador ya asignó un transporte.
+      // El Operador debe generar el QR de campo por tropa.
+      //
+      // También queda fuera de la transacción:
+      // una falla de push NO revierte la asignación.
+      // =====================================================
+
+      try {
+
+        const operatorUsersResult =
+          await pool.query(
+            `
+              SELECT DISTINCT
+                sur.user_id
+
+              FROM slaughterhouse_user_roles sur
+
+              JOIN slaughterhouse_roles sr
+                ON sr.id =
+                  sur.role_id
+                AND sr.company_id =
+                  sur.company_id
+                AND sr.is_active = true
+
+              JOIN users u
+                ON u.id =
+                  sur.user_id
+                AND u.is_active = true
+                AND u.deleted_at IS NULL
+
+              JOIN user_companies uc
+                ON uc.user_id =
+                  sur.user_id
+                AND uc.company_id =
+                  sur.company_id
+                AND uc.role =
+                  'slaughterhouse_operator'
+                AND uc.company_status =
+                  'approved'
+
+              WHERE
+                sur.company_id = $1
+
+                AND sr.code IN (
+                  'admin',
+                  'operations'
+                )
+            `,
+            [
+              companyId,
+            ],
+          );
+
+
+        for (
+          const operatorUser
+          of operatorUsersResult.rows
+        ) {
+
+          try {
+
+            await sendUserNotification({
+
+              userId:
+                Number(
+                  operatorUser.user_id
+                ),
+
+              title:
+                'Transporte asignado',
+
+              body:
+                `Lote ${lot.lot_number} · ` +
+                `Camión ${truck.plate}. ` +
+                'Falta generar el QR de campo.',
+
+              data: {
+
+                type:
+                  'slaughterhouse_field_qr_pending',
+
+                purchase_lot_id:
+                  purchaseLotId,
+
+                capture_sheet_id:
+                  lot.capture_sheet_id,
+
+                request_id:
+                  transportRequest.id,
+
+                negotiation_id:
+                  negotiation.id,
+
+                troop_id:
+                  troop.id,
+
+                truck_id:
+                  truck.truck_id,
+
+              },
+
+            });
+
+
+            console.log(
+              '✅ FIELD QR PENDING OPERATOR NOTIFIED =>',
+              operatorUser.user_id,
+            );
+
+
+          } catch (
+            operatorNotificationError
+          ) {
+
+            console.error(
+              '❌ FIELD QR PENDING OPERATOR NOTIFICATION ERROR =>',
+              operatorUser.user_id,
+              operatorNotificationError,
+            );
+
+          }
+
+        }
+
+
+      } catch (
+        operatorUsersError
+      ) {
+
+        console.error(
+          '❌ FIELD QR PENDING OPERATOR USERS ERROR:',
+          operatorUsersError,
+        );
+
+      }
 
       console.log(
         '✅ FIELD DIRECT TRANSPORT ASSIGNMENT =>',
