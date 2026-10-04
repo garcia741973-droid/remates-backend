@@ -1515,6 +1515,116 @@ exports.assignFieldPurchaseLotTransport =
       const truck =
         truckResult.rows[0];
 
+      // =================================================
+      // PROTEGER CONTRA CAMIÓN CON VIAJE ACTIVO
+      //
+      // Un camión se considera ocupado mientras tenga
+      // una negociación:
+      // - paid
+      // - trip_active
+      // - delivery_pending
+      //
+      // Las negociaciones open NO bloquean porque todavía
+      // no representan un viaje confirmado.
+      // =================================================
+
+      const activeTripResult =
+        await client.query(
+          `
+            SELECT
+              tn.id
+                AS negotiation_id,
+
+              tn.request_id,
+
+              tn.status
+                AS negotiation_status,
+
+              tn.trip_price,
+
+              tr.purchase_lot_id,
+
+              st.id
+                AS troop_id,
+
+              st.status
+                AS troop_status
+
+            FROM transport_negotiations tn
+
+            JOIN transport_requests tr
+              ON tr.id =
+                tn.request_id
+
+            LEFT JOIN slaughterhouse_troops st
+              ON st.transport_negotiation_id =
+                tn.id
+
+            WHERE
+              tn.truck_id = $1
+
+              AND tn.cancelled = false
+
+              AND tn.status IN (
+                'paid',
+                'trip_active',
+                'delivery_pending'
+              )
+
+            ORDER BY
+              tn.id DESC
+
+            LIMIT 1
+
+            FOR UPDATE OF tn
+          `,
+          [
+            truck.truck_id,
+          ],
+        );
+
+
+      if (
+        activeTripResult.rows.length > 0
+      ) {
+
+        const activeTrip =
+          activeTripResult.rows[0];
+
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'Este camión ya tiene un viaje activo y no puede ser asignado a otro lote',
+
+          code:
+            'truck_busy',
+
+          active_trip: {
+            negotiation_id:
+              activeTrip.negotiation_id,
+
+            request_id:
+              activeTrip.request_id,
+
+            purchase_lot_id:
+              activeTrip.purchase_lot_id,
+
+            troop_id:
+              activeTrip.troop_id,
+
+            negotiation_status:
+              activeTrip.negotiation_status,
+
+            troop_status:
+              activeTrip.troop_status,
+          },
+        });
+      }
 
       // =================================================
       // BUSCAR SOLICITUD ABIERTA DEL LOTE
