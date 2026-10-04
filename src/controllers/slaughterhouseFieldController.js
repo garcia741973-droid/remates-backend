@@ -936,16 +936,66 @@ exports.getFieldApprovedTransportTrucks =
               tt.is_available,
 
 
-              CASE
-                WHEN
-                  sp.user_id IS NOT NULL
-                  AND sctr.transporter_truck_id IS NOT NULL
-                  AND tt.id IS NOT NULL
-                  AND tt.is_active = true
-                THEN true
-                ELSE false
-              END
-                AS has_plaza_transport
+            CASE
+              WHEN
+                sp.user_id IS NOT NULL
+                AND sctr.transporter_truck_id IS NOT NULL
+                AND tt.id IS NOT NULL
+                AND tt.is_active = true
+              THEN true
+              ELSE false
+            END
+              AS has_plaza_transport,
+
+
+            CASE
+              WHEN EXISTS (
+
+                SELECT 1
+
+                FROM transport_negotiations tn_busy
+
+                WHERE
+                  tn_busy.truck_id = tt.id
+
+                  AND tn_busy.cancelled = false
+
+                  AND tn_busy.status IN (
+                    'paid',
+                    'trip_active',
+                    'delivery_pending'
+                  )
+
+              )
+              THEN true
+              ELSE false
+            END
+              AS is_busy,
+
+
+            (
+              SELECT
+                tn_busy.status
+
+              FROM transport_negotiations tn_busy
+
+              WHERE
+                tn_busy.truck_id = tt.id
+
+                AND tn_busy.cancelled = false
+
+                AND tn_busy.status IN (
+                  'paid',
+                  'trip_active',
+                  'delivery_pending'
+                )
+
+              ORDER BY
+                tn_busy.id DESC
+
+              LIMIT 1
+            )
+              AS active_trip_status
 
 
             FROM slaughterhouse_company_transporters sct
