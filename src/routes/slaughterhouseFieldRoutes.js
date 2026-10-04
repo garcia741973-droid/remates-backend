@@ -19,6 +19,7 @@ const {
   syncFieldLiveWeighing,
   updateFieldCaptadorNotes,
   getFieldApprovedTransportTrucks,
+  assignFieldPurchaseLotTransport,
 } = require(
   '../controllers/slaughterhouseFieldController'
 );
@@ -62,6 +63,11 @@ router.get(
 router.get(
   '/transport/trucks',
   getFieldApprovedTransportTrucks,
+);
+
+router.post(
+  '/purchase-lots/:id/assign-transport',
+  assignFieldPurchaseLotTransport,
 );
 
 // =====================================================

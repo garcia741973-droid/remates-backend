@@ -1029,6 +1029,1417 @@ exports.getFieldApprovedTransportTrucks =
   };
 
 // =====================================================
+// 🚛 ASIGNAR TRANSPORTE DIRECTAMENTE DESDE CAPTADOR
+//
+// POST
+// /slaughterhouse/field/purchase-lots/:id/assign-transport
+//
+// Body:
+// {
+//   "truck_id": 1,
+//   "expected_quantity": 5,
+//   "trip_price": 1800
+// }
+//
+// REGLAS:
+// - Solo Captador activo.
+// - El lote debe pertenecer al Captador autenticado.
+// - El lote ya debe estar preparado para campo.
+// - El camión debe pertenecer a la red privada FRIGOSI.
+// - El camión debe estar vinculado a Plaza Transporte.
+// - Si existe solicitud open para el lote, se reutiliza.
+// - Si no existe, se crea.
+// - NO existe etapa de propuesta.
+// - NO existe aceptación posterior.
+// - La negociación nace directamente en paid.
+// - Cada asignación crea una tropa.
+// - La solicitud permanece open para permitir más camiones.
+// - NO crea chat.
+// =====================================================
+
+exports.assignFieldPurchaseLotTransport =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      const userId =
+        Number(
+          req.user?.user_id ??
+          req.user?.id
+        );
+
+      const companyId =
+        Number(
+          req.user?.company_id
+        );
+
+      const purchaseLotId =
+        Number(
+          req.params.id
+        );
+
+      const truckId =
+        Number(
+          req.body.truck_id
+        );
+
+      const finalTripPrice =
+        Number(
+          req.body.trip_price
+        );
+
+      const expectedQuantity =
+        Number(
+          req.body.expected_quantity
+        );
+
+
+      // =================================================
+      // VALIDACIONES BÁSICAS
+      // =================================================
+
+      if (
+        !Number.isInteger(userId) ||
+        userId <= 0
+      ) {
+        return res.status(401).json({
+          error:
+            'Usuario autenticado inválido',
+        });
+      }
+
+
+      if (
+        !Number.isInteger(companyId) ||
+        companyId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Contexto de empresa inválido',
+        });
+      }
+
+
+      if (
+        !Number.isInteger(purchaseLotId) ||
+        purchaseLotId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'ID de lote inválido',
+        });
+      }
+
+
+      if (
+        !Number.isInteger(truckId) ||
+        truckId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'truck_id inválido',
+        });
+      }
+
+
+      if (
+        !Number.isInteger(expectedQuantity) ||
+        expectedQuantity <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'expected_quantity debe ser un entero mayor a 0',
+        });
+      }
+
+
+      if (
+        !Number.isFinite(finalTripPrice) ||
+        finalTripPrice <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Debe indicar un precio válido para el viaje',
+        });
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // IDENTIFICAR CAPTADOR
+      // =================================================
+
+      const captadorResult =
+        await client.query(
+          `
+            SELECT
+              sp.id,
+              sp.full_name,
+              sp.phone,
+              sp.email
+
+            FROM slaughterhouse_people sp
+
+            JOIN slaughterhouse_person_roles spr
+              ON spr.person_id = sp.id
+              AND spr.role = 'captador'
+              AND spr.is_active = true
+
+            WHERE
+              sp.company_id = $1
+              AND sp.user_id = $2
+              AND sp.is_active = true
+
+            LIMIT 1
+
+            FOR UPDATE OF sp
+          `,
+          [
+            companyId,
+            userId,
+          ],
+        );
+
+
+      if (
+        captadorResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(403).json({
+          error:
+            'El usuario no está habilitado como captador/comprador en este frigorífico',
+        });
+      }
+
+
+      const captador =
+        captadorResult.rows[0];
+
+
+      // =================================================
+      // LOTE + CONTEXTO LOGÍSTICO
+      // =================================================
+
+      const lotResult =
+        await client.query(
+          `
+            SELECT
+
+              spl.id,
+              spl.lot_number,
+              spl.external_order_number,
+              spl.status,
+              spl.expected_quantity,
+              spl.planned_date,
+              spl.capture_sheet_id,
+              spl.captador_person_id,
+
+              seller.id
+                AS seller_person_id,
+
+              seller.full_name
+                AS seller_name,
+
+              seller.phone
+                AS seller_phone,
+
+              estate.id
+                AS estate_id,
+
+              estate.name
+                AS estate_name,
+
+              estate.location_text
+                AS estate_location,
+
+              estate.lat
+                AS estate_lat,
+
+              estate.lng
+                AS estate_lng,
+
+              classification.generated_code
+                AS classification_code,
+
+              classification.display_name
+                AS classification_name,
+
+              company.name
+                AS company_name,
+
+              company.plant_lat,
+              company.plant_lng
+
+            FROM slaughterhouse_purchase_lots spl
+
+            JOIN slaughterhouse_people seller
+              ON seller.id =
+                spl.seller_person_id
+              AND seller.company_id =
+                spl.company_id
+
+            LEFT JOIN slaughterhouse_estates estate
+              ON estate.id =
+                spl.estate_id
+              AND estate.company_id =
+                spl.company_id
+
+            LEFT JOIN slaughterhouse_animal_classifications classification
+              ON classification.id =
+                spl.classification_id
+              AND classification.company_id =
+                spl.company_id
+
+            JOIN companies company
+              ON company.id =
+                spl.company_id
+
+            WHERE
+              spl.id = $1
+              AND spl.company_id = $2
+
+            FOR UPDATE OF spl
+          `,
+          [
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        lotResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'Lote de compra no encontrado',
+        });
+      }
+
+
+      const lot =
+        lotResult.rows[0];
+
+
+      // =================================================
+      // EL LOTE DEBE PERTENECER A ESTE CAPTADOR
+      // =================================================
+
+      if (
+        Number(lot.captador_person_id) !==
+        Number(captador.id)
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(403).json({
+          error:
+            'Este lote no está asignado al captador autenticado',
+        });
+      }
+
+
+      // =================================================
+      // DEBE ESTAR PREPARADO PARA CAMPO
+      // =================================================
+
+      if (
+        !lot.capture_sheet_id
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El lote todavía no fue preparado para recojo por el operador',
+        });
+      }
+
+
+      if (
+        ![
+          'open',
+          'in_transport',
+        ].includes(
+          lot.status
+        )
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            `El lote está en estado ${lot.status} y no permite asignar transporte`,
+        });
+      }
+
+
+      if (
+        !lot.estate_id
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(400).json({
+          error:
+            'El lote debe tener una estancia de origen antes de asignar transporte',
+        });
+      }
+
+
+      // =================================================
+      // VALIDAR CAMIÓN DE RED PRIVADA FRIGOSI
+      //
+      // El truck_id recibido es transporter_trucks.id,
+      // NO slaughterhouse_company_trucks.id.
+      // =================================================
+
+      const truckResult =
+        await client.query(
+          `
+            SELECT
+
+              tt.id
+                AS truck_id,
+
+              tt.user_id
+                AS transporter_user_id,
+
+              tt.plate,
+
+              tt.brand,
+
+              tt.model,
+
+              tt.is_active,
+              tt.is_available,
+
+              sp.id
+                AS transporter_person_id,
+
+              sp.full_name
+                AS transporter_name,
+
+              sct.id
+                AS company_transporter_id,
+
+              sctr.id
+                AS company_truck_id
+
+            FROM slaughterhouse_company_transporters sct
+
+            JOIN slaughterhouse_people sp
+              ON sp.id =
+                sct.person_id
+              AND sp.company_id =
+                sct.company_id
+              AND sp.is_active = true
+
+            JOIN slaughterhouse_company_transporter_trucks sctt
+              ON sctt.company_transporter_id =
+                sct.id
+              AND sctt.is_active = true
+
+            JOIN slaughterhouse_company_trucks sctr
+              ON sctr.id =
+                sctt.company_truck_id
+              AND sctr.company_id =
+                sct.company_id
+              AND sctr.is_active = true
+
+            JOIN transporter_trucks tt
+              ON tt.id =
+                sctr.transporter_truck_id
+              AND tt.user_id =
+                sp.user_id
+              AND tt.is_active = true
+
+            WHERE
+              sct.company_id = $1
+
+              AND sct.status =
+                'approved'
+
+              AND tt.id = $2
+
+            LIMIT 1
+
+            FOR UPDATE OF tt
+          `,
+          [
+            companyId,
+            truckId,
+          ],
+        );
+
+
+      if (
+        truckResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El camión no pertenece a la red privada FRIGOSI o todavía no está vinculado a Plaza Transporte',
+        });
+      }
+
+
+      const truck =
+        truckResult.rows[0];
+
+
+      // =================================================
+      // BUSCAR SOLICITUD ABIERTA DEL LOTE
+      // =================================================
+
+      const existingRequestResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM transport_requests
+
+            WHERE
+              purchase_lot_id = $1
+              AND requester_company_id = $2
+              AND status = 'open'
+
+            ORDER BY id DESC
+
+            LIMIT 1
+
+            FOR UPDATE
+          `,
+          [
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+
+      let transportRequest;
+
+
+      if (
+        existingRequestResult.rows.length > 0
+      ) {
+
+        transportRequest =
+          existingRequestResult.rows[0];
+
+      } else {
+
+        // ===============================================
+        // CREAR SOLICITUD AUTOMÁTICA DEL LOTE
+        // ===============================================
+
+        const quantity =
+          Number(
+            lot.expected_quantity
+          );
+
+
+        if (
+          !Number.isInteger(quantity) ||
+          quantity <= 0
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(400).json({
+            error:
+              'El lote debe tener una cantidad contratada mayor a 0',
+          });
+        }
+
+
+        const origin =
+          [
+            lot.estate_name,
+            lot.estate_location,
+          ]
+            .filter(Boolean)
+            .join(' - ');
+
+
+        if (!origin) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(400).json({
+            error:
+              'La estancia debe tener un nombre o ubicación válida',
+          });
+        }
+
+
+        const destination =
+          lot.company_name;
+
+
+        if (!destination) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(400).json({
+            error:
+              'El frigorífico no tiene un nombre válido como destino',
+          });
+        }
+
+
+        const pickupLat =
+          lot.estate_lat === null ||
+          lot.estate_lat === undefined
+            ? null
+            : Number(
+                lot.estate_lat
+              );
+
+
+        const pickupLng =
+          lot.estate_lng === null ||
+          lot.estate_lng === undefined
+            ? null
+            : Number(
+                lot.estate_lng
+              );
+
+
+        const dropoffLat =
+          lot.plant_lat === null ||
+          lot.plant_lat === undefined
+            ? null
+            : Number(
+                lot.plant_lat
+              );
+
+
+        const dropoffLng =
+          lot.plant_lng === null ||
+          lot.plant_lng === undefined
+            ? null
+            : Number(
+                lot.plant_lng
+              );
+
+
+        const animalType =
+          lot.classification_name ||
+          lot.classification_code ||
+          'Ganado bovino';
+
+
+        const transportNotes =
+          [
+            'Frigosi - Transporte asignado por captador',
+
+            `Lote: ${lot.lot_number}`,
+
+            lot.external_order_number
+              ? `Orden externa: ${lot.external_order_number}`
+              : null,
+
+            `Cantidad contratada de referencia: ${quantity}`,
+
+            lot.seller_name
+              ? `Vendedor: ${lot.seller_name}`
+              : null,
+
+            lot.estate_name
+              ? `Hacienda: ${lot.estate_name}`
+              : null,
+
+            captador.full_name
+              ? `Captador: ${captador.full_name}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join('\n');
+
+
+        const requestResult =
+          await client.query(
+            `
+              INSERT INTO transport_requests (
+
+                user_id,
+
+                origin,
+                destination,
+
+                quantity,
+                animal_type,
+
+                travel_date,
+
+                notes,
+                contact_phone,
+
+                status,
+
+                origin_lat,
+                origin_lng,
+
+                destination_lat,
+                destination_lng,
+
+                approx_pickup_lat,
+                approx_pickup_lng,
+
+                approx_pickup_notes,
+                approx_pickup_source,
+
+                approx_dropoff_lat,
+                approx_dropoff_lng,
+
+                approx_dropoff_notes,
+                approx_dropoff_source,
+
+                requester_company_id,
+
+                visibility_scope,
+
+                purchase_lot_id
+
+              )
+
+              VALUES (
+
+                $1,
+
+                $2,
+                $3,
+
+                $4,
+                $5,
+
+                $6,
+
+                $7,
+                $8,
+
+                'open',
+
+                $9,
+                $10,
+
+                $11,
+                $12,
+
+                $9,
+                $10,
+
+                $13,
+                'slaughterhouse',
+
+                $11,
+                $12,
+
+                $14,
+                'slaughterhouse',
+
+                $15,
+
+                'company_network',
+
+                $16
+
+              )
+
+              RETURNING *
+            `,
+            [
+              userId,
+
+              origin,
+              destination,
+
+              quantity,
+              animalType,
+
+              lot.planned_date,
+
+              transportNotes,
+              lot.seller_phone,
+
+              pickupLat,
+              pickupLng,
+
+              dropoffLat,
+              dropoffLng,
+
+              lot.estate_location ||
+                origin,
+
+              destination,
+
+              companyId,
+
+              purchaseLotId,
+            ],
+          );
+
+
+        transportRequest =
+          requestResult.rows[0];
+      }
+
+
+      // =================================================
+      // PROTEGER CONTRA DOBLE ASIGNACIÓN DEL MISMO CAMIÓN
+      // =================================================
+
+      const duplicateNegotiationResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              status,
+              cancelled
+
+            FROM transport_negotiations
+
+            WHERE
+              request_id = $1
+              AND truck_id = $2
+              AND cancelled = false
+
+            LIMIT 1
+          `,
+          [
+            transportRequest.id,
+            truck.truck_id,
+          ],
+        );
+
+
+      if (
+        duplicateNegotiationResult.rows.length > 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Este camión ya está asignado a este lote',
+          negotiation_id:
+            duplicateNegotiationResult.rows[0].id,
+        });
+      }
+
+
+      // =================================================
+      // CUENTA CORPORATIVA
+      // =================================================
+
+      const corporateAccountResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              company_id,
+              billing_mode,
+              monthly_fee,
+              per_operation_fee,
+              billing_day,
+              status
+
+            FROM transport_corporate_accounts
+
+            WHERE
+              company_id = $1
+              AND status = 'active'
+
+            LIMIT 1
+
+            FOR UPDATE
+          `,
+          [
+            companyId,
+          ],
+        );
+
+
+      if (
+        corporateAccountResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'El frigorífico no tiene una cuenta corporativa de transporte activa',
+        });
+      }
+
+
+      const corporateAccount =
+        corporateAccountResult.rows[0];
+
+
+      const usageAmount =
+        corporateAccount.billing_mode ===
+          'monthly_flat'
+          ? 0
+          : Number(
+              corporateAccount
+                .per_operation_fee || 0
+            );
+
+
+      // =================================================
+      // CREAR NEGOCIACIÓN DIRECTAMENTE COMO PAID
+      //
+      // No hubo propuesta dentro de la app.
+      // El precio ya fue acordado externamente.
+      // =================================================
+
+      const negotiationResult =
+        await client.query(
+          `
+            INSERT INTO transport_negotiations (
+
+              request_id,
+              truck_id,
+              requester_id,
+              transporter_id,
+
+              status,
+              trip_price,
+              unlock_fee,
+
+              cancelled
+
+            )
+
+            VALUES (
+
+              $1,
+              $2,
+              $3,
+              $4,
+
+              'paid',
+              $5,
+              NULL,
+
+              false
+
+            )
+
+            RETURNING *
+          `,
+          [
+            transportRequest.id,
+            truck.truck_id,
+            userId,
+            truck.transporter_user_id,
+            finalTripPrice,
+          ],
+        );
+
+
+      const negotiation =
+        negotiationResult.rows[0];
+
+
+      // =================================================
+      // REUTILIZAR TROPA PENDIENTE SI EXISTE
+      //
+      // Mantiene compatibilidad con el flujo Operador.
+      // =================================================
+
+      const pendingTroopResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM slaughterhouse_troops
+
+            WHERE
+              company_id = $1
+              AND purchase_lot_id = $2
+              AND transport_request_id = $3
+              AND status = 'transport_requested'
+              AND transport_negotiation_id IS NULL
+
+            ORDER BY id ASC
+
+            LIMIT 1
+
+            FOR UPDATE
+          `,
+          [
+            companyId,
+            purchaseLotId,
+            transportRequest.id,
+          ],
+        );
+
+
+      let troop;
+
+
+      if (
+        pendingTroopResult.rows.length > 0
+      ) {
+
+        const pendingTroop =
+          pendingTroopResult.rows[0];
+
+
+        const updatedTroopResult =
+          await client.query(
+            `
+              UPDATE slaughterhouse_troops
+
+              SET
+                transport_negotiation_id = $1,
+                truck_id = $2,
+                transporter_user_id = $3,
+
+                expected_quantity =
+                  COALESCE(
+                    expected_quantity,
+                    $4
+                  ),
+
+                status =
+                  'transport_assigned',
+
+                notes =
+                  concat_ws(
+                    ' | ',
+                    NULLIF(
+                      notes,
+                      ''
+                    ),
+                    $5
+                  ),
+
+                updated_at =
+                  NOW()
+
+              WHERE
+                id = $6
+                AND company_id = $7
+
+              RETURNING *
+            `,
+            [
+              negotiation.id,
+              truck.truck_id,
+              truck.transporter_user_id,
+              expectedQuantity,
+
+              `Camión asignado directamente por captador desde solicitud #${transportRequest.id}`,
+
+              pendingTroop.id,
+              companyId,
+            ],
+          );
+
+
+        troop =
+          updatedTroopResult.rows[0];
+
+      } else {
+
+        // ===============================================
+        // CREAR TROPA FÍSICA PARA ESTE CAMIÓN
+        // ===============================================
+
+        const createdTroopResult =
+          await client.query(
+            `
+              INSERT INTO slaughterhouse_troops (
+
+                company_id,
+                purchase_lot_id,
+
+                troop_number,
+
+                transport_request_id,
+                transport_negotiation_id,
+
+                truck_id,
+                transporter_user_id,
+
+                expected_quantity,
+
+                status,
+                notes,
+
+                created_by
+
+              )
+
+              VALUES (
+
+                $1,
+                $2,
+
+                NULL,
+
+                $3,
+                $4,
+
+                $5,
+                $6,
+
+                $7,
+
+                'transport_assigned',
+                $8,
+
+                $9
+
+              )
+
+              RETURNING *
+            `,
+            [
+              companyId,
+              purchaseLotId,
+
+              transportRequest.id,
+              negotiation.id,
+
+              truck.truck_id,
+              truck.transporter_user_id,
+
+              expectedQuantity,
+
+              `Camión asignado directamente por captador desde solicitud #${transportRequest.id}`,
+
+              userId,
+            ],
+          );
+
+
+        troop =
+          createdTroopResult.rows[0];
+      }
+
+
+      // =================================================
+      // LOTE PASA A IN_TRANSPORT
+      // =================================================
+
+      await client.query(
+        `
+          UPDATE slaughterhouse_purchase_lots
+
+          SET
+            status =
+              'in_transport',
+
+            updated_at =
+              NOW()
+
+          WHERE
+            id = $1
+            AND company_id = $2
+            AND status = 'open'
+        `,
+        [
+          purchaseLotId,
+          companyId,
+        ],
+      );
+
+
+      // =================================================
+      // USO CORPORATIVO
+      // =================================================
+
+      const usageResult =
+        await client.query(
+          `
+            INSERT INTO transport_corporate_usage (
+
+              corporate_account_id,
+
+              request_id,
+              negotiation_id,
+              troop_id,
+
+              service_date,
+
+              charge_type,
+              amount,
+
+              description,
+
+              status
+
+            )
+
+            VALUES (
+
+              $1,
+
+              $2,
+              $3,
+              $4,
+
+              CURRENT_DATE,
+
+              'transport_operation',
+              $5,
+
+              $6,
+
+              'unbilled'
+
+            )
+
+            RETURNING *
+          `,
+          [
+            corporateAccount.id,
+
+            transportRequest.id,
+            negotiation.id,
+            troop.id,
+
+            usageAmount,
+
+            `Uso Plaza Transporte - asignación directa Captador - solicitud #${transportRequest.id} - negociación #${negotiation.id}`,
+          ],
+        );
+
+
+      const corporateUsage =
+        usageResult.rows[0];
+
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+
+            company_id,
+            user_id,
+
+            entity_type,
+            entity_id,
+
+            action,
+
+            new_data
+
+          )
+
+          VALUES (
+
+            $1,
+            $2,
+
+            'troop',
+            $3,
+
+            'field_direct_transport_assignment',
+
+            $4::jsonb
+
+          )
+        `,
+        [
+          companyId,
+          userId,
+
+          String(
+            troop.id
+          ),
+
+          JSON.stringify({
+
+            purchase_lot_id:
+              purchaseLotId,
+
+            capture_sheet_id:
+              lot.capture_sheet_id,
+
+            captador_person_id:
+              captador.id,
+
+            transport_request_id:
+              transportRequest.id,
+
+            negotiation_id:
+              negotiation.id,
+
+            troop_id:
+              troop.id,
+
+            truck_id:
+              truck.truck_id,
+
+            company_truck_id:
+              truck.company_truck_id,
+
+            transporter_user_id:
+              truck.transporter_user_id,
+
+            transporter_name:
+              truck.transporter_name,
+
+            plate:
+              truck.plate,
+
+            expected_quantity:
+              expectedQuantity,
+
+            trip_price:
+              finalTripPrice,
+
+            corporate_usage_id:
+              corporateUsage.id,
+
+            corporate_usage_amount:
+              usageAmount,
+
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      console.log(
+        '✅ FIELD DIRECT TRANSPORT ASSIGNMENT =>',
+        {
+          purchase_lot_id:
+            purchaseLotId,
+
+          transport_request_id:
+            transportRequest.id,
+
+          negotiation_id:
+            negotiation.id,
+
+          troop_id:
+            troop.id,
+
+          truck_id:
+            truck.truck_id,
+
+          plate:
+            truck.plate,
+
+          expected_quantity:
+            expectedQuantity,
+
+          trip_price:
+            finalTripPrice,
+        }
+      );
+
+
+      return res.status(201).json({
+
+        success: true,
+
+        message:
+          'Camión asignado correctamente al lote',
+
+        purchase_lot_id:
+          purchaseLotId,
+
+        transport_request: {
+          id:
+            transportRequest.id,
+
+          status:
+            transportRequest.status,
+        },
+
+        negotiation,
+
+        troop,
+
+        corporate_usage:
+          corporateUsage,
+
+      });
+
+
+    } catch (error) {
+
+      try {
+        await client.query(
+          'ROLLBACK'
+        );
+      } catch (_) {}
+
+
+      console.error(
+        'FIELD DIRECT TRANSPORT ASSIGNMENT ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error asignando el camión al lote',
+      });
+
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+// =====================================================
 // 📤 SINCRONIZAR CAPTURA DE CAMPO DE UN LOTE / CAMIÓN
 //
 // POST
