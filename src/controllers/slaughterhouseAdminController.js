@@ -39573,7 +39573,14 @@ exports.generatePreliquidationDraft =
 
 
       // =================================================
-      // 3. NO PERMITIR DOS VERSIONES ABIERTAS
+      // 3. PRELIQUIDACIÓN ABIERTA
+      //
+      // draft:
+      //   se permite recalcular sobre la MISMA versión.
+      //
+      // reviewed:
+      //   ya fue cerrada para edición y no puede
+      //   recalcularse.
       // =================================================
 
       const openResult =
@@ -39582,7 +39589,12 @@ exports.generatePreliquidationDraft =
             SELECT
               id,
               version,
-              status
+              status,
+              unit_price,
+              price_per_kg,
+              price_override_reason,
+              price_overridden_by,
+              price_overridden_at
             FROM slaughterhouse_preliquidations
             WHERE
               company_id = $1
@@ -39603,20 +39615,46 @@ exports.generatePreliquidationDraft =
         );
 
 
+      let existingDraft =
+        null;
+
+
       if (
         openResult.rows.length > 0
       ) {
 
-        await client.query(
-          'ROLLBACK'
-        );
+        const openPreliquidation =
+          openResult.rows[0];
 
-        return res.status(409).json({
-          error:
-            'El lote ya tiene una preliquidación abierta',
-          preliquidation:
-            openResult.rows[0],
-        });
+
+        if (
+          openPreliquidation.status ===
+          'reviewed'
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'La preliquidación ya fue revisada y no puede recalcularse',
+            preliquidation:
+              openPreliquidation,
+          });
+
+        }
+
+
+        if (
+          openPreliquidation.status ===
+          'draft'
+        ) {
+
+          existingDraft =
+            openPreliquidation;
+
+        }
 
       }
 
@@ -41089,129 +41127,428 @@ exports.generatePreliquidationDraft =
       };
 
       // =================================================
-      // 5. NUEVA VERSIÓN
+      // 5. VERSIÓN
+      //
+      // Si ya existe un draft:
+      //   conservar la misma versión.
+      //
+      // Si no existe:
+      //   crear una versión nueva.
       // =================================================
 
-      const versionResult =
-        await client.query(
-          `
-            SELECT
-              COALESCE(
-                MAX(version),
-                0
-              ) + 1
-                AS next_version
-            FROM slaughterhouse_preliquidations
-            WHERE
-              purchase_lot_id = $1
-          `,
-          [
-            purchaseLotId,
-          ],
-        );
+      let version;
 
 
-      const version =
-        Number(
-          versionResult.rows[0]
-            .next_version
-        );
+      if (existingDraft) {
+
+        version =
+          Number(
+            existingDraft.version
+          );
+
+      } else {
+
+        const versionResult =
+          await client.query(
+            `
+              SELECT
+                COALESCE(
+                  MAX(version),
+                  0
+                ) + 1
+                  AS next_version
+              FROM slaughterhouse_preliquidations
+              WHERE
+                purchase_lot_id = $1
+            `,
+            [
+              purchaseLotId,
+            ],
+          );
+
+
+        version =
+          Number(
+            versionResult.rows[0]
+              .next_version
+          );
+
+      }
 
 
       // =================================================
-      // 6. CREAR PRELIQUIDACIÓN
+      // 6. CREAR O RECALCULAR PRELIQUIDACIÓN
+      //
+      // Si existe draft:
+      // - conserva id y versión
+      // - conserva ajustes financieros
+      // - conserva precio modificado
+      // - conserva overrides de comisión
+      // - recalcula datos físicos/económicos
+      //
+      // Si no existe draft:
+      // - crea una nueva preliquidación
       // =================================================
 
-      const insertResult =
-        await client.query(
-          `
-            INSERT INTO slaughterhouse_preliquidations (
-              company_id,
-              purchase_lot_id,
+      let preliquidation;
+
+
+      if (existingDraft) {
+
+        // ===============================================
+        // PRECIO EFECTIVO
+        //
+        // Si Finanzas modificó el precio del borrador,
+        // ese precio debe mantenerse al recalcular.
+        //
+        // sourceSnapshot conserva el precio original
+        // proveniente del lote.
+        // ===============================================
+
+        const hasPriceOverride =
+          Boolean(
+            existingDraft
+              .price_override_reason
+              ?.toString()
+              .trim()
+          ) ||
+          existingDraft
+            .price_overridden_by != null ||
+          existingDraft
+            .price_overridden_at != null;
+
+
+        const storedUnitPrice =
+          Number(
+            existingDraft.unit_price
+          );
+
+
+        const effectiveUnitPrice =
+          hasPriceOverride &&
+          Number.isFinite(
+            storedUnitPrice
+          )
+            ? storedUnitPrice
+            : unitPrice;
+
+
+        // ===============================================
+        // RECALCULAR BASE CON EL PRECIO EFECTIVO
+        // ===============================================
+
+        let effectiveBaseAmount =
+          baseAmount;
+
+
+        if (hasPriceOverride) {
+
+          if (
+            pricingBasis ===
+            'live_kg'
+          ) {
+
+            effectiveBaseAmount =
+              netWeightKg *
+              effectiveUnitPrice;
+
+          } else if (
+            pricingBasis ===
+            'hook_kg'
+          ) {
+
+            effectiveBaseAmount =
+              hookWeightKg *
+              effectiveUnitPrice;
+
+          } else if (
+            pricingBasis ===
+            'per_head'
+          ) {
+
+            effectiveBaseAmount =
+              quantity *
+              effectiveUnitPrice;
+
+          }
+
+        }
+
+
+        effectiveBaseAmount =
+          Math.round(
+            (
+              effectiveBaseAmount +
+              Number.EPSILON
+            ) *
+            100
+          ) /
+          100;
+
+
+        const effectivePricePerKg =
+          pricingBasis === 'per_head'
+            ? null
+            : effectiveUnitPrice;
+
+
+        // ===============================================
+        // CONSERVAR AJUSTES DEL GANADERO
+        //
+        // Los ajustes siguen asociados a la misma
+        // preliquidación porque conservamos su id.
+        // ===============================================
+
+        const adjustmentsResult =
+          await client.query(
+            `
+              SELECT
+
+                COALESCE(
+                  SUM(amount) FILTER (
+                    WHERE
+                      adjustment_type =
+                      'discount'
+                  ),
+                  0
+                )::numeric
+                  AS discounts_total,
+
+                COALESCE(
+                  SUM(amount) FILTER (
+                    WHERE
+                      adjustment_type =
+                      'addition'
+                  ),
+                  0
+                )::numeric
+                  AS additions_total
+
+              FROM slaughterhouse_preliquidation_adjustments
+
+              WHERE
+                preliquidation_id = $1
+                AND target_type = 'seller'
+            `,
+            [
+              existingDraft.id,
+            ],
+          );
+
+
+        const discountsTotal =
+          Number(
+            adjustmentsResult
+              .rows[0]
+              .discounts_total || 0
+          );
+
+
+        const additionsTotal =
+          Number(
+            adjustmentsResult
+              .rows[0]
+              .additions_total || 0
+          );
+
+
+        const totalPayable =
+          Math.round(
+            (
+              effectiveBaseAmount -
+              discountsTotal +
+              additionsTotal +
+              Number.EPSILON
+            ) *
+            100
+          ) /
+          100;
+
+
+        // ===============================================
+        // ACTUALIZAR MISMO DRAFT
+        // ===============================================
+
+        const updateResult =
+          await client.query(
+            `
+              UPDATE slaughterhouse_preliquidations
+
+              SET
+                gross_weight_kg = $1,
+                shrink_percent = $2,
+                shrink_weight_kg = $3,
+                net_weight_kg = $4,
+                price_per_kg = $5,
+
+                base_amount = $6,
+                discounts_total = $7,
+                additions_total = $8,
+                total_payable = $9,
+
+                pricing_basis = $10,
+                weight_source = $11,
+                quantity = $12,
+                unit_price = $13,
+                live_weight_kg = $14,
+                hook_weight_kg = $15,
+                source_snapshot = $16::jsonb,
+
+                updated_at = NOW()
+
+              WHERE
+                id = $17
+                AND company_id = $18
+                AND status = 'draft'
+
+              RETURNING *
+            `,
+            [
+              grossWeightKg,
+              shrinkPercent,
+              shrinkWeightKg,
+              netWeightKg,
+              effectivePricePerKg,
+
+              effectiveBaseAmount,
+              discountsTotal,
+              additionsTotal,
+              totalPayable,
+
+              pricingBasis,
+              weightSource,
+              quantity,
+              effectiveUnitPrice,
+              liveWeightKg,
+              hookWeightKg,
+              JSON.stringify(
+                sourceSnapshot
+              ),
+
+              existingDraft.id,
+              companyId,
+            ],
+          );
+
+
+        if (
+          updateResult.rows.length === 0
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'El borrador ya no está disponible para recalcular',
+          });
+
+        }
+
+
+        preliquidation =
+          updateResult.rows[0];
+
+      } else {
+
+        // ===============================================
+        // NO EXISTE DRAFT:
+        // CREAR NUEVA PRELIQUIDACIÓN
+        // ===============================================
+
+        const insertResult =
+          await client.query(
+            `
+              INSERT INTO slaughterhouse_preliquidations (
+                company_id,
+                purchase_lot_id,
+                version,
+
+                gross_weight_kg,
+                shrink_percent,
+                shrink_weight_kg,
+                net_weight_kg,
+                price_per_kg,
+
+                base_amount,
+                discounts_total,
+                additions_total,
+                total_payable,
+
+                status,
+                generated_by,
+                generated_at,
+
+                pricing_basis,
+                weight_source,
+                quantity,
+                unit_price,
+                live_weight_kg,
+                hook_weight_kg,
+                source_snapshot
+              )
+              VALUES (
+                $1,
+                $2,
+                $3,
+
+                $4,
+                $5,
+                $6,
+                $7,
+                $8,
+
+                $9,
+                0,
+                0,
+                $9,
+
+                'draft',
+                $10,
+                NOW(),
+
+                $11,
+                $12,
+                $13,
+                $14,
+                $15,
+                $16,
+                $17::jsonb
+              )
+              RETURNING *
+            `,
+            [
+              companyId,
+              purchaseLotId,
               version,
 
-              gross_weight_kg,
-              shrink_percent,
-              shrink_weight_kg,
-              net_weight_kg,
-              price_per_kg,
+              grossWeightKg,
+              shrinkPercent,
+              shrinkWeightKg,
+              netWeightKg,
+              pricePerKg,
 
-              base_amount,
-              discounts_total,
-              additions_total,
-              total_payable,
+              baseAmount,
+              userId,
 
-              status,
-              generated_by,
-              generated_at,
-
-              pricing_basis,
-              weight_source,
+              pricingBasis,
+              weightSource,
               quantity,
-              unit_price,
-              live_weight_kg,
-              hook_weight_kg,
-              source_snapshot
-            )
-            VALUES (
-              $1,
-              $2,
-              $3,
-
-              $4,
-              $5,
-              $6,
-              $7,
-              $8,
-
-              $9,
-              0,
-              0,
-              $9,
-
-              'draft',
-              $10,
-              NOW(),
-
-              $11,
-              $12,
-              $13,
-              $14,
-              $15,
-              $16,
-              $17::jsonb
-            )
-            RETURNING *
-          `,
-          [
-            companyId,
-            purchaseLotId,
-            version,
-
-            grossWeightKg,
-            shrinkPercent,
-            shrinkWeightKg,
-            netWeightKg,
-            pricePerKg,
-
-            baseAmount,
-            userId,
-
-            pricingBasis,
-            weightSource,
-            quantity,
-            unitPrice,
-            liveWeightKg,
-            hookWeightKg,
-            JSON.stringify(
-              sourceSnapshot
-            ),
-          ],
-        );
+              unitPrice,
+              liveWeightKg,
+              hookWeightKg,
+              JSON.stringify(
+                sourceSnapshot
+              ),
+            ],
+          );
 
 
-      const preliquidation =
-        insertResult.rows[0];
+        preliquidation =
+          insertResult.rows[0];
+
+      }
 
 
       // =================================================
@@ -41233,8 +41570,8 @@ exports.generatePreliquidationDraft =
             $2,
             'preliquidation',
             $3,
-            'generate_draft',
-            $4::jsonb
+            $4,
+            $5::jsonb
           )
         `,
         [
@@ -41243,6 +41580,9 @@ exports.generatePreliquidationDraft =
           String(
             preliquidation.id
           ),
+          existingDraft
+            ? 'recalculate_draft'
+            : 'generate_draft',
           JSON.stringify({
             preliquidation,
 
