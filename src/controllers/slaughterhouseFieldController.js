@@ -261,6 +261,40 @@ exports.getAssignedCaptureSheets =
 
                   AND spl_assigned.captador_person_id =
                     $2
+
+                  AND (
+                    -- Todavía no tiene ninguna tropa/camión:
+                    -- debe seguir visible para el Captador.
+                    NOT EXISTS (
+                      SELECT 1
+                      FROM slaughterhouse_troops st_any
+                      WHERE
+                        st_any.company_id =
+                          spl_assigned.company_id
+                        AND st_any.purchase_lot_id =
+                          spl_assigned.id
+                        AND st_any.status <> 'cancelled'
+                    )
+
+                    OR
+
+                    -- Tiene tropas, pero al menos una aún
+                    -- no terminó su certificación de campo.
+                    EXISTS (
+                      SELECT 1
+                      FROM slaughterhouse_troops st_pending
+                      WHERE
+                        st_pending.company_id =
+                          spl_assigned.company_id
+                        AND st_pending.purchase_lot_id =
+                          spl_assigned.id
+                        AND st_pending.status <> 'cancelled'
+                        AND COALESCE(
+                          st_pending.field_capture_status,
+                          'pending'
+                        ) <> 'certified'
+                    )
+                  )
               )
 
             ORDER BY
