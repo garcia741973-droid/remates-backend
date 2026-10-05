@@ -5242,7 +5242,6 @@ exports.syncFieldLiveWeighing =
 
       if (
         [
-          'dispatched',
           'in_transit',
           'received',
           'in_slaughter',
