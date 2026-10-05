@@ -953,7 +953,6 @@ exports.certifyFieldLot =
 
       if (
         [
-          'dispatched',
           'in_transit',
           'received',
           'in_slaughter',
