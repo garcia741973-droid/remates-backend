@@ -900,7 +900,12 @@ exports.getFieldApprovedTransportTrucks =
 
 
       // =================================================
-      // VALIDAR CAPTADOR ACTIVO
+      // VALIDAR USUARIO HABILITADO PARA VER CAMIONES
+      //
+      // Puede ser:
+      // - Captador activo
+      // - Admin web
+      // - Operations web
       // =================================================
 
       const captadorResult =
@@ -931,12 +936,61 @@ exports.getFieldApprovedTransportTrucks =
         );
 
 
+      const webOperatorRoleResult =
+        await pool.query(
+          `
+            SELECT DISTINCT
+              sr.code
+
+            FROM user_companies uc
+
+            JOIN companies c
+              ON c.id = uc.company_id
+              AND c.company_type = 'slaughterhouse'
+              AND c.is_active = true
+
+            JOIN slaughterhouse_user_roles sur
+              ON sur.user_id = uc.user_id
+              AND sur.company_id = uc.company_id
+
+            JOIN slaughterhouse_roles sr
+              ON sr.id = sur.role_id
+              AND sr.company_id = sur.company_id
+              AND sr.is_active = true
+
+            WHERE
+              uc.user_id = $1
+              AND uc.company_id = $2
+              AND uc.role = 'slaughterhouse_operator'
+              AND uc.company_status = 'approved'
+
+              AND sr.code IN (
+                'admin',
+                'operations'
+              )
+          `,
+          [
+            userId,
+            companyId,
+          ],
+        );
+
+
+      const isCaptador =
+        captadorResult.rows.length > 0;
+
+      const canViewAsWebOperator =
+        webOperatorRoleResult.rows.length > 0;
+
+
       if (
-        captadorResult.rows.length === 0
+        !isCaptador &&
+        !canViewAsWebOperator
       ) {
+
         return res.status(403).json({
           error:
-            'El usuario no está habilitado como captador/comprador en este frigorífico',
+            'El usuario no está habilitado para consultar camiones de este frigorífico',
         });
       }
 
@@ -1311,7 +1365,17 @@ exports.assignFieldPurchaseLotTransport =
 
 
       // =================================================
-      // IDENTIFICAR CAPTADOR
+      // IDENTIFICAR ACTOR QUE ASIGNA TRANSPORTE
+      //
+      // Puede ser:
+      //
+      // 1. Captador activo de la empresa.
+      //
+      // 2. Usuario web del frigorífico con rol interno:
+      //    - admin
+      //    - operations
+      //
+      // El actor NO reemplaza al captador asignado al lote.
       // =================================================
 
       const captadorResult =
@@ -1346,8 +1410,59 @@ exports.assignFieldPurchaseLotTransport =
         );
 
 
+      const webOperatorRoleResult =
+        await client.query(
+          `
+            SELECT DISTINCT
+              sr.code
+
+            FROM user_companies uc
+
+            JOIN companies c
+              ON c.id = uc.company_id
+              AND c.company_type = 'slaughterhouse'
+              AND c.is_active = true
+
+            JOIN slaughterhouse_user_roles sur
+              ON sur.user_id = uc.user_id
+              AND sur.company_id = uc.company_id
+
+            JOIN slaughterhouse_roles sr
+              ON sr.id = sur.role_id
+              AND sr.company_id = sur.company_id
+              AND sr.is_active = true
+
+            WHERE
+              uc.user_id = $1
+              AND uc.company_id = $2
+              AND uc.role = 'slaughterhouse_operator'
+              AND uc.company_status = 'approved'
+
+              AND sr.code IN (
+                'admin',
+                'operations'
+              )
+          `,
+          [
+            userId,
+            companyId,
+          ],
+        );
+
+
+      const captador =
+        captadorResult.rows.length > 0
+          ? captadorResult.rows[0]
+          : null;
+
+
+      const canAssignAsWebOperator =
+        webOperatorRoleResult.rows.length > 0;
+
+
       if (
-        captadorResult.rows.length === 0
+        captador == null &&
+        !canAssignAsWebOperator
       ) {
 
         await client.query(
@@ -1356,13 +1471,9 @@ exports.assignFieldPurchaseLotTransport =
 
         return res.status(403).json({
           error:
-            'El usuario no está habilitado como captador/comprador en este frigorífico',
+            'El usuario no está habilitado para asignar transporte en este frigorífico',
         });
       }
-
-
-      const captador =
-        captadorResult.rows[0];
 
 
       // =================================================
@@ -1382,6 +1493,12 @@ exports.assignFieldPurchaseLotTransport =
               spl.planned_date,
               spl.capture_sheet_id,
               spl.captador_person_id,
+
+              lot_captador.full_name
+                AS captador_name,
+
+              lot_captador.phone
+                AS captador_phone,
 
               seller.id
                 AS seller_person_id,
@@ -1426,6 +1543,13 @@ exports.assignFieldPurchaseLotTransport =
                 spl.seller_person_id
               AND seller.company_id =
                 spl.company_id
+
+            LEFT JOIN slaughterhouse_people lot_captador
+              ON lot_captador.id =
+                spl.captador_person_id
+              AND lot_captador.company_id =
+                spl.company_id
+              AND lot_captador.is_active = true
 
             LEFT JOIN slaughterhouse_estates estate
               ON estate.id =
@@ -1476,12 +1600,25 @@ exports.assignFieldPurchaseLotTransport =
 
 
       // =================================================
-      // EL LOTE DEBE PERTENECER A ESTE CAPTADOR
+      // AUTORIZACIÓN SOBRE EL LOTE
+      //
+      // Captador:
+      // - solo puede asignar transporte a sus propios lotes.
+      //
+      // Admin / Operations:
+      // - puede asignar transporte a cualquier lote
+      //   perteneciente a su mismo frigorífico.
+      //
+      // NO modificamos captador_person_id.
       // =================================================
 
       if (
-        Number(lot.captador_person_id) !==
-        Number(captador.id)
+        !canAssignAsWebOperator &&
+        (
+          captador == null ||
+          Number(lot.captador_person_id) !==
+            Number(captador.id)
+        )
       ) {
 
         await client.query(
@@ -1937,7 +2074,7 @@ exports.assignFieldPurchaseLotTransport =
 
         const transportNotes =
           [
-            'Frigosi - Transporte asignado por captador',
+            'Frigosi - Transporte asignado directamente',
 
             `Lote: ${lot.lot_number}`,
 
@@ -1955,8 +2092,8 @@ exports.assignFieldPurchaseLotTransport =
               ? `Hacienda: ${lot.estate_name}`
               : null,
 
-            captador.full_name
-              ? `Captador: ${captador.full_name}`
+            lot.captador_name
+              ? `Captador: ${lot.captador_name}`
               : null,
           ]
             .filter(Boolean)
