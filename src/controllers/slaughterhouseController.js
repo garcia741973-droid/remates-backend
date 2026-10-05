@@ -404,10 +404,7 @@ exports.getSlaughterhouseReceptionCandidates =
             spl.pricing_basis,
             spl.weight_source,
 
-            (
-              spl.pricing_basis = 'live_kg'
-              AND spl.weight_source = 'plant'
-            )
+            true
               AS requires_plant_live_weight,
 
             (origin_weighing.id IS NOT NULL)
@@ -3734,12 +3731,11 @@ exports.getSlaughterhouseSlaughterReceptions =
               END
                 AS weight_source,
 
-              COALESCE(
-                BOOL_OR(
-                  spl.pricing_basis = 'live_kg'
-                  AND spl.weight_source = 'plant'
-                ),
-                false
+              (
+                COUNT(*) FILTER (
+                  WHERE
+                    st.status <> 'cancelled'
+                ) > 0
               )
                 AS requires_plant_live_weight
 
@@ -3894,12 +3890,6 @@ exports.getSlaughterhouseSlaughterReceptions =
 
                           AND st2.status <>
                             'cancelled'
-
-                          AND spl2.pricing_basis =
-                            'live_kg'
-
-                          AND spl2.weight_source =
-                            'plant'
 
                       )
 
@@ -5845,6 +5835,218 @@ if (
   };
 
 // =====================================================
+// 🏭 LISTAR MEDIAS DE FAENA
+//
+// GET /slaughterhouse/slaughter/:id/carcasses
+//
+// Query opcional:
+// ?troop_id=19
+//
+// Devuelve cada media individual para poder
+// identificar y corregir una media específica.
+// =====================================================
+
+exports.getSlaughterhouseCarcasses =
+  async (req, res) => {
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+
+      if (!operator) {
+
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+      const receptionId =
+        Number(
+          req.params.id,
+        );
+
+      const troopId =
+        req.query.troop_id == null ||
+        req.query.troop_id === ''
+          ? null
+          : Number(
+              req.query.troop_id,
+            );
+
+
+      // =================================================
+      // VALIDACIONES
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          receptionId,
+        ) ||
+        receptionId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Recepción inválida',
+        });
+      }
+
+
+      if (
+        troopId !== null &&
+        (
+          !Number.isInteger(
+            troopId,
+          ) ||
+          troopId <= 0
+        )
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Tropa inválida',
+        });
+      }
+
+
+      // =================================================
+      // VALIDAR RECEPCIÓN / EMPRESA
+      // =================================================
+
+      const receptionResult =
+        await pool.query(
+          `
+          SELECT
+            id,
+            status
+
+          FROM slaughterhouse_receptions
+
+          WHERE
+            id = $1
+            AND company_id = $2
+
+          LIMIT 1
+          `,
+          [
+            receptionId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        receptionResult.rows.length ===
+          0
+      ) {
+
+        return res.status(404).json({
+          error:
+            'Recepción no encontrada',
+        });
+      }
+
+
+      // =================================================
+      // MEDIAS REGISTRADAS
+      // =================================================
+
+      const carcassesResult =
+        await pool.query(
+          `
+          SELECT
+            sc.id,
+            sc.reception_id,
+            sc.troop_id,
+            sc.sequence_number,
+            sc.animal_sequence_number,
+            sc.half_number,
+            sc.hook_weight_kg,
+            sc.recorded_by,
+            sc.recorded_at,
+            sc.created_at,
+            sc.updated_at
+
+          FROM slaughterhouse_carcasses sc
+
+          JOIN slaughterhouse_troops st
+            ON st.id =
+              sc.troop_id
+
+          WHERE
+            sc.reception_id = $1
+            AND st.company_id = $2
+            AND st.status <> 'cancelled'
+
+            AND (
+              $3::int IS NULL
+              OR sc.troop_id = $3
+            )
+
+          ORDER BY
+            sc.troop_id ASC,
+            sc.animal_sequence_number ASC NULLS LAST,
+            sc.half_number ASC NULLS LAST,
+            sc.sequence_number ASC,
+            sc.id ASC
+          `,
+          [
+            receptionId,
+            companyId,
+            troopId,
+          ],
+        );
+
+
+      return res.json({
+
+        reception_id:
+          receptionId,
+
+        reception_status:
+          receptionResult.rows[0].status,
+
+        troop_id:
+          troopId,
+
+        count:
+          carcassesResult.rows.length,
+
+        carcasses:
+          carcassesResult.rows,
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'GET SLAUGHTERHOUSE CARCASSES ERROR:',
+        error,
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo medias de faena',
+      });
+
+    }
+
+  };
+
+// =====================================================
 // 🏭 CORREGIR ÚLTIMA CARCASA
 //
 // PUT /slaughterhouse/slaughter/:id/carcasses/last
@@ -6512,6 +6714,343 @@ exports.updateLastSlaughterhouseCarcass =
       return res.status(500).json({
         error:
           'Error corrigiendo última media carcasa',
+      });
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+// =====================================================
+// ✏️ CORREGIR MEDIA CARCASA ESPECÍFICA
+//
+// PUT /slaughterhouse/slaughter/:id/carcasses/:carcassId
+//
+// Solo permite corregir el peso.
+// NO modifica:
+// - troop_id
+// - animal_sequence_number
+// - half_number
+// - sequence_number
+//
+// La recepción debe continuar en faena.
+// =====================================================
+
+exports.updateSlaughterhouseCarcass =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+
+      if (!operator) {
+
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+
+      const companyId =
+        Number(
+          operator.company_id,
+        );
+
+      const userId =
+        Number(
+          operator.user_id,
+        );
+
+      const receptionId =
+        Number(
+          req.params.id,
+        );
+
+      const carcassId =
+        Number(
+          req.params.carcassId,
+        );
+
+      const hookWeightKg =
+        Number(
+          req.body.hook_weight_kg,
+        );
+
+
+      // =================================================
+      // VALIDACIONES BÁSICAS
+      // =================================================
+
+      if (
+        !Number.isInteger(
+          receptionId,
+        ) ||
+        receptionId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Recepción inválida',
+        });
+      }
+
+
+      if (
+        !Number.isInteger(
+          carcassId,
+        ) ||
+        carcassId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Media carcasa inválida',
+        });
+      }
+
+
+      if (
+        !Number.isFinite(
+          hookWeightKg,
+        ) ||
+        hookWeightKg <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'Peso de media carcasa inválido',
+        });
+      }
+
+
+      await client.query(
+        'BEGIN',
+      );
+
+
+      // =================================================
+      // VALIDAR RECEPCIÓN
+      // =================================================
+
+      const receptionResult =
+        await client.query(
+          `
+          SELECT
+            id,
+            status
+
+          FROM slaughterhouse_receptions
+
+          WHERE
+            id = $1
+            AND company_id = $2
+
+          LIMIT 1
+
+          FOR UPDATE
+          `,
+          [
+            receptionId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        receptionResult.rows.length ===
+          0
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(404).json({
+          error:
+            'Recepción no encontrada',
+        });
+      }
+
+
+      if (
+        receptionResult.rows[0]
+          .status !==
+        'in_slaughter'
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(409).json({
+          error:
+            'La recepción no está actualmente en faena',
+        });
+      }
+
+
+      // =================================================
+      // LOCALIZAR MEDIA CARCASA
+      //
+      // Además validamos:
+      // - recepción correcta
+      // - empresa correcta
+      // - tropa no cancelada
+      // =================================================
+
+      const carcassResult =
+        await client.query(
+          `
+          SELECT
+            sc.*
+
+          FROM slaughterhouse_carcasses sc
+
+          JOIN slaughterhouse_troops st
+            ON st.id =
+              sc.troop_id
+
+          WHERE
+            sc.id = $1
+            AND sc.reception_id = $2
+            AND st.company_id = $3
+            AND st.status <> 'cancelled'
+
+          LIMIT 1
+
+          FOR UPDATE OF sc
+          `,
+          [
+            carcassId,
+            receptionId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        carcassResult.rows.length ===
+          0
+      ) {
+
+        await client.query(
+          'ROLLBACK',
+        );
+
+        return res.status(404).json({
+          error:
+            'Media carcasa no encontrada en esta recepción',
+        });
+      }
+
+
+      const previous =
+        carcassResult.rows[0];
+
+
+      // =================================================
+      // CORREGIR ÚNICAMENTE PESO
+      // =================================================
+
+      const updatedResult =
+        await client.query(
+          `
+          UPDATE slaughterhouse_carcasses
+
+          SET
+            hook_weight_kg = $1,
+            recorded_by = $2,
+            recorded_at = NOW(),
+            updated_at = NOW()
+
+          WHERE
+            id = $3
+
+          RETURNING *
+          `,
+          [
+            hookWeightKg,
+            userId,
+            carcassId,
+          ],
+        );
+
+
+      const carcass =
+        updatedResult.rows[0];
+
+
+      await client.query(
+        'COMMIT',
+      );
+
+
+      return res.json({
+
+        message:
+          'Media carcasa corregida correctamente',
+
+        carcass,
+
+        corrected: {
+
+          carcass_id:
+            carcass.id,
+
+          sequence_number:
+            carcass.sequence_number,
+
+          troop_id:
+            carcass.troop_id,
+
+          animal_sequence_number:
+            carcass.animal_sequence_number,
+
+          half_number:
+            carcass.half_number,
+
+          previous_weight_kg:
+            Number(
+              previous.hook_weight_kg,
+            ),
+
+          new_weight_kg:
+            Number(
+              carcass.hook_weight_kg,
+            ),
+
+        },
+
+      });
+
+
+    } catch (error) {
+
+      await client.query(
+        'ROLLBACK',
+      );
+
+
+      console.error(
+        'UPDATE SLAUGHTERHOUSE CARCASS ERROR:',
+        error,
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error corrigiendo media carcasa',
       });
 
     } finally {

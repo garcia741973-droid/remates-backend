@@ -30,7 +30,9 @@ const {
   startSlaughterhouseSlaughter,
   getSlaughterhouseSlaughterReceptions,
   createSlaughterhouseCarcass,
+  getSlaughterhouseCarcasses,
   updateLastSlaughterhouseCarcass,
+  updateSlaughterhouseCarcass,
   finishSlaughterhouseSlaughter,
   getSlaughterhouseExportCatalog,
   getSlaughterhouseExportProfiles,
@@ -173,6 +175,17 @@ router.get(
   getSlaughterhouseSlaughterReceptions,
 );
 
+// =====================================================
+// 🏭 LISTAR MEDIAS DE FAENA
+// =====================================================
+
+router.get(
+  '/slaughter/:id/carcasses',
+  requireSlaughterhousePermission(
+    'slaughter.manage'
+  ),
+  getSlaughterhouseCarcasses,
+);
 
 // =====================================================
 // 🏭 REGISTRAR CARCASA
@@ -199,6 +212,17 @@ router.put(
   updateLastSlaughterhouseCarcass,
 );
 
+// =====================================================
+// 🏭 CORREGIR MEDIA CARCASA ESPECÍFICA
+// =====================================================
+
+router.put(
+  '/slaughter/:id/carcasses/:carcassId',
+  requireSlaughterhousePermission(
+    'slaughter.manage'
+  ),
+  updateSlaughterhouseCarcass,
+);
 
 // =====================================================
 // 🏭 FINALIZAR FAENA
