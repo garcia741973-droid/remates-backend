@@ -4599,10 +4599,26 @@ exports.syncFieldLiveWeighing =
         );
 
 
+      const weightMode =
+        req.body?.weight_mode
+          ?.toString()
+          .trim() ||
+        'individual';
+
       const items =
         Array.isArray(req.body?.items)
           ? req.body.items
           : [];
+
+      const requestedQuantity =
+        Number(
+          req.body?.quantity
+        );
+
+      const requestedGrossWeightKg =
+        Number(
+          req.body?.gross_weight_kg
+        );
 
       // =================================================
       // VALIDACIONES BÁSICAS
@@ -4672,57 +4688,113 @@ exports.syncFieldLiveWeighing =
         });
       }
 
-      if (items.length === 0) {
+      if (
+        ![
+          'individual',
+          'troop_total',
+        ].includes(
+          weightMode
+        )
+      ) {
         return res.status(400).json({
           error:
-            'Debe registrar al menos un peso',
+            'weight_mode inválido. Use individual o troop_total',
         });
       }
 
       // =================================================
-      // NORMALIZAR PESOS
+      // NORMALIZAR PESAJE
+      //
+      // individual:
+      // - cada animal tiene su propio item
+      //
+      // troop_total:
+      // - se recibe cantidad total de animales
+      // - se recibe peso total de la tropa
+      // - NO se crean pesos individuales ficticios
       // =================================================
 
       const normalizedItems = [];
 
-      for (
-        let index = 0;
-        index < items.length;
-        index++
+      if (
+        weightMode ===
+        'individual'
       ) {
 
-        const weightKg =
-          Number(
-            items[index]
-              ?.weight_kg
-          );
-
-        if (
-          !Number.isFinite(weightKg) ||
-          weightKg <= 0
-        ) {
+        if (items.length === 0) {
           return res.status(400).json({
             error:
-              `Peso inválido en el animal ${index + 1}`,
+              'Debe registrar al menos un peso individual',
           });
         }
 
-        const notes =
-          items[index]
-            ?.notes
-            ?.toString()
-            .trim() ||
-          null;
+        for (
+          let index = 0;
+          index < items.length;
+          index++
+        ) {
 
-        normalizedItems.push({
-          sequence_number:
-            index + 1,
-          weight_kg:
+          const weightKg =
             Number(
-              weightKg.toFixed(3)
-            ),
-          notes,
-        });
+              items[index]
+                ?.weight_kg
+            );
+
+          if (
+            !Number.isFinite(weightKg) ||
+            weightKg <= 0
+          ) {
+            return res.status(400).json({
+              error:
+                `Peso inválido en el animal ${index + 1}`,
+            });
+          }
+
+          const notes =
+            items[index]
+              ?.notes
+              ?.toString()
+              .trim() ||
+            null;
+
+          normalizedItems.push({
+            sequence_number:
+              index + 1,
+
+            weight_kg:
+              Number(
+                weightKg.toFixed(3)
+              ),
+
+            notes,
+          });
+        }
+
+      } else {
+
+        if (
+          !Number.isInteger(
+            requestedQuantity
+          ) ||
+          requestedQuantity <= 0
+        ) {
+          return res.status(400).json({
+            error:
+              'La cantidad de animales de la tropa es inválida',
+          });
+        }
+
+        if (
+          !Number.isFinite(
+            requestedGrossWeightKg
+          ) ||
+          requestedGrossWeightKg <= 0
+        ) {
+          return res.status(400).json({
+            error:
+              'El peso total de la tropa es inválido',
+          });
+        }
       }
 
       await client.query(
@@ -4946,20 +5018,26 @@ exports.syncFieldLiveWeighing =
       // =================================================
 
       const quantity =
-        normalizedItems.length;
+        weightMode ===
+        'individual'
+          ? normalizedItems.length
+          : requestedQuantity;
 
       const grossWeightKg =
-        normalizedItems.reduce(
-          (
-            total,
-            item
-          ) =>
-            total +
-            Number(
-              item.weight_kg
-            ),
-          0
-        );
+        weightMode ===
+        'individual'
+          ? normalizedItems.reduce(
+              (
+                total,
+                item
+              ) =>
+                total +
+                Number(
+                  item.weight_kg
+                ),
+              0
+            )
+          : requestedGrossWeightKg;
 
       const roundedGrossWeightKg =
         Number(
@@ -4967,6 +5045,16 @@ exports.syncFieldLiveWeighing =
             3
           )
         );
+
+      const averageWeightKg =
+        quantity > 0
+          ? Number(
+              (
+                roundedGrossWeightKg /
+                quantity
+              ).toFixed(3)
+            )
+          : null;
 
       const shrinkPercent =
         Number(
@@ -5350,11 +5438,12 @@ exports.syncFieldLiveWeighing =
                 net_weight_kg = $9,
                 price_per_kg = $10,
                 total_amount = $11,
+                weight_mode = $12,
                 updated_at = NOW()
 
               WHERE
-                id = $12
-                AND company_id = $13
+                id = $13
+                AND company_id = $14
 
               RETURNING *
             `,
@@ -5370,6 +5459,7 @@ exports.syncFieldLiveWeighing =
               netWeightKg,
               pricePerKg,
               totalAmount,
+              weightMode,
               existingWeighing.id,
               companyId,
             ],
@@ -5444,6 +5534,7 @@ exports.syncFieldLiveWeighing =
                 classification_id,
                 quantity,
                 gross_weight_kg,
+                weight_mode,
                 shrink_percent,
                 shrink_weight_kg,
                 net_weight_kg,
@@ -5470,10 +5561,11 @@ exports.syncFieldLiveWeighing =
                 $12,
                 $13,
                 $14,
+                $15,
                 false,
                 'draft',
-                $15,
-                $16
+                $16,
+                $17
               )
 
               RETURNING *
@@ -5488,6 +5580,7 @@ exports.syncFieldLiveWeighing =
               lot.classification_id,
               quantity,
               roundedGrossWeightKg,
+              weightMode,
               shrinkPercent,
               shrinkWeightKg,
               netWeightKg,
@@ -5587,6 +5680,11 @@ exports.syncFieldLiveWeighing =
             quantity,
             gross_weight_kg:
               roundedGrossWeightKg,
+            weight_mode:
+              weightMode,
+
+            average_weight_kg:
+              averageWeightKg,
             shrink_percent:
               shrinkPercent,
             shrink_weight_kg:
@@ -5655,10 +5753,16 @@ exports.syncFieldLiveWeighing =
           insertedItems,
 
         calculated: {
+          weight_mode:
+            weightMode,
+
           quantity,
 
           gross_weight_kg:
             roundedGrossWeightKg,
+
+          average_weight_kg:
+            averageWeightKg,
 
           shrink_percent:
             shrinkPercent,
