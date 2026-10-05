@@ -553,6 +553,15 @@ exports.getAssignedCaptureSheetById =
               spl.captador_notes_updated_at,
               spl.captador_notes_updated_by,
 
+              transport_request_summary.transport_request_id,
+              transport_request_summary.transport_request_status,
+
+              COALESCE(
+                troop_summary.confirmed_truck_count,
+                0
+              )::int
+                AS confirmed_truck_count,
+
               COALESCE(
                 troop_summary.troop_count,
                 0
@@ -594,6 +603,20 @@ exports.getAssignedCaptureSheetById =
               SELECT
                 COUNT(st.id)::int
                   AS troop_count,
+
+                COUNT(st.id) FILTER (
+                  WHERE
+                    st.transport_negotiation_id IS NOT NULL
+                    AND st.status IN (
+                      'transport_assigned',
+                      'dispatched',
+                      'in_transit',
+                      'received',
+                      'in_slaughter',
+                      'completed'
+                    )
+                )::int
+                  AS confirmed_truck_count,
 
                 COALESCE(
                   SUM(
@@ -685,6 +708,30 @@ exports.getAssignedCaptureSheetById =
                 AND st.status <>
                   'cancelled'
             ) troop_summary
+              ON true
+
+            LEFT JOIN LATERAL (
+              SELECT
+                tr.id
+                  AS transport_request_id,
+
+                tr.status
+                  AS transport_request_status
+
+              FROM transport_requests tr
+
+              WHERE
+                tr.purchase_lot_id =
+                  spl.id
+
+                AND tr.requester_company_id =
+                  spl.company_id
+
+              ORDER BY
+                tr.id DESC
+
+              LIMIT 1
+            ) transport_request_summary
               ON true
 
             WHERE
