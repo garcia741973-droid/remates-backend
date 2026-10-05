@@ -1,8 +1,11 @@
 const { pool } = require('../config/db');
 
+const admin =
+  require('firebase-admin');
 
 const {
   sendUserNotification,
+  sendSlaughterhouseOperatorNotification,
 } = require('../services/notificationService');
 
 // =====================================================
@@ -2514,6 +2517,120 @@ exports.assignFieldPurchaseLotTransport =
       await client.query(
         'COMMIT'
       );
+
+      // =====================================================
+      // 💬 MENSAJE INFORMATIVO AL CAMIONERO
+      //
+      // NO es una propuesta.
+      // NO requiere aceptar/rechazar.
+      // Solo deja trazabilidad dentro del chat del viaje.
+      // =====================================================
+
+      const assignmentMessage =
+        `✅ FRIGOSI te asignó un transporte.\n\n` +
+        `Lote: ${lot.lot_number}\n` +
+        `Animales previstos: ${expectedQuantity}\n` +
+        `Precio acordado: Bs ${finalTripPrice.toFixed(2)}\n\n` +
+        `Ingresa a Mis viajes → Preparar viaje.`;
+
+
+      // =====================================================
+      // MENSAJE SQL
+      // =====================================================
+
+      try {
+
+        await pool.query(
+          `
+            INSERT INTO transport_negotiation_messages (
+              negotiation_id,
+              sender_id,
+              message,
+              photo_url
+            )
+
+            VALUES (
+              $1,
+              $2,
+              $3,
+              NULL
+            )
+          `,
+          [
+            negotiation.id,
+            userId,
+            assignmentMessage,
+          ],
+        );
+
+
+        console.log(
+          '✅ FIELD DIRECT TRANSPORT SQL MESSAGE SAVED =>',
+          negotiation.id,
+        );
+
+
+      } catch (messageSqlError) {
+
+        console.error(
+          '❌ FIELD DIRECT TRANSPORT SQL MESSAGE ERROR:',
+          messageSqlError,
+        );
+
+      }
+
+
+      // =====================================================
+      // MENSAJE FIRESTORE
+      // =====================================================
+
+      try {
+
+        await admin
+          .firestore()
+          .collection(
+            'transport_negotiations'
+          )
+          .doc(
+            negotiation.id.toString()
+          )
+          .collection(
+            'messages'
+          )
+          .add({
+
+            sender_id:
+              0,
+
+            system:
+              true,
+
+            message:
+              assignmentMessage,
+
+            created_at:
+              admin
+                .firestore
+                .FieldValue
+                .serverTimestamp(),
+
+          });
+
+
+        console.log(
+          '✅ FIELD DIRECT TRANSPORT FIRESTORE MESSAGE SAVED =>',
+          negotiation.id,
+        );
+
+
+      } catch (firestoreError) {
+
+        console.error(
+          '❌ FIELD DIRECT TRANSPORT FIRESTORE MESSAGE ERROR:',
+          firestoreError,
+        );
+
+      }
 
       // =====================================================
       // 🔔 NOTIFICAR AL CAMIONERO
