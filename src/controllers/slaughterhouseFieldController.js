@@ -2697,138 +2697,77 @@ exports.assignFieldPurchaseLotTransport =
       // =====================================================
       // 🔔 NOTIFICAR A OPERACIONES / ADMIN
       //
-      // El Captador ya asignó un transporte.
-      // El Operador debe generar el QR de campo por tropa.
-      //
-      // También queda fuera de la transacción:
-      // una falla de push NO revierte la asignación.
+      // Guarda en user_notifications + intenta FCM.
+      // La web consulta esta bandeja cada 10 segundos.
       // =====================================================
 
       try {
 
-        const operatorUsersResult =
-          await pool.query(
-            `
-              SELECT DISTINCT
-                sur.user_id
+        await sendSlaughterhouseOperatorNotification({
 
-              FROM slaughterhouse_user_roles sur
+          companyId,
 
-              JOIN slaughterhouse_roles sr
-                ON sr.id =
-                  sur.role_id
-                AND sr.company_id =
-                  sur.company_id
-                AND sr.is_active = true
+          permissionCode:
+            'notifications.field_qr_pending',
 
-              JOIN users u
-                ON u.id =
-                  sur.user_id
-                AND u.is_active = true
-                AND u.deleted_at IS NULL
+          title:
+            'Transporte asignado',
 
-              JOIN user_companies uc
-                ON uc.user_id =
-                  sur.user_id
-                AND uc.company_id =
-                  sur.company_id
-                AND uc.role =
-                  'slaughterhouse_operator'
-                AND uc.company_status =
-                  'approved'
+          body:
+            `Lote ${lot.lot_number} · ` +
+            `Camión ${truck.plate}. ` +
+            'Falta generar el QR de campo.',
 
-              WHERE
-                sur.company_id = $1
+          data: {
 
-                AND sr.code IN (
-                  'admin',
-                  'operations'
-                )
-            `,
-            [
-              companyId,
-            ],
-          );
+            type:
+              'slaughterhouse_field_qr_pending',
 
+            purchase_lot_id:
+              purchaseLotId,
 
-        for (
-          const operatorUser
-          of operatorUsersResult.rows
-        ) {
+            capture_sheet_id:
+              lot.capture_sheet_id,
 
-          try {
+            request_id:
+              transportRequest.id,
 
-            await sendUserNotification({
+            negotiation_id:
+              negotiation.id,
 
-              userId:
-                Number(
-                  operatorUser.user_id
-                ),
+            troop_id:
+              troop.id,
 
-              title:
-                'Transporte asignado',
+            truck_id:
+              truck.truck_id,
 
-              body:
-                `Lote ${lot.lot_number} · ` +
-                `Camión ${truck.plate}. ` +
-                'Falta generar el QR de campo.',
+          },
 
-              data: {
+          eventKey:
+            `field_qr_pending:${purchaseLotId}:${troop.id}`,
 
-                type:
-                  'slaughterhouse_field_qr_pending',
-
-                purchase_lot_id:
-                  purchaseLotId,
-
-                capture_sheet_id:
-                  lot.capture_sheet_id,
-
-                request_id:
-                  transportRequest.id,
-
-                negotiation_id:
-                  negotiation.id,
-
-                troop_id:
-                  troop.id,
-
-                truck_id:
-                  truck.truck_id,
-
-              },
-
-            });
+        });
 
 
-            console.log(
-              '✅ FIELD QR PENDING OPERATOR NOTIFIED =>',
-              operatorUser.user_id,
-            );
+        console.log(
+          '✅ FIELD QR PENDING NOTIFICATION CREATED =>',
+          {
+            purchase_lot_id:
+              purchaseLotId,
 
-
-          } catch (
-            operatorNotificationError
-          ) {
-
-            console.error(
-              '❌ FIELD QR PENDING OPERATOR NOTIFICATION ERROR =>',
-              operatorUser.user_id,
-              operatorNotificationError,
-            );
-
-          }
-
-        }
+            troop_id:
+              troop.id,
+          },
+        );
 
 
       } catch (
-        operatorUsersError
+        operatorNotificationError
       ) {
 
         console.error(
-          '❌ FIELD QR PENDING OPERATOR USERS ERROR:',
-          operatorUsersError,
+          '❌ FIELD QR PENDING NOTIFICATION ERROR:',
+          operatorNotificationError,
         );
 
       }
