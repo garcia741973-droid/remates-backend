@@ -41639,13 +41639,26 @@ exports.generatePreliquidationDraft =
       );
 
 
-      return res.status(201).json({
-        success: true,
+      return res
+        .status(
+          existingDraft
+            ? 200
+            : 201
+        )
+        .json({
+          success: true,
 
-        message:
-          'Preliquidación generada correctamente',
+          operation:
+            existingDraft
+              ? 'recalculate_draft'
+              : 'generate_draft',
 
-        preliquidation,
+          message:
+            existingDraft
+              ? 'Borrador recalculado correctamente'
+              : 'Preliquidación generada correctamente',
+
+          preliquidation,
 
         source_summary: {
           source_type:
