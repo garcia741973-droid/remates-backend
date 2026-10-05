@@ -20,6 +20,7 @@ const {
   updateFieldCaptadorNotes,
   getFieldApprovedTransportTrucks,
   assignFieldPurchaseLotTransport,
+  closeFieldPurchaseLotTransportRequest,
 } = require(
   '../controllers/slaughterhouseFieldController'
 );
@@ -68,6 +69,11 @@ router.get(
 router.post(
   '/purchase-lots/:id/assign-transport',
   assignFieldPurchaseLotTransport,
+);
+
+router.post(
+  '/purchase-lots/:id/close-transport-request',
+  closeFieldPurchaseLotTransportRequest,
 );
 
 // =====================================================

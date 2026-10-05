@@ -1684,10 +1684,13 @@ exports.assignFieldPurchaseLotTransport =
       }
 
       // =================================================
-      // BUSCAR SOLICITUD ABIERTA DEL LOTE
+      // BUSCAR ÚLTIMA SOLICITUD DEL LOTE
+      //
+      // Si la última solicitud fue cerrada por el Captador,
+      // NO se debe crear otra automáticamente.
       // =================================================
 
-      const existingRequestResult =
+      const latestRequestResult =
         await client.query(
           `
             SELECT *
@@ -1697,7 +1700,6 @@ exports.assignFieldPurchaseLotTransport =
             WHERE
               purchase_lot_id = $1
               AND requester_company_id = $2
-              AND status = 'open'
 
             ORDER BY id DESC
 
@@ -1716,11 +1718,32 @@ exports.assignFieldPurchaseLotTransport =
 
 
       if (
-        existingRequestResult.rows.length > 0
+        latestRequestResult.rows.length > 0 &&
+        latestRequestResult.rows[0].status === 'closed'
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'La solicitud de camiones de este lote ya fue cerrada',
+          code:
+            'transport_request_closed',
+          request_id:
+            latestRequestResult.rows[0].id,
+        });
+      }
+
+
+      if (
+        latestRequestResult.rows.length > 0 &&
+        latestRequestResult.rows[0].status === 'open'
       ) {
 
         transportRequest =
-          existingRequestResult.rows[0];
+          latestRequestResult.rows[0];
 
       } else {
 
@@ -2848,6 +2871,499 @@ exports.assignFieldPurchaseLotTransport =
       return res.status(500).json({
         error:
           'Error asignando el camión al lote',
+      });
+
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+// =====================================================
+// 🔒 CERRAR SOLICITUD DE CAMIONES DESDE CAPTADOR
+//
+// POST
+// /slaughterhouse/field/purchase-lots/:id/close-transport-request
+//
+// REGLAS:
+// - Solo Captador activo.
+// - El lote debe pertenecer al Captador autenticado.
+// - Debe existir una solicitud open.
+// - Debe existir al menos un camión ya asignado.
+// - NO cancela camiones confirmados.
+// - NO modifica tropas asignadas.
+// - Cancela únicamente propuestas todavía open.
+// =====================================================
+
+exports.closeFieldPurchaseLotTransportRequest =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    try {
+
+      const userId =
+        Number(
+          req.user?.user_id ??
+          req.user?.id
+        );
+
+      const companyId =
+        Number(
+          req.user?.company_id
+        );
+
+      const purchaseLotId =
+        Number(
+          req.params.id
+        );
+
+
+      if (
+        !Number.isInteger(userId) ||
+        userId <= 0
+      ) {
+        return res.status(401).json({
+          error:
+            'Usuario autenticado inválido',
+        });
+      }
+
+
+      if (
+        !Number.isInteger(companyId) ||
+        companyId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'Contexto de empresa inválido',
+        });
+      }
+
+
+      if (
+        !Number.isInteger(purchaseLotId) ||
+        purchaseLotId <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            'ID de lote inválido',
+        });
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+
+      // =================================================
+      // IDENTIFICAR CAPTADOR
+      // =================================================
+
+      const captadorResult =
+        await client.query(
+          `
+            SELECT
+              sp.id,
+              sp.full_name
+
+            FROM slaughterhouse_people sp
+
+            JOIN slaughterhouse_person_roles spr
+              ON spr.person_id = sp.id
+              AND spr.role = 'captador'
+              AND spr.is_active = true
+
+            WHERE
+              sp.company_id = $1
+              AND sp.user_id = $2
+              AND sp.is_active = true
+
+            LIMIT 1
+
+            FOR UPDATE OF sp
+          `,
+          [
+            companyId,
+            userId,
+          ],
+        );
+
+
+      if (
+        captadorResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(403).json({
+          error:
+            'El usuario no está habilitado como captador/comprador en este frigorífico',
+        });
+      }
+
+
+      const captador =
+        captadorResult.rows[0];
+
+
+      // =================================================
+      // VALIDAR QUE EL LOTE PERTENECE AL CAPTADOR
+      // =================================================
+
+      const lotResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              lot_number,
+              status,
+              capture_sheet_id,
+              captador_person_id
+
+            FROM slaughterhouse_purchase_lots
+
+            WHERE
+              id = $1
+              AND company_id = $2
+              AND captador_person_id = $3
+
+            FOR UPDATE
+          `,
+          [
+            purchaseLotId,
+            companyId,
+            captador.id,
+          ],
+        );
+
+
+      if (
+        lotResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(404).json({
+          error:
+            'El lote no existe o no está asignado a este captador',
+        });
+      }
+
+
+      const lot =
+        lotResult.rows[0];
+
+
+      // =================================================
+      // BUSCAR SOLICITUD ABIERTA
+      // =================================================
+
+      const requestResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM transport_requests
+
+            WHERE
+              purchase_lot_id = $1
+              AND requester_company_id = $2
+              AND status = 'open'
+
+            ORDER BY id DESC
+
+            LIMIT 1
+
+            FOR UPDATE
+          `,
+          [
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+
+      if (
+        requestResult.rows.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Este lote no tiene una solicitud de camiones abierta',
+          code:
+            'no_open_transport_request',
+        });
+      }
+
+
+      const transportRequest =
+        requestResult.rows[0];
+
+
+      // =================================================
+      // DEBE HABER AL MENOS UN CAMIÓN ASIGNADO
+      // =================================================
+
+      const confirmedResult =
+        await client.query(
+          `
+            SELECT
+              COUNT(*)::int AS total
+
+            FROM slaughterhouse_troops
+
+            WHERE
+              company_id = $1
+              AND purchase_lot_id = $2
+              AND transport_request_id = $3
+              AND transport_negotiation_id IS NOT NULL
+              AND status IN (
+                'transport_assigned',
+                'dispatched',
+                'in_transit',
+                'received',
+                'in_slaughter',
+                'completed'
+              )
+          `,
+          [
+            companyId,
+            purchaseLotId,
+            transportRequest.id,
+          ],
+        );
+
+
+      const confirmedTrucks =
+        Number(
+          confirmedResult.rows[0]
+            ?.total || 0
+        );
+
+
+      if (
+        confirmedTrucks <= 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'Todavía no existe ningún camión asignado para este lote',
+          code:
+            'no_confirmed_trucks',
+        });
+      }
+
+
+      // =================================================
+      // CERRAR SOLICITUD
+      // =================================================
+
+      const closedRequestResult =
+        await client.query(
+          `
+            UPDATE transport_requests
+
+            SET
+              status = 'closed'
+
+            WHERE
+              id = $1
+              AND status = 'open'
+
+            RETURNING *
+          `,
+          [
+            transportRequest.id,
+          ],
+        );
+
+
+      // =================================================
+      // CANCELAR TROPAS PENDIENTES SIN CAMIÓN
+      // =================================================
+
+      const cancelledPendingTroopsResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_troops
+
+            SET
+              status = 'cancelled',
+              notes =
+                concat_ws(
+                  ' | ',
+                  NULLIF(
+                    notes,
+                    ''
+                  ),
+                  'Solicitud de transporte cerrada sin camión asignado'
+                ),
+              updated_at = NOW()
+
+            WHERE
+              company_id = $1
+              AND purchase_lot_id = $2
+              AND transport_request_id = $3
+              AND status = 'transport_requested'
+              AND transport_negotiation_id IS NULL
+
+            RETURNING id
+          `,
+          [
+            companyId,
+            purchaseLotId,
+            transportRequest.id,
+          ],
+        );
+
+
+      // =================================================
+      // CANCELAR SOLO PROPUESTAS OPEN
+      // =================================================
+
+      const cancelledNegotiationsResult =
+        await client.query(
+          `
+            UPDATE transport_negotiations
+
+            SET
+              status = 'cancelled',
+              cancelled = true,
+              cancelled_by = $2
+
+            WHERE
+              request_id = $1
+              AND status = 'open'
+
+            RETURNING id
+          `,
+          [
+            transportRequest.id,
+            userId,
+          ],
+        );
+
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+
+          VALUES (
+            $1,
+            $2,
+            'transport_request',
+            $3,
+            'field_close_transport_request',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+          userId,
+          String(
+            transportRequest.id
+          ),
+          JSON.stringify(
+            transportRequest
+          ),
+          JSON.stringify({
+            ...closedRequestResult.rows[0],
+
+            confirmed_trucks:
+              confirmedTrucks,
+
+            cancelled_pending_troops:
+              cancelledPendingTroopsResult
+                .rows
+                .map(
+                  row => row.id
+                ),
+
+            cancelled_open_negotiations:
+              cancelledNegotiationsResult
+                .rows
+                .map(
+                  row => row.id
+                ),
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+
+      return res.json({
+        success: true,
+
+        message:
+          'Solicitud de camiones cerrada correctamente',
+
+        purchase_lot_id:
+          purchaseLotId,
+
+        lot_number:
+          lot.lot_number,
+
+        request:
+          closedRequestResult.rows[0],
+
+        confirmed_trucks:
+          confirmedTrucks,
+      });
+
+
+    } catch (error) {
+
+      try {
+        await client.query(
+          'ROLLBACK'
+        );
+      } catch (_) {}
+
+
+      console.error(
+        'CLOSE FIELD TRANSPORT REQUEST ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error cerrando la solicitud de camiones',
       });
 
 
