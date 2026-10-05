@@ -978,6 +978,31 @@ exports.issueFieldAuthorization =
         result.rows[0];
 
       // ===============================================
+      // VINCULAR AUTORIZACIÓN QR CON LA TROPA
+      // ===============================================
+
+      await client.query(
+        `
+          UPDATE slaughterhouse_troops
+
+          SET
+            field_authorization_id = $1,
+            updated_at = NOW()
+
+          WHERE
+            id = $2
+            AND company_id = $3
+            AND purchase_lot_id = $4
+        `,
+        [
+          authorization.id,
+          troopId,
+          companyId,
+          purchaseLotId,
+        ],
+      );
+
+      // ===============================================
       // AUDITORÍA
       //
       // NO guardamos token,
