@@ -39766,7 +39766,10 @@ exports.generatePreliquidationDraft =
                       )
                   ELSE NULL
                 END
-                  AS net_weight_kg
+                  AS net_weight_kg,
+
+                srt.live_weight_kg
+                  AS plant_live_weight_kg
 
               FROM active_troops st
 
@@ -39839,6 +39842,23 @@ exports.generatePreliquidationDraft =
                 0
               )::numeric
                 AS net_weight_kg,
+
+              COUNT(*) FILTER (
+                WHERE
+                  plant_live_weight_kg IS NOT NULL
+                  AND plant_live_weight_kg > 0
+              )::int
+                AS plant_weighed_troops,
+
+              COALESCE(
+                SUM(plant_live_weight_kg) FILTER (
+                  WHERE
+                    plant_live_weight_kg IS NOT NULL
+                    AND plant_live_weight_kg > 0
+                ),
+                0
+              )::numeric
+                AS plant_live_weight_kg,
 
               CASE
                 WHEN COUNT(*) = 0
@@ -40019,6 +40039,18 @@ exports.generatePreliquidationDraft =
             Number(
               initialWeightSource
                 .plant_troops || 0
+            ),
+
+          plant_weighed_troops:
+            Number(
+              initialWeightSource
+                .plant_weighed_troops || 0
+            ),
+
+          plant_live_weight_kg:
+            Number(
+              initialWeightSource
+                .plant_live_weight_kg || 0
             ),
 
           missing_weight_troops:
