@@ -2833,12 +2833,6 @@ exports.assignFieldPurchaseLotTransport =
         );
 
 
-        console.log(
-          '✅ FIELD DIRECT TRANSPORT SQL MESSAGE SAVED =>',
-          negotiation.id,
-        );
-
-
       } catch (messageSqlError) {
 
         console.error(
@@ -2884,12 +2878,6 @@ exports.assignFieldPurchaseLotTransport =
                 .serverTimestamp(),
 
           });
-
-
-        console.log(
-          '✅ FIELD DIRECT TRANSPORT FIRESTORE MESSAGE SAVED =>',
-          negotiation.id,
-        );
 
 
       } catch (firestoreError) {
@@ -2946,12 +2934,6 @@ exports.assignFieldPurchaseLotTransport =
           },
 
         });
-
-
-        console.log(
-          '✅ FIELD DIRECT TRANSPORTER NOTIFIED =>',
-          truck.transporter_user_id,
-        );
 
 
       } catch (notificationError) {
@@ -3019,18 +3001,6 @@ exports.assignFieldPurchaseLotTransport =
             `field_qr_pending:${purchaseLotId}:${troop.id}`,
 
         });
-
-
-        console.log(
-          '✅ FIELD QR PENDING NOTIFICATION CREATED =>',
-          {
-            purchase_lot_id:
-              purchaseLotId,
-
-            troop_id:
-              troop.id,
-          },
-        );
 
 
       } catch (
