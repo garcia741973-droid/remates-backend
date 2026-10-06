@@ -228,6 +228,10 @@ const {
 
   updateNotificationRecipient,
 
+  getNotificationEventUsers,
+
+  updateNotificationEventUsers,
+
   getSellerPaymentsReport,
 
   getCaptadorPaymentsReport,
@@ -2239,6 +2243,46 @@ router.put(
   ),
 
   updateNotificationRecipient,
+
+);
+
+// =====================================================
+// 🔔 CONFIGURACIÓN DE NOTIFICACIONES POR EVENTO
+// =====================================================
+
+router.get(
+
+  '/notification-event-users',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'reception.view'
+
+  ),
+
+  getNotificationEventUsers,
+
+);
+
+router.put(
+
+  '/notification-event-users',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+
+    'reception.manage'
+
+  ),
+
+  updateNotificationEventUsers,
 
 );
 

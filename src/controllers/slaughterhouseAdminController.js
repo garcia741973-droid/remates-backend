@@ -51165,6 +51165,323 @@ exports.updateNotificationRecipient =
   };
 
 // =====================================================
+// 🔔 CONFIGURACIÓN DE NOTIFICACIONES POR EVENTO
+//
+// Solo usuarios existentes en Plaza Ganadera,
+// activos y aprobados dentro de la empresa.
+//
+// GET /slaughterhouse/admin/notification-event-users
+// PUT /slaughterhouse/admin/notification-event-users
+// =====================================================
+
+const SLAUGHTERHOUSE_NOTIFICATION_EVENTS = [
+  'transport_proposal',
+  'field_qr_pending',
+  'truck_arrival',
+  'reception_completed',
+  'delivery_completed',
+  'slaughter_started',
+  'slaughter_finished',
+];
+
+// =====================================================
+// GET
+// =====================================================
+
+exports.getNotificationEventUsers =
+  async (req, res) => {
+    try {
+      const companyId = Number(
+        req.slaughterhouseAdmin.company_id,
+      );
+
+      // ===============================================
+      // USUARIOS PG APROBADOS EN LA EMPRESA
+      // ===============================================
+
+      const usersResult = await pool.query(
+        `
+          SELECT DISTINCT
+            u.id,
+            COALESCE(
+              NULLIF(u.full_name, ''),
+              NULLIF(u.name, ''),
+              u.email
+            ) AS name,
+            u.email,
+            u.phone,
+            u.role,
+            u.fcm_token IS NOT NULL
+              AND LENGTH(TRIM(u.fcm_token)) > 0
+              AS has_push
+          FROM user_companies uc
+
+          JOIN users u
+            ON u.id = uc.user_id
+
+          WHERE uc.company_id = $1
+            AND uc.company_status = 'approved'
+            AND COALESCE(u.is_active, TRUE) = TRUE
+            AND u.deleted_at IS NULL
+
+          ORDER BY
+            name ASC,
+            u.id ASC
+        `,
+        [
+          companyId,
+        ],
+      );
+
+      // ===============================================
+      // CONFIGURACIÓN ACTUAL
+      // ===============================================
+
+      const assignmentsResult =
+        await pool.query(
+          `
+            SELECT
+              event_code,
+              user_id
+            FROM slaughterhouse_notification_event_users
+            WHERE company_id = $1
+            ORDER BY
+              event_code ASC,
+              user_id ASC
+          `,
+          [
+            companyId,
+          ],
+        );
+
+      return res.json({
+        success: true,
+
+        events:
+          SLAUGHTERHOUSE_NOTIFICATION_EVENTS,
+
+        users:
+          usersResult.rows,
+
+        assignments:
+          assignmentsResult.rows,
+      });
+    } catch (error) {
+      console.error(
+        'GET SLAUGHTERHOUSE NOTIFICATION EVENT USERS ERROR:',
+        error,
+      );
+
+      return res.status(500).json({
+        error:
+          'Error obteniendo configuración de notificaciones',
+      });
+    }
+  };
+
+// =====================================================
+// PUT
+//
+// BODY:
+// {
+//   "event_code": "truck_arrival",
+//   "user_ids": [59, 61]
+// }
+// =====================================================
+
+exports.updateNotificationEventUsers =
+  async (req, res) => {
+    const client =
+      await pool.connect();
+
+    try {
+      const companyId = Number(
+        req.slaughterhouseAdmin.company_id,
+      );
+
+      const actorUserId = Number(
+        req.slaughterhouseAdmin.user_id,
+      );
+
+      const eventCode =
+        req.body.event_code
+          ?.toString()
+          .trim() ||
+        '';
+
+      const rawUserIds =
+        Array.isArray(req.body.user_ids)
+          ? req.body.user_ids
+          : [];
+
+      const userIds = [
+        ...new Set(
+          rawUserIds
+            .map((value) =>
+              Number(value),
+            )
+            .filter(
+              (value) =>
+                Number.isInteger(value) &&
+                value > 0,
+            ),
+        ),
+      ];
+
+      // ===============================================
+      // VALIDAR EVENTO
+      // ===============================================
+
+      if (
+        !SLAUGHTERHOUSE_NOTIFICATION_EVENTS
+          .includes(eventCode)
+      ) {
+        return res.status(400).json({
+          error:
+            'Evento de notificación inválido',
+        });
+      }
+
+      await client.query('BEGIN');
+
+      // ===============================================
+      // VALIDAR QUE TODOS LOS USUARIOS:
+      // - EXISTAN EN PG
+      // - ESTÉN ACTIVOS
+      // - PERTENEZCAN A ESTA EMPRESA
+      // - ESTÉN APROBADOS
+      // ===============================================
+
+      if (userIds.length > 0) {
+        const validUsersResult =
+          await client.query(
+            `
+              SELECT DISTINCT
+                u.id
+              FROM user_companies uc
+
+              JOIN users u
+                ON u.id = uc.user_id
+
+              WHERE uc.company_id = $1
+                AND uc.company_status = 'approved'
+                AND COALESCE(u.is_active, TRUE) = TRUE
+                AND u.deleted_at IS NULL
+                AND u.id = ANY($2::int[])
+            `,
+            [
+              companyId,
+              userIds,
+            ],
+          );
+
+        const validUserIds =
+          validUsersResult.rows.map(
+            (row) => Number(row.id),
+          );
+
+        if (
+          validUserIds.length !==
+          userIds.length
+        ) {
+          await client.query(
+            'ROLLBACK',
+          );
+
+          return res.status(400).json({
+            error:
+              'Uno o más usuarios no pertenecen a la empresa o no están activos en Plaza Ganadera',
+          });
+        }
+      }
+
+      // ===============================================
+      // REEMPLAZAR CONFIGURACIÓN DEL EVENTO
+      // ===============================================
+
+      await client.query(
+        `
+          DELETE FROM slaughterhouse_notification_event_users
+          WHERE company_id = $1
+            AND event_code = $2
+        `,
+        [
+          companyId,
+          eventCode,
+        ],
+      );
+
+      if (userIds.length > 0) {
+        await client.query(
+          `
+            INSERT INTO slaughterhouse_notification_event_users (
+              company_id,
+              event_code,
+              user_id,
+              created_by,
+              created_at
+            )
+
+            SELECT
+              $1,
+              $2,
+              selected_user_id,
+              $3,
+              NOW()
+
+            FROM unnest(
+              $4::int[]
+            ) AS selected_user_id
+          `,
+          [
+            companyId,
+            eventCode,
+            actorUserId,
+            userIds,
+          ],
+        );
+      }
+
+      await client.query(
+        'COMMIT',
+      );
+
+      return res.json({
+        success: true,
+
+        message:
+          'Destinatarios actualizados correctamente',
+
+        event_code:
+          eventCode,
+
+        user_ids:
+          userIds,
+      });
+    } catch (error) {
+      try {
+        await client.query(
+          'ROLLBACK',
+        );
+      } catch (_) {
+        // Nada.
+      }
+
+      console.error(
+        'UPDATE SLAUGHTERHOUSE NOTIFICATION EVENT USERS ERROR:',
+        error,
+      );
+
+      return res.status(500).json({
+        error:
+          'Error actualizando destinatarios de notificaciones',
+      });
+    } finally {
+      client.release();
+    }
+  };
+
+// =====================================================
 // 📊 INFORMES PERSONALIZADOS — CATÁLOGO
 //
 // GET /slaughterhouse/admin/reports/catalog
