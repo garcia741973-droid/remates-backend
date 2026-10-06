@@ -44086,6 +44086,18 @@ exports.getSellerPreliquidationPdf =
             ) / 100
           : null;
 
+      const averageLiveWeightKg =
+        netLiveWeightKg > 0 &&
+        receivedAnimals > 0
+          ? Math.round(
+              (
+                netLiveWeightKg /
+                receivedAnimals +
+                Number.EPSILON
+              ) *
+              100
+            ) / 100
+          : null;
 
       // =================================================
       // HELPERS
@@ -44597,6 +44609,26 @@ exports.getSellerPreliquidationPdf =
             2,
           )} kg`,
         );
+
+        if (
+          averageLiveWeightKg !== null
+        ) {
+
+          detailRow(
+            safeText(
+              data.pricing_basis ||
+                data.purchase_pricing_basis,
+              '',
+            ) === 'live_kg'
+              ? 'Peso vivo promedio liquidable'
+              : 'Peso vivo promedio de referencia',
+            `${formatNumber(
+              averageLiveWeightKg,
+              2,
+            )} kg/cabeza`,
+          );
+
+        }
 
       }
 
