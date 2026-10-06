@@ -51211,9 +51211,14 @@ exports.getNotificationEventUsers =
             u.email,
             u.phone,
             u.role,
-            u.fcm_token IS NOT NULL
-              AND LENGTH(TRIM(u.fcm_token)) > 0
-              AS has_push
+
+            EXISTS (
+              SELECT 1
+              FROM devices d
+              WHERE d.user_id = u.id
+                AND d.fcm_token IS NOT NULL
+                AND LENGTH(TRIM(d.fcm_token)) > 0
+            ) AS has_push
           FROM user_companies uc
 
           JOIN users u
