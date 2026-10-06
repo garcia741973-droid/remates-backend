@@ -44803,79 +44803,254 @@ exports.getSellerPreliquidationPdf =
       }
       
       // =================================================
-      // LIQUIDACIÓN
+      // BASE DE CÁLCULO
       // =================================================
 
       sectionTitle(
-        'DETALLE DE LIQUIDACIÓN',
+        'BASE DE CÁLCULO',
       );
 
 
-      const quantity =
-        data.quantity ??
-        data.expected_quantity;
+      const pricingBasis =
+        safeText(
+          data.pricing_basis ||
+            data.purchase_pricing_basis,
+          '',
+        );
 
+
+      detailRow(
+        'Modalidad de compra',
+        pricingBasisLabel,
+      );
+
+
+      // =================================================
+      // KILO VIVO
+      // =================================================
 
       if (
-        quantity !== null &&
-        quantity !== undefined
+        pricingBasis === 'live_kg'
       ) {
 
         detailRow(
-          'Cantidad',
+          'Origen del peso',
+          weightSourceLabel,
+        );
+
+
+        const grossWeight =
+          numberValue(
+            data.gross_weight_kg,
+          );
+
+
+        const shrinkPercentValue =
+          numberValue(
+            data.shrink_percent,
+          );
+
+
+        const shrinkWeight =
+          numberValue(
+            data.shrink_weight_kg,
+          );
+
+
+        const netWeight =
+          numberValue(
+            data.net_weight_kg,
+          );
+
+
+        const pricePerKg =
+          numberValue(
+            data.unit_price ??
+              data.price_per_kg ??
+              data.price_per_unit,
+          );
+
+
+        if (
+          grossWeight !== null
+        ) {
+
+          detailRow(
+            'Peso bruto',
+            `${formatNumber(
+              grossWeight,
+              2,
+            )} kg`,
+          );
+
+        }
+
+
+        if (
+          shrinkPercentValue !== null
+        ) {
+
+          detailRow(
+            'Merma aplicada',
+            `${formatNumber(
+              shrinkPercentValue,
+              2,
+            )} %`,
+          );
+
+        }
+
+
+        if (
+          shrinkWeight !== null
+        ) {
+
+          detailRow(
+            'Peso de merma',
+            `${formatNumber(
+              shrinkWeight,
+              2,
+            )} kg`,
+          );
+
+        }
+
+
+        if (
+          netWeight !== null
+        ) {
+
+          detailRow(
+            'Peso neto liquidable',
+            `${formatNumber(
+              netWeight,
+              2,
+            )} kg`,
+          );
+
+        }
+
+
+        if (
+          pricePerKg !== null
+        ) {
+
+          detailRow(
+            'Precio por kg vivo',
+            formatMoney(
+              pricePerKg,
+            ),
+          );
+
+        }
+
+      }
+
+
+      // =================================================
+      // KILO GANCHO
+      // =================================================
+
+      else if (
+        pricingBasis === 'hook_kg'
+      ) {
+
+        const paymentHookWeight =
+          numberValue(
+            data.hook_weight_kg,
+          ) ??
+          hookWeightKg;
+
+
+        const hookPrice =
+          numberValue(
+            data.unit_price ??
+              data.price_per_kg ??
+              data.price_per_unit,
+          );
+
+
+        if (
+          paymentHookWeight > 0
+        ) {
+
+          detailRow(
+            'Peso total carcasa',
+            `${formatNumber(
+              paymentHookWeight,
+              2,
+            )} kg`,
+          );
+
+        }
+
+
+        if (
+          hookPrice !== null
+        ) {
+
+          detailRow(
+            'Precio por kg gancho',
+            formatMoney(
+              hookPrice,
+            ),
+          );
+
+        }
+
+      }
+
+
+      // =================================================
+      // POR CABEZA
+      // =================================================
+
+      else if (
+        pricingBasis === 'per_head'
+      ) {
+
+        const paymentQuantity =
+          numberValue(
+            data.quantity,
+          ) ??
+          receivedAnimals;
+
+
+        const headPrice =
+          numberValue(
+            data.unit_price ??
+              data.price_per_unit,
+          );
+
+
+        detailRow(
+          'Cantidad liquidada',
           formatNumber(
-            quantity,
+            paymentQuantity,
             0,
           ),
         );
 
-      }
 
+        if (
+          headPrice !== null
+        ) {
 
-      const netWeight =
-        numberValue(
-          data.net_weight_kg,
-        );
+          detailRow(
+            'Precio por cabeza',
+            formatMoney(
+              headPrice,
+            ),
+          );
 
-
-      if (
-        netWeight !== null &&
-        netWeight > 0
-      ) {
-
-        detailRow(
-          'Peso neto liquidable',
-          `${formatNumber(
-            netWeight,
-            2,
-          )} kg`,
-        );
+        }
 
       }
 
 
-      const unitPrice =
-        data.unit_price ??
-        data.price_per_unit;
-
-
-      if (
-        unitPrice !== null &&
-        unitPrice !== undefined
-      ) {
-
-        detailRow(
-          pricingBasisLabel ===
-            'Por cabeza'
-            ? 'Precio por cabeza'
-            : 'Precio por kg',
-          formatMoney(
-            unitPrice,
-          ),
-        );
-
-      }
-
+      // =================================================
+      // IMPORTE BASE
+      // =================================================
 
       detailRow(
         'Importe base',
@@ -44883,7 +45058,6 @@ exports.getSellerPreliquidationPdf =
           data.base_amount,
         ),
       );
-
 
       // =================================================
       // AJUSTES DEL GANADERO
