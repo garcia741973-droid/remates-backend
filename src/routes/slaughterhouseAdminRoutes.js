@@ -190,6 +190,8 @@ const {
 
   getPreliquidationById,
 
+  getSellerPreliquidationPdf,
+
   updatePreliquidationUnitPrice,
 
   setPreliquidationCommissionOverride,
@@ -1539,6 +1541,26 @@ router.patch(
   ),
 
   cancelPreliquidation,
+
+);
+
+// =====================================================
+// PDF DE PRELIQUIDACIÓN PARA EL GANADERO
+// =====================================================
+
+router.get(
+
+  '/preliquidations/:id/seller-pdf',
+
+  requireAuth,
+
+  requireSlaughterhouseAdmin,
+
+  requireSlaughterhousePermission(
+    'preliquidation.export'
+  ),
+
+  getSellerPreliquidationPdf,
 
 );
 

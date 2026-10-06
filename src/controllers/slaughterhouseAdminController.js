@@ -43563,7 +43563,871 @@ exports.getPreliquidationById =
     }
 
   };
-  
+
+// =====================================================
+// 📄 PDF DE PRELIQUIDACIÓN PARA EL GANADERO
+// GET /slaughterhouse/admin/preliquidations/:id/seller-pdf
+//
+// IMPORTANTE:
+// Este documento contiene únicamente información
+// correspondiente al vendedor / ganadero.
+//
+// NO incluye:
+// - transporte
+// - comisionista
+// - costos internos
+// - obligaciones globales del frigorífico
+// =====================================================
+
+exports.getSellerPreliquidationPdf =
+  async (req, res) => {
+
+    try {
+
+      const PDFDocument =
+        require('pdfkit');
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+      const preliquidationId =
+        Number(
+          req.params.id
+        );
+
+
+      if (
+        !Number.isInteger(preliquidationId) ||
+        preliquidationId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de preliquidación inválido',
+        });
+
+      }
+
+
+      // =================================================
+      // 1. PRELIQUIDACIÓN + DATOS DEL GANADERO
+      // =================================================
+
+      const result =
+        await pool.query(
+          `
+            SELECT
+              sp.*,
+
+              spl.lot_number,
+              spl.expected_quantity,
+              spl.price_per_unit,
+              spl.pricing_basis
+                AS purchase_pricing_basis,
+              spl.weight_source
+                AS purchase_weight_source,
+              spl.planned_payment_date,
+              spl.payment_terms,
+
+              seller.full_name
+                AS seller_name,
+              seller.document_type
+                AS seller_document_type,
+              seller.document_number
+                AS seller_document_number,
+              seller.phone
+                AS seller_phone,
+
+              estate.name
+                AS estate_name,
+
+              ac.generated_code
+                AS classification_code,
+              ac.display_name
+                AS classification_name
+
+            FROM slaughterhouse_preliquidations sp
+
+            JOIN slaughterhouse_purchase_lots spl
+              ON spl.id =
+                sp.purchase_lot_id
+              AND spl.company_id =
+                sp.company_id
+
+            LEFT JOIN slaughterhouse_people seller
+              ON seller.id =
+                spl.seller_person_id
+
+            LEFT JOIN slaughterhouse_estates estate
+              ON estate.id =
+                spl.estate_id
+
+            LEFT JOIN slaughterhouse_animal_classifications ac
+              ON ac.id =
+                spl.classification_id
+
+            WHERE
+              sp.id = $1
+              AND sp.company_id = $2
+
+            LIMIT 1
+          `,
+          [
+            preliquidationId,
+            companyId,
+          ],
+        );
+
+
+      if (result.rows.length === 0) {
+
+        return res.status(404).json({
+          error:
+            'Preliquidación no encontrada',
+        });
+
+      }
+
+
+      const data =
+        result.rows[0];
+
+
+      // =================================================
+      // 2. AJUSTES EXCLUSIVOS DEL GANADERO
+      // =================================================
+
+      const adjustmentsResult =
+        await pool.query(
+          `
+            SELECT
+              id,
+              code,
+              description,
+              adjustment_type,
+              calculation_type,
+              rate,
+              quantity,
+              amount,
+              created_at
+
+            FROM slaughterhouse_preliquidation_adjustments
+
+            WHERE
+              preliquidation_id = $1
+              AND target_type = 'seller'
+
+            ORDER BY
+              id ASC
+          `,
+          [
+            preliquidationId,
+          ],
+        );
+
+
+      const sellerAdjustments =
+        adjustmentsResult.rows;
+
+
+      // =================================================
+      // HELPERS
+      // =================================================
+
+      const safeText =
+        (value, fallback = '-') => {
+
+          if (
+            value === null ||
+            value === undefined ||
+            value.toString().trim() === ''
+          ) {
+            return fallback;
+          }
+
+          return value.toString().trim();
+        };
+
+
+      const numberValue =
+        (value) => {
+
+          const parsed =
+            Number(value);
+
+          return Number.isFinite(parsed)
+            ? parsed
+            : null;
+        };
+
+
+      const formatNumber =
+        (value, decimals = 2) => {
+
+          const parsed =
+            numberValue(value);
+
+          if (parsed === null) {
+            return '-';
+          }
+
+          return parsed.toLocaleString(
+            'es-BO',
+            {
+              minimumFractionDigits: decimals,
+              maximumFractionDigits: decimals,
+            },
+          );
+        };
+
+
+      const formatMoney =
+        (value) => {
+
+          const parsed =
+            numberValue(value);
+
+          if (parsed === null) {
+            return '-';
+          }
+
+          return (
+            parsed.toLocaleString(
+              'es-BO',
+              {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              },
+            ) +
+            ' Bs'
+          );
+        };
+
+
+      const formatDate =
+        (value) => {
+
+          if (!value) {
+            return '-';
+          }
+
+          const date =
+            new Date(value);
+
+          if (
+            Number.isNaN(
+              date.getTime()
+            )
+          ) {
+            return safeText(value);
+          }
+
+          return date.toLocaleDateString(
+            'es-BO',
+          );
+        };
+
+
+      const pricingBasisLabel =
+        (() => {
+
+          const basis =
+            safeText(
+              data.pricing_basis ||
+                data.purchase_pricing_basis,
+              '',
+            );
+
+          switch (basis) {
+
+            case 'live_kg':
+              return 'Peso vivo';
+
+            case 'hook_kg':
+              return 'Peso gancho';
+
+            case 'per_head':
+              return 'Por cabeza';
+
+            default:
+              return basis || '-';
+          }
+
+        })();
+
+
+      const statusLabel =
+        (() => {
+
+          switch (
+            safeText(
+              data.status,
+              '',
+            )
+          ) {
+
+            case 'draft':
+              return 'BORRADOR';
+
+            case 'reviewed':
+              return 'REVISADA';
+
+            case 'approved':
+              return 'APROBADA';
+
+            case 'cancelled':
+              return 'ANULADA';
+
+            default:
+              return safeText(
+                data.status,
+              ).toUpperCase();
+          }
+
+        })();
+
+
+      // =================================================
+      // 3. CREAR PDF
+      // =================================================
+
+      const doc =
+        new PDFDocument({
+          size: 'A4',
+
+          margins: {
+            top: 45,
+            bottom: 45,
+            left: 50,
+            right: 50,
+          },
+        });
+
+
+      const safeLotNumber =
+        safeText(
+          data.lot_number,
+          preliquidationId.toString(),
+        )
+          .replace(
+            /[^a-zA-Z0-9_-]/g,
+            '-',
+          );
+
+
+      const filename =
+        `preliquidacion-ganadero-${safeLotNumber}.pdf`;
+
+
+      res.setHeader(
+        'Content-Type',
+        'application/pdf',
+      );
+
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${filename}"`,
+      );
+
+
+      doc.pipe(res);
+
+
+      // =================================================
+      // HELPERS VISUALES
+      // =================================================
+
+      const pageWidth =
+        doc.page.width -
+        doc.page.margins.left -
+        doc.page.margins.right;
+
+
+      const ensureSpace =
+        (requiredHeight = 50) => {
+
+          const bottomLimit =
+            doc.page.height -
+            doc.page.margins.bottom;
+
+          if (
+            doc.y + requiredHeight >
+            bottomLimit
+          ) {
+
+            doc.addPage();
+
+          }
+
+        };
+
+
+      const sectionTitle =
+        (title) => {
+
+          ensureSpace(45);
+
+          doc
+            .moveDown(0.7)
+            .font('Helvetica-Bold')
+            .fontSize(11)
+            .text(
+              title,
+              {
+                width: pageWidth,
+              },
+            );
+
+          doc
+            .moveDown(0.25)
+            .moveTo(
+              doc.page.margins.left,
+              doc.y,
+            )
+            .lineTo(
+              doc.page.width -
+                doc.page.margins.right,
+              doc.y,
+            )
+            .stroke();
+
+          doc.moveDown(0.5);
+
+        };
+
+
+      const detailRow =
+        (
+          label,
+          value,
+        ) => {
+
+          ensureSpace(28);
+
+          const startY =
+            doc.y;
+
+          const labelWidth =
+            180;
+
+          doc
+            .font('Helvetica-Bold')
+            .fontSize(9)
+            .text(
+              label,
+              doc.page.margins.left,
+              startY,
+              {
+                width:
+                  labelWidth,
+              },
+            );
+
+          doc
+            .font('Helvetica')
+            .fontSize(9)
+            .text(
+              safeText(value),
+              doc.page.margins.left +
+                labelWidth,
+              startY,
+              {
+                width:
+                  pageWidth -
+                  labelWidth,
+              },
+            );
+
+          doc.moveDown(0.8);
+
+        };
+
+
+      // =================================================
+      // ENCABEZADO
+      // =================================================
+
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(18)
+        .text(
+          'PRELIQUIDACIÓN DE COMPRA DE GANADO',
+          {
+            align: 'center',
+          },
+        );
+
+
+      doc
+        .moveDown(0.3)
+        .font('Helvetica')
+        .fontSize(10)
+        .text(
+          'Documento para el proveedor',
+          {
+            align: 'center',
+          },
+        );
+
+
+      doc
+        .moveDown(0.5)
+        .font('Helvetica-Bold')
+        .fontSize(10)
+        .text(
+          `Estado: ${statusLabel}`,
+          {
+            align: 'center',
+          },
+        );
+
+
+      // =================================================
+      // DATOS DE LA OPERACIÓN
+      // =================================================
+
+      sectionTitle(
+        'DATOS DE LA OPERACIÓN',
+      );
+
+
+      detailRow(
+        'Lote',
+        data.lot_number,
+      );
+
+
+      detailRow(
+        'Preliquidación',
+        `#${data.id} - Versión ${safeText(data.version, '1')}`,
+      );
+
+
+      detailRow(
+        'Fecha',
+        formatDate(
+          data.created_at,
+        ),
+      );
+
+
+      detailRow(
+        'Clasificación',
+        data.classification_name ||
+          data.classification_code,
+      );
+
+
+      detailRow(
+        'Modalidad de compra',
+        pricingBasisLabel,
+      );
+
+
+      // =================================================
+      // GANADERO
+      // =================================================
+
+      sectionTitle(
+        'DATOS DEL GANADERO',
+      );
+
+
+      detailRow(
+        'Nombre',
+        data.seller_name,
+      );
+
+
+      detailRow(
+        'Documento',
+        [
+          data.seller_document_type,
+          data.seller_document_number,
+        ]
+          .filter(Boolean)
+          .join(' '),
+      );
+
+
+      detailRow(
+        'Teléfono',
+        data.seller_phone,
+      );
+
+
+      detailRow(
+        'Predio',
+        data.estate_name,
+      );
+
+
+      // =================================================
+      // LIQUIDACIÓN
+      // =================================================
+
+      sectionTitle(
+        'DETALLE DE LIQUIDACIÓN',
+      );
+
+
+      const quantity =
+        data.quantity ??
+        data.expected_quantity;
+
+
+      if (
+        quantity !== null &&
+        quantity !== undefined
+      ) {
+
+        detailRow(
+          'Cantidad',
+          formatNumber(
+            quantity,
+            0,
+          ),
+        );
+
+      }
+
+
+      const netWeight =
+        numberValue(
+          data.net_weight_kg,
+        );
+
+
+      if (
+        netWeight !== null &&
+        netWeight > 0
+      ) {
+
+        detailRow(
+          'Peso neto liquidable',
+          `${formatNumber(
+            netWeight,
+            2,
+          )} kg`,
+        );
+
+      }
+
+
+      const unitPrice =
+        data.unit_price ??
+        data.price_per_unit;
+
+
+      if (
+        unitPrice !== null &&
+        unitPrice !== undefined
+      ) {
+
+        detailRow(
+          pricingBasisLabel ===
+            'Por cabeza'
+            ? 'Precio por cabeza'
+            : 'Precio por kg',
+          formatMoney(
+            unitPrice,
+          ),
+        );
+
+      }
+
+
+      detailRow(
+        'Importe base',
+        formatMoney(
+          data.base_amount,
+        ),
+      );
+
+
+      // =================================================
+      // AJUSTES DEL GANADERO
+      // =================================================
+
+      if (
+        sellerAdjustments.length > 0
+      ) {
+
+        sectionTitle(
+          'AJUSTES',
+        );
+
+
+        for (
+          const adjustment
+          of sellerAdjustments
+        ) {
+
+          const typeLabel =
+            adjustment.adjustment_type ===
+              'discount'
+              ? 'Descuento'
+              : 'Adición';
+
+
+          const sign =
+            adjustment.adjustment_type ===
+              'discount'
+              ? '-'
+              : '+';
+
+
+          detailRow(
+            `${typeLabel}: ${safeText(
+              adjustment.description,
+              adjustment.code || 'Ajuste',
+            )}`,
+            `${sign}${formatMoney(
+              adjustment.amount,
+            )}`,
+          );
+
+        }
+
+      }
+
+
+      // =================================================
+      // TOTALES DEL GANADERO
+      // =================================================
+
+      sectionTitle(
+        'RESUMEN',
+      );
+
+
+      detailRow(
+        'Descuentos',
+        formatMoney(
+          data.discounts_total,
+        ),
+      );
+
+
+      detailRow(
+        'Adiciones',
+        formatMoney(
+          data.additions_total,
+        ),
+      );
+
+
+      ensureSpace(60);
+
+
+      doc
+        .moveDown(0.4)
+        .font('Helvetica-Bold')
+        .fontSize(14)
+        .text(
+          `TOTAL A PAGAR: ${formatMoney(
+            data.total_payable,
+          )}`,
+          {
+            align: 'right',
+          },
+        );
+
+
+      // =================================================
+      // CONDICIONES DE PAGO
+      // =================================================
+
+      if (
+        data.planned_payment_date ||
+        data.payment_terms
+      ) {
+
+        sectionTitle(
+          'CONDICIONES DE PAGO',
+        );
+
+
+        if (
+          data.planned_payment_date
+        ) {
+
+          detailRow(
+            'Fecha prevista',
+            formatDate(
+              data.planned_payment_date,
+            ),
+          );
+
+        }
+
+
+        if (
+          data.payment_terms
+        ) {
+
+          detailRow(
+            'Condiciones',
+            data.payment_terms,
+          );
+
+        }
+
+      }
+
+
+      // =================================================
+      // PIE
+      // =================================================
+
+      ensureSpace(60);
+
+
+      doc
+        .moveDown(1.5)
+        .font('Helvetica')
+        .fontSize(8)
+        .text(
+          'Documento emitido para el proveedor.',
+          {
+            align: 'center',
+          },
+        );
+
+
+      doc.end();
+
+
+    } catch (error) {
+
+      console.error(
+        'SELLER PRELIQUIDATION PDF ERROR:',
+        error,
+      );
+
+
+      if (
+        !res.headersSent
+      ) {
+
+        return res.status(500).json({
+          error:
+            'Error generando PDF de preliquidación',
+        });
+
+      }
+
+
+      try {
+        res.end();
+      } catch (_) {}
+
+    }
+
+  };
+
 // =====================================================
 // 💰 AGREGAR AJUSTE A PRELIQUIDACIÓN
 // POST /slaughterhouse/admin/preliquidations/:id/adjustments
