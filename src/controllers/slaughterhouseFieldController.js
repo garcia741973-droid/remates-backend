@@ -2712,7 +2712,7 @@ exports.assignFieldPurchaseLotTransport =
               lot.capture_sheet_id,
 
             captador_person_id:
-              captador.id,
+              lot.captador_person_id,
 
             transport_request_id:
               transportRequest.id,
