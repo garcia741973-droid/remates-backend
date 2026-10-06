@@ -44585,7 +44585,13 @@ exports.getSellerPreliquidationPdf =
       ) {
 
         detailRow(
-          'Peso vivo liquidable',
+          safeText(
+            data.pricing_basis ||
+              data.purchase_pricing_basis,
+            '',
+          ) === 'live_kg'
+            ? 'Peso vivo liquidable'
+            : 'Peso vivo de referencia',
           `${formatNumber(
             netLiveWeightKg,
             2,
@@ -44805,6 +44811,12 @@ exports.getSellerPreliquidationPdf =
       // =================================================
       // BASE DE CÁLCULO
       // =================================================
+
+      // Evitar que el título quede solo al final
+      // de una página. Reservamos espacio para
+      // el título y las primeras filas del bloque.
+      ensureSpace(120);
+
 
       sectionTitle(
         'BASE DE CÁLCULO',
