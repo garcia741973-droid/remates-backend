@@ -1459,6 +1459,10 @@ exports.assignFieldPurchaseLotTransport =
       const canAssignAsWebOperator =
         webOperatorRoleResult.rows.length > 0;
 
+      const assignmentActorLabel =
+        captador !== null
+          ? 'captador'
+          : 'operador';
 
       if (
         captador == null &&
@@ -1716,7 +1720,27 @@ exports.assignFieldPurchaseLotTransport =
               sp.id
                 AS transporter_person_id,
 
-              sp.full_name
+              COALESCE(
+                NULLIF(
+                  TRIM(
+                    sp.full_name
+                  ),
+                  ''
+                ),
+                NULLIF(
+                  TRIM(
+                    transporter_user.full_name
+                  ),
+                  ''
+                ),
+                NULLIF(
+                  TRIM(
+                    transporter_user.name
+                  ),
+                  ''
+                ),
+                transporter_user.email
+              )
                 AS transporter_name,
 
               sct.id
@@ -1733,6 +1757,10 @@ exports.assignFieldPurchaseLotTransport =
               AND sp.company_id =
                 sct.company_id
               AND sp.is_active = true
+
+            LEFT JOIN users transporter_user
+              ON transporter_user.id =
+                sp.user_id
 
             JOIN slaughterhouse_company_transporter_trucks sctt
               ON sctt.company_transporter_id =
@@ -2479,7 +2507,7 @@ exports.assignFieldPurchaseLotTransport =
               truck.transporter_user_id,
               expectedQuantity,
 
-              `Camión asignado directamente por captador desde solicitud #${transportRequest.id}`,
+              `Camión asignado directamente por ${assignmentActorLabel} desde solicitud #${transportRequest.id}`,
 
               pendingTroop.id,
               companyId,
@@ -2557,7 +2585,7 @@ exports.assignFieldPurchaseLotTransport =
 
               expectedQuantity,
 
-              `Camión asignado directamente por captador desde solicitud #${transportRequest.id}`,
+              `Camión asignado directamente por ${assignmentActorLabel} desde solicitud #${transportRequest.id}`,
 
               userId,
             ],
