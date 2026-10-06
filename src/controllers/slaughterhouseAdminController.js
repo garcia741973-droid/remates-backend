@@ -58550,6 +58550,1150 @@ exports.getFinalLotDetail =
   };
 
 // =====================================================
+// 📄 PDF DOCUMENTAL DEL LOTE
+//
+// GET /slaughterhouse/admin/reports/final-lots/:id/documents-pdf
+//
+// FUENTE PRINCIPAL:
+// - Portería / slaughterhouse_gate_arrivals
+//
+// RESPALDO HISTÓRICO:
+// - transport_guides
+//
+// No incluye información financiera.
+// =====================================================
+
+exports.exportFinalLotDocumentsPdf =
+  async (req, res) => {
+
+    try {
+
+      const PDFDocument =
+        require('pdfkit');
+
+
+      const companyId =
+        Number(
+          req.slaughterhouseAdmin.company_id
+        );
+
+
+      const purchaseLotId =
+        Number(
+          req.params.id
+        );
+
+
+      if (
+        !Number.isInteger(
+          purchaseLotId
+        ) ||
+        purchaseLotId <= 0
+      ) {
+
+        return res.status(400).json({
+          error:
+            'ID de lote inválido',
+        });
+
+      }
+
+
+      // =================================================
+      // LOTE
+      // =================================================
+
+      const lotResult =
+        await pool.query(
+          `
+            SELECT
+
+              spl.id,
+              spl.lot_number,
+              spl.purchase_date,
+              spl.status,
+              spl.expected_quantity,
+
+              seller.full_name
+                AS seller_name,
+
+              seller.document_number
+                AS seller_document_number,
+
+              estate.name
+                AS estate_name,
+
+              classification.display_name
+                AS classification_name
+
+            FROM
+              slaughterhouse_purchase_lots spl
+
+            JOIN
+              slaughterhouse_people seller
+
+              ON seller.id =
+                spl.seller_person_id
+
+              AND seller.company_id =
+                spl.company_id
+
+            LEFT JOIN
+              slaughterhouse_estates estate
+
+              ON estate.id =
+                spl.estate_id
+
+              AND estate.company_id =
+                spl.company_id
+
+            LEFT JOIN
+              slaughterhouse_animal_classifications
+                classification
+
+              ON classification.id =
+                spl.classification_id
+
+              AND classification.company_id =
+                spl.company_id
+
+            WHERE
+              spl.company_id = $1
+
+              AND spl.id = $2
+
+            LIMIT 1
+          `,
+          [
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+
+      if (
+        lotResult.rows.length === 0
+      ) {
+
+        return res.status(404).json({
+          error:
+            'Lote no encontrado',
+        });
+
+      }
+
+
+      const lot =
+        lotResult.rows[0];
+
+
+      // =================================================
+      // TROPAS + RECEPCIÓN + PORTERÍA + GUÍA
+      // =================================================
+
+      const troopsResult =
+        await pool.query(
+          `
+            SELECT
+
+              st.id
+                AS troop_id,
+
+              st.troop_number,
+
+              st.expected_quantity,
+
+              st.dispatched_quantity,
+
+              st.received_quantity,
+
+              st.status
+                AS troop_status,
+
+              st.transport_negotiation_id,
+
+              st.transport_guide_id,
+
+              st.reception_truck_id,
+
+
+              srt.received_at,
+
+              srt.live_weight_kg
+                AS reception_live_weight_kg,
+
+              srt.plate_snapshot
+                AS reception_plate_snapshot,
+
+              srt.official_guide_number_snapshot
+                AS reception_guide_number_snapshot,
+
+
+              sga.id
+                AS gate_arrival_id,
+
+              sga.arrived_at,
+
+              sga.plate_snapshot
+                AS gate_plate_snapshot,
+
+              sga.truck_brand_snapshot
+                AS gate_truck_brand_snapshot,
+
+              sga.truck_model_snapshot
+                AS gate_truck_model_snapshot,
+
+              sga.plate_photo_url
+                AS gate_plate_photo_url,
+
+              sga.official_guide_number
+                AS gate_official_guide_number,
+
+              sga.official_guide_photo_url
+                AS gate_official_guide_photo_url,
+
+              sga.driver_name_snapshot
+                AS gate_driver_name_snapshot,
+
+              sga.driver_ci_snapshot
+                AS gate_driver_ci_snapshot,
+
+              sga.driver_license_photo_url
+                AS gate_driver_license_photo_url,
+
+              sga.notes
+                AS gate_notes,
+
+
+              tg.official_guide_number
+                AS legacy_official_guide_number,
+
+              tg.official_guide_photo_url
+                AS legacy_official_guide_photo_url,
+
+              tg.guide_image_url
+                AS legacy_guide_image_url,
+
+              tg.driver_name
+                AS legacy_driver_name,
+
+              tg.driver_ci
+                AS legacy_driver_ci
+
+            FROM
+              slaughterhouse_troops st
+
+            LEFT JOIN
+              slaughterhouse_reception_trucks srt
+
+              ON srt.id =
+                st.reception_truck_id
+
+
+            LEFT JOIN
+              slaughterhouse_gate_arrivals sga
+
+              ON sga.company_id =
+                st.company_id
+
+              AND sga.transport_negotiation_id =
+                st.transport_negotiation_id
+
+
+            LEFT JOIN
+              transport_guides tg
+
+              ON tg.id =
+                st.transport_guide_id
+
+
+            WHERE
+              st.company_id = $1
+
+              AND st.purchase_lot_id = $2
+
+              AND st.status <>
+                'cancelled'
+
+
+            ORDER BY
+              st.id ASC
+          `,
+          [
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+
+      const troops =
+        troopsResult.rows;
+
+
+      // =================================================
+      // HELPERS
+      // =================================================
+
+      const safeText =
+        (
+          value,
+          fallback = '-',
+        ) => {
+
+          if (
+            value === null ||
+            value === undefined
+          ) {
+            return fallback;
+          }
+
+
+          const text =
+            value
+              .toString()
+              .trim();
+
+
+          return text ||
+            fallback;
+
+        };
+
+
+      const formatDateTime =
+        (value) => {
+
+          if (!value) {
+            return '-';
+          }
+
+
+          const date =
+            new Date(value);
+
+
+          if (
+            Number.isNaN(
+              date.getTime()
+            )
+          ) {
+            return safeText(value);
+          }
+
+
+          return date.toLocaleString(
+            'es-BO',
+            {
+              timeZone:
+                'America/La_Paz',
+              day:
+                '2-digit',
+              month:
+                '2-digit',
+              year:
+                'numeric',
+              hour:
+                '2-digit',
+              minute:
+                '2-digit',
+            },
+          );
+
+        };
+
+
+      const formatNumber =
+        (
+          value,
+          decimals = 0,
+        ) => {
+
+          const number =
+            Number(value);
+
+
+          if (
+            !Number.isFinite(number)
+          ) {
+            return '-';
+          }
+
+
+          return number.toLocaleString(
+            'es-BO',
+            {
+              minimumFractionDigits:
+                decimals,
+              maximumFractionDigits:
+                decimals,
+            },
+          );
+
+        };
+
+
+      const fetchImageBuffer =
+        async (url) => {
+
+          if (!url) {
+            return null;
+          }
+
+
+          try {
+
+            const cleanUrl =
+              url
+                .toString()
+                .trim();
+
+
+            if (!cleanUrl) {
+              return null;
+            }
+
+
+            // ===========================================
+            // DATA URL
+            // ===========================================
+
+            if (
+              cleanUrl.startsWith(
+                'data:image/'
+              )
+            ) {
+
+              const base64Index =
+                cleanUrl.indexOf(
+                  'base64,'
+                );
+
+
+              if (
+                base64Index === -1
+              ) {
+                return null;
+              }
+
+
+              return Buffer.from(
+                cleanUrl.substring(
+                  base64Index + 7
+                ),
+                'base64',
+              );
+
+            }
+
+
+            // ===========================================
+            // URL REMOTA
+            // ===========================================
+
+            const response =
+              await fetch(
+                cleanUrl
+              );
+
+
+            if (!response.ok) {
+              return null;
+            }
+
+
+            const arrayBuffer =
+              await response.arrayBuffer();
+
+
+            return Buffer.from(
+              arrayBuffer
+            );
+
+          } catch (error) {
+
+            console.error(
+              'PDF DOCUMENT IMAGE ERROR:',
+              error.message,
+            );
+
+
+            return null;
+
+          }
+
+        };
+
+
+      // =================================================
+      // PDF
+      // =================================================
+
+      const doc =
+        new PDFDocument({
+          size:
+            'A4',
+          margins: {
+            top:
+              50,
+            bottom:
+              50,
+            left:
+              50,
+            right:
+              50,
+          },
+          autoFirstPage:
+            true,
+        });
+
+
+      const safeLotNumber =
+        safeText(
+          lot.lot_number,
+          purchaseLotId,
+        )
+          .replace(
+            /[^a-zA-Z0-9_-]/g,
+            '_',
+          );
+
+
+      const filename =
+        `documentos-lote-${safeLotNumber}.pdf`;
+
+
+      res.setHeader(
+        'Content-Type',
+        'application/pdf',
+      );
+
+
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${filename}"`,
+      );
+
+
+      doc.pipe(res);
+
+
+      const pageWidth =
+        doc.page.width -
+        doc.page.margins.left -
+        doc.page.margins.right;
+
+
+      const ensureSpace =
+        (requiredHeight) => {
+
+          const bottomLimit =
+            doc.page.height -
+            doc.page.margins.bottom;
+
+
+          if (
+            doc.y +
+              requiredHeight >
+            bottomLimit
+          ) {
+
+            doc.addPage();
+
+          }
+
+        };
+
+
+      const sectionTitle =
+        (title) => {
+
+          ensureSpace(50);
+
+
+          doc
+            .moveDown(0.8)
+            .font(
+              'Helvetica-Bold'
+            )
+            .fontSize(12)
+            .text(
+              title,
+              {
+                width:
+                  pageWidth,
+              },
+            );
+
+
+          doc
+            .moveDown(0.25)
+            .moveTo(
+              doc.page.margins.left,
+              doc.y,
+            )
+            .lineTo(
+              doc.page.width -
+                doc.page.margins.right,
+              doc.y,
+            )
+            .stroke();
+
+
+          doc.moveDown(0.5);
+
+        };
+
+
+      const detailRow =
+        (
+          label,
+          value,
+        ) => {
+
+          ensureSpace(26);
+
+
+          const startY =
+            doc.y;
+
+
+          doc
+            .font(
+              'Helvetica-Bold'
+            )
+            .fontSize(9)
+            .text(
+              label,
+              doc.page.margins.left,
+              startY,
+              {
+                width:
+                  180,
+              },
+            );
+
+
+          doc
+            .font(
+              'Helvetica'
+            )
+            .fontSize(9)
+            .text(
+              safeText(value),
+              doc.page.margins.left +
+                185,
+              startY,
+              {
+                width:
+                  pageWidth -
+                  185,
+              },
+            );
+
+
+          doc.y =
+            Math.max(
+              doc.y,
+              startY + 16,
+            );
+
+        };
+
+
+      const addEvidencePage =
+        async (
+          title,
+          imageUrl,
+          sourceLabel,
+        ) => {
+
+          if (!imageUrl) {
+            return;
+          }
+
+
+          const imageBuffer =
+            await fetchImageBuffer(
+              imageUrl
+            );
+
+
+          if (!imageBuffer) {
+            return;
+          }
+
+
+          doc.addPage();
+
+
+          doc
+            .font(
+              'Helvetica-Bold'
+            )
+            .fontSize(14)
+            .text(
+              title,
+              {
+                align:
+                  'center',
+              },
+            );
+
+
+          doc
+            .moveDown(0.25)
+            .font(
+              'Helvetica'
+            )
+            .fontSize(9)
+            .text(
+              sourceLabel,
+              {
+                align:
+                  'center',
+              },
+            );
+
+
+          const imageTop =
+            doc.y + 20;
+
+
+          const imageHeight =
+            doc.page.height -
+            imageTop -
+            doc.page.margins.bottom;
+
+
+          try {
+
+            doc.image(
+              imageBuffer,
+              doc.page.margins.left,
+              imageTop,
+              {
+                fit: [
+                  pageWidth,
+                  imageHeight,
+                ],
+                align:
+                  'center',
+                valign:
+                  'center',
+              },
+            );
+
+          } catch (error) {
+
+            console.error(
+              'PDF DOCUMENT IMAGE INSERT ERROR:',
+              error.message,
+            );
+
+
+            doc
+              .moveDown(2)
+              .font(
+                'Helvetica'
+              )
+              .fontSize(10)
+              .text(
+                'No fue posible insertar esta imagen en el PDF.',
+                {
+                  align:
+                    'center',
+                },
+              );
+
+          }
+
+        };
+
+
+      // =================================================
+      // PORTADA
+      // =================================================
+
+      doc
+        .font(
+          'Helvetica-Bold'
+        )
+        .fontSize(18)
+        .text(
+          'EXPEDIENTE DOCUMENTAL DEL LOTE',
+          {
+            align:
+              'center',
+          },
+        );
+
+
+      doc
+        .moveDown(0.4)
+        .font(
+          'Helvetica'
+        )
+        .fontSize(10)
+        .text(
+          'Evidencias de transporte, Portería y recepción',
+          {
+            align:
+              'center',
+          },
+        );
+
+
+      sectionTitle(
+        'DATOS DEL LOTE',
+      );
+
+
+      detailRow(
+        'Lote',
+        lot.lot_number,
+      );
+
+
+      detailRow(
+        'Ganadero',
+        lot.seller_name,
+      );
+
+
+      detailRow(
+        'Documento',
+        lot.seller_document_number,
+      );
+
+
+      detailRow(
+        'Predio',
+        lot.estate_name,
+      );
+
+
+      detailRow(
+        'Clasificación',
+        lot.classification_name,
+      );
+
+
+      detailRow(
+        'Cantidad contratada',
+        formatNumber(
+          lot.expected_quantity,
+          0,
+        ),
+      );
+
+
+      detailRow(
+        'Tropas / camiones',
+        formatNumber(
+          troops.length,
+          0,
+        ),
+      );
+
+
+      // =================================================
+      // CADA TROPA
+      // =================================================
+
+      for (
+        let i = 0;
+        i < troops.length;
+        i++
+      ) {
+
+        const troop =
+          troops[i];
+
+
+        doc.addPage();
+
+
+        const troopLabel =
+          troop.troop_number
+            ? `TROPA ${troop.troop_number}`
+            : `TROPA ${i + 1}`;
+
+
+        doc
+          .font(
+            'Helvetica-Bold'
+          )
+          .fontSize(16)
+          .text(
+            troopLabel,
+          );
+
+
+        sectionTitle(
+          'PORTERÍA Y RECEPCIÓN',
+        );
+
+
+        const officialGuideNumber =
+          safeText(
+            troop
+              .gate_official_guide_number,
+            '',
+          ) ||
+          safeText(
+            troop
+              .reception_guide_number_snapshot,
+            '',
+          ) ||
+          safeText(
+            troop
+              .legacy_official_guide_number,
+            '-',
+          );
+
+
+        const plate =
+          safeText(
+            troop
+              .gate_plate_snapshot,
+            '',
+          ) ||
+          safeText(
+            troop
+              .reception_plate_snapshot,
+            '-',
+          );
+
+
+        const driverName =
+          safeText(
+            troop
+              .gate_driver_name_snapshot,
+            '',
+          ) ||
+          safeText(
+            troop
+              .legacy_driver_name,
+            '-',
+          );
+
+
+        const driverCi =
+          safeText(
+            troop
+              .gate_driver_ci_snapshot,
+            '',
+          ) ||
+          safeText(
+            troop
+              .legacy_driver_ci,
+            '-',
+          );
+
+
+        detailRow(
+          'Llegada a Portería',
+          formatDateTime(
+            troop.arrived_at
+          ),
+        );
+
+
+        detailRow(
+          'Placa',
+          plate,
+        );
+
+
+        detailRow(
+          'Marca / modelo',
+          [
+            safeText(
+              troop
+                .gate_truck_brand_snapshot,
+              '',
+            ),
+            safeText(
+              troop
+                .gate_truck_model_snapshot,
+              '',
+            ),
+          ]
+            .filter(Boolean)
+            .join(' ') ||
+            '-',
+        );
+
+
+        detailRow(
+          'Conductor',
+          driverName,
+        );
+
+
+        detailRow(
+          'CI conductor',
+          driverCi,
+        );
+
+
+        detailRow(
+          'Guía SENASAG',
+          officialGuideNumber,
+        );
+
+
+        detailRow(
+          'Cantidad despachada',
+          formatNumber(
+            troop.dispatched_quantity,
+            0,
+          ),
+        );
+
+
+        detailRow(
+          'Cantidad recibida',
+          formatNumber(
+            troop.received_quantity,
+            0,
+          ),
+        );
+
+
+        if (
+          troop.reception_live_weight_kg !==
+            null &&
+          troop.reception_live_weight_kg !==
+            undefined
+        ) {
+
+          detailRow(
+            'Peso vivo en planta',
+            `${formatNumber(
+              troop.reception_live_weight_kg,
+              2,
+            )} kg`,
+          );
+
+        }
+
+
+        detailRow(
+          'Recepción registrada',
+          formatDateTime(
+            troop.received_at
+          ),
+        );
+
+
+        if (
+          safeText(
+            troop.gate_notes,
+            '',
+          )
+        ) {
+
+          detailRow(
+            'Observaciones Portería',
+            troop.gate_notes,
+          );
+
+        }
+
+
+        // ===============================================
+        // EVIDENCIAS
+        //
+        // Portería tiene prioridad.
+        // Guía histórica solo como respaldo.
+        // ===============================================
+
+        const guidePhotoUrl =
+          safeText(
+            troop
+              .gate_official_guide_photo_url,
+            '',
+          ) ||
+          safeText(
+            troop
+              .legacy_official_guide_photo_url,
+            '',
+          ) ||
+          safeText(
+            troop
+              .legacy_guide_image_url,
+            '',
+          ) ||
+          null;
+
+
+        const guideSource =
+          safeText(
+            troop
+              .gate_official_guide_photo_url,
+            '',
+          )
+            ? 'Fuente: Portería'
+            : 'Fuente: respaldo histórico de transporte';
+
+
+        await addEvidencePage(
+          `Guía SENASAG - ${troopLabel}`,
+          guidePhotoUrl,
+          guideSource,
+        );
+
+
+        await addEvidencePage(
+          `Placa del camión - ${troopLabel}`,
+          troop
+            .gate_plate_photo_url,
+          'Fuente: Portería',
+        );
+
+
+        await addEvidencePage(
+          `Licencia del conductor - ${troopLabel}`,
+          troop
+            .gate_driver_license_photo_url,
+          'Fuente: Portería',
+        );
+
+      }
+
+
+      doc.end();
+
+    } catch (error) {
+
+      console.error(
+        'EXPORT FINAL LOT DOCUMENTS PDF ERROR:',
+        error
+      );
+
+
+      if (!res.headersSent) {
+
+        return res.status(500).json({
+          error:
+            'Error generando expediente documental del lote',
+        });
+
+      }
+
+
+      try {
+
+        res.end();
+
+      } catch (_) {}
+
+    }
+
+  };
+
+// =====================================================
 // 📊 EXPORTAR EXPEDIENTE FINAL DE LOTE A EXCEL
 //
 // GET /slaughterhouse/admin/reports/final-lots/:id/xlsx
