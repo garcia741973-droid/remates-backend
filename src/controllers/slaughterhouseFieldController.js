@@ -2951,6 +2951,9 @@ exports.assignFieldPurchaseLotTransport =
           permissionCode:
             'notifications.field_qr_pending',
 
+          eventCode:
+            'field_qr_pending',
+
           title:
             'Transporte asignado',
 

@@ -1413,6 +1413,9 @@ exports.createSlaughterhouseGateArrival =
         permissionCode:
           'notifications.truck_arrival',
 
+        eventCode:
+          'truck_arrival',
+
         title:
           '🚛 Camión llegó a portería',
 
@@ -2310,6 +2313,9 @@ exports.createSlaughterhouseReception =
 
         permissionCode:
           'notifications.reception_completed',
+
+        eventCode:
+          'reception_completed',
 
         title:
           '✅ Recepción de camión completada',
@@ -3423,6 +3429,9 @@ exports.startSlaughterhouseSlaughter =
 
         permissionCode:
           'notifications.slaughter_started',
+
+        eventCode:
+          'slaughter_started',
 
         title:
           '🔥 Faena iniciada',
@@ -8627,6 +8636,9 @@ exports.finishSlaughterhouseSlaughter =
 
         permissionCode:
           'notifications.slaughter_finished',
+
+        eventCode:
+          'slaughter_finished',
 
         title:
           '🏁 Faena finalizada',

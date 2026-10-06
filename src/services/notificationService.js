@@ -406,6 +406,7 @@ exports.sendCompanyAdminNotification = async ({
 exports.sendSlaughterhouseOperatorNotification = async ({
     companyId,
     permissionCode,
+    eventCode = null,
     title,
     body,
     data = {},
@@ -425,67 +426,119 @@ exports.sendSlaughterhouseOperatorNotification = async ({
         }
 
         // =====================================================
-        // 👤 BUSCAR USUARIOS AUTORIZADOS
+        // 👤 BUSCAR DESTINATARIOS
+        //
+        // Si viene eventCode:
+        //   usa configuración explícita del frigorífico.
+        //
+        // Si NO viene eventCode:
+        //   conserva la lógica antigua por permisos.
         // =====================================================
 
-        const recipients =
-            await pool.query(
-                `
-                SELECT DISTINCT u.id
-                FROM slaughterhouse_user_roles sur
+        let recipientIds = [];
 
-                JOIN slaughterhouse_roles sr
-                  ON sr.id = sur.role_id
-                 AND sr.company_id = sur.company_id
-                 AND sr.is_active = TRUE
+        if (eventCode) {
 
-                JOIN slaughterhouse_role_permissions srp
-                  ON srp.role_id = sr.id
+            const recipients =
+                await pool.query(
+                    `
+                        SELECT DISTINCT
+                            sneu.user_id AS id
 
-                JOIN slaughterhouse_permissions sp
-                  ON sp.id = srp.permission_id
+                        FROM slaughterhouse_notification_event_users sneu
 
-                JOIN users u
-                  ON u.id = sur.user_id
+                        JOIN users u
+                          ON u.id = sneu.user_id
 
-                JOIN user_companies uc
-                  ON uc.user_id = u.id
-                 AND uc.company_id = sur.company_id
-                 AND uc.company_status = 'approved'
+                        JOIN user_companies uc
+                          ON uc.user_id = u.id
+                         AND uc.company_id = sneu.company_id
+                         AND uc.company_status = 'approved'
 
-                WHERE sur.company_id = $1
-                  AND sp.code = $2
-                `,
-                [
-                    companyId,
-                    permissionCode,
-                ],
+                        WHERE sneu.company_id = $1
+                          AND sneu.event_code = $2
+                          AND COALESCE(u.is_active, TRUE) = TRUE
+                          AND u.deleted_at IS NULL
+                    `,
+                    [
+                        companyId,
+                        eventCode,
+                    ],
+                );
+
+            recipientIds =
+                recipients.rows.map(
+                    (row) => Number(row.id),
+                );
+
+            console.log(
+                '🏭 SLAUGHTERHOUSE EVENT RECIPIENTS:',
+                eventCode,
+                recipientIds,
             );
 
-        const recipientIds =
-            recipients.rows.map(
-                (row) => Number(row.id),
+        } else {
+
+            const recipients =
+                await pool.query(
+                    `
+                        SELECT DISTINCT u.id
+
+                        FROM slaughterhouse_user_roles sur
+
+                        JOIN slaughterhouse_roles sr
+                          ON sr.id = sur.role_id
+                         AND sr.company_id = sur.company_id
+                         AND sr.is_active = TRUE
+
+                        JOIN slaughterhouse_role_permissions srp
+                          ON srp.role_id = sr.id
+
+                        JOIN slaughterhouse_permissions sp
+                          ON sp.id = srp.permission_id
+
+                        JOIN users u
+                          ON u.id = sur.user_id
+
+                        JOIN user_companies uc
+                          ON uc.user_id = u.id
+                         AND uc.company_id = sur.company_id
+                         AND uc.company_status = 'approved'
+
+                        WHERE sur.company_id = $1
+                          AND sp.code = $2
+                    `,
+                    [
+                        companyId,
+                        permissionCode,
+                    ],
+                );
+
+            recipientIds =
+                recipients.rows.map(
+                    (row) => Number(row.id),
+                );
+
+            console.log(
+                '🏭 SLAUGHTERHOUSE PERMISSION RECIPIENTS:',
+                recipientIds,
             );
 
-        console.log(
-            '🏭 SLAUGHTERHOUSE NOTIFICATION RECIPIENTS:',
-            recipientIds,
-        );
-
-        console.log(
-            '🔐 PERMISSION:',
-            permissionCode,
-        );
+            console.log(
+                '🔐 PERMISSION:',
+                permissionCode,
+            );
+        }
 
         if (!recipientIds.length) {
 
             console.log(
-                '⚠️ NO SLAUGHTERHOUSE RECIPIENTS FOR PERMISSION',
-                permissionCode,
+                eventCode
+                    ? `⚠️ NO RECIPIENTS CONFIGURED FOR EVENT ${eventCode}`
+                    : `⚠️ NO SLAUGHTERHOUSE RECIPIENTS FOR PERMISSION ${permissionCode}`,
             );
 
             return;
-
         }
 
         // =====================================================

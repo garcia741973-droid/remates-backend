@@ -2192,6 +2192,9 @@ const createTransportNegotiation = async (req, res) => {
         permissionCode:
           'transport.negotiate',
 
+        eventCode:
+          'transport_proposal',
+
         title:
           '🚛 Nueva propuesta de transporte',
 
@@ -5787,6 +5790,9 @@ const finishTrip = async (req, res) => {
         permissionCode:
             'notifications.truck_arrival',
 
+        eventCode:
+          'truck_arrival',
+
         title:
           '🚛 Camión llegó al frigorífico',
 
@@ -6205,6 +6211,9 @@ Gracias por utilizar Plaza Ganadera Transporte.
 
           permissionCode:
             'notifications.delivery_completed',
+
+          eventCode:
+            'delivery_completed',
 
           title:
             '✅ Entrega del transporte finalizada',
