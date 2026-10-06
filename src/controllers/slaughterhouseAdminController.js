@@ -43733,6 +43733,361 @@ exports.getSellerPreliquidationPdf =
 
 
       // =================================================
+      // 3. RESUMEN Y DETALLE DE FAENA
+      //
+      // Compatible con:
+      // - modelo legacy: una fila = una carcasa completa
+      // - modelo moderno: dos medias = una carcasa completa
+      // =================================================
+
+      const slaughterResult =
+        await pool.query(
+          `
+            WITH lot_troops AS (
+              SELECT
+                st.id,
+                st.received_quantity
+
+              FROM slaughterhouse_troops st
+
+              WHERE
+                st.company_id = $1
+                AND st.purchase_lot_id = $2
+                AND st.status <> 'cancelled'
+            ),
+
+
+            lot_carcasses AS (
+              SELECT
+                sc.*
+
+              FROM slaughterhouse_carcasses sc
+
+              JOIN lot_troops lt
+                ON lt.id = sc.troop_id
+            ),
+
+
+            legacy_animals AS (
+              SELECT
+                CONCAT(
+                  'legacy:',
+                  sc.id
+                ) AS animal_key,
+
+                sc.troop_id,
+
+                NULL::integer
+                  AS animal_sequence_number,
+
+                NULL::numeric
+                  AS half_1_weight_kg,
+
+                NULL::numeric
+                  AS half_2_weight_kg,
+
+                COALESCE(
+                  sc.hook_weight_kg,
+                  0
+                )::numeric
+                  AS carcass_weight_kg,
+
+                1::integer
+                  AS pieces_count,
+
+                true
+                  AS is_complete
+
+              FROM lot_carcasses sc
+
+              WHERE
+                sc.animal_sequence_number IS NULL
+                OR sc.half_number IS NULL
+            ),
+
+
+            modern_animals AS (
+              SELECT
+                CONCAT(
+                  'modern:',
+                  sc.troop_id,
+                  ':',
+                  sc.animal_sequence_number
+                ) AS animal_key,
+
+                sc.troop_id,
+
+                sc.animal_sequence_number,
+
+                MAX(
+                  sc.hook_weight_kg
+                ) FILTER (
+                  WHERE sc.half_number = 1
+                )::numeric
+                  AS half_1_weight_kg,
+
+                MAX(
+                  sc.hook_weight_kg
+                ) FILTER (
+                  WHERE sc.half_number = 2
+                )::numeric
+                  AS half_2_weight_kg,
+
+                COALESCE(
+                  SUM(
+                    sc.hook_weight_kg
+                  ),
+                  0
+                )::numeric
+                  AS carcass_weight_kg,
+
+                COUNT(
+                  DISTINCT sc.half_number
+                )::integer
+                  AS pieces_count,
+
+                COUNT(
+                  DISTINCT sc.half_number
+                ) = 2
+                  AS is_complete
+
+              FROM lot_carcasses sc
+
+              WHERE
+                sc.animal_sequence_number IS NOT NULL
+                AND sc.half_number IS NOT NULL
+
+              GROUP BY
+                sc.troop_id,
+                sc.animal_sequence_number
+            ),
+
+
+            animals AS (
+              SELECT *
+              FROM legacy_animals
+
+              UNION ALL
+
+              SELECT *
+              FROM modern_animals
+            )
+
+
+            SELECT
+              COALESCE(
+                (
+                  SELECT
+                    SUM(received_quantity)
+                  FROM lot_troops
+                ),
+                0
+              )::integer
+                AS received_animals,
+
+
+              COUNT(*) FILTER (
+                WHERE is_complete = true
+              )::integer
+                AS slaughtered_animals,
+
+
+              COUNT(*) FILTER (
+                WHERE is_complete = false
+              )::integer
+                AS incomplete_animals,
+
+
+              COALESCE(
+                SUM(
+                  carcass_weight_kg
+                ),
+                0
+              )::numeric
+                AS hook_weight_kg,
+
+
+              ROUND(
+                AVG(
+                  carcass_weight_kg
+                ) FILTER (
+                  WHERE is_complete = true
+                ),
+                2
+              )
+                AS average_carcass_weight_kg,
+
+
+              MIN(
+                carcass_weight_kg
+              ) FILTER (
+                WHERE is_complete = true
+              )
+                AS min_carcass_weight_kg,
+
+
+              MAX(
+                carcass_weight_kg
+              ) FILTER (
+                WHERE is_complete = true
+              )
+                AS max_carcass_weight_kg,
+
+
+              COALESCE(
+                json_agg(
+                  json_build_object(
+                    'animal_key',
+                      animal_key,
+
+                    'troop_id',
+                      troop_id,
+
+                    'animal_sequence_number',
+                      animal_sequence_number,
+
+                    'half_1_weight_kg',
+                      half_1_weight_kg,
+
+                    'half_2_weight_kg',
+                      half_2_weight_kg,
+
+                    'carcass_weight_kg',
+                      carcass_weight_kg,
+
+                    'pieces_count',
+                      pieces_count,
+
+                    'is_complete',
+                      is_complete
+                  )
+
+                  ORDER BY
+                    troop_id,
+                    animal_sequence_number
+                      NULLS LAST,
+                    animal_key
+                ),
+                '[]'::json
+              )
+                AS carcasses
+
+            FROM animals
+          `,
+          [
+            companyId,
+            data.purchase_lot_id,
+          ],
+        );
+
+
+      const slaughterRaw =
+        slaughterResult.rows[0] || {};
+
+
+      const receivedAnimals =
+        Number(
+          slaughterRaw.received_animals ||
+          0
+        );
+
+
+      const slaughteredAnimals =
+        Number(
+          slaughterRaw.slaughtered_animals ||
+          0
+        );
+
+
+      const incompleteAnimals =
+        Number(
+          slaughterRaw.incomplete_animals ||
+          0
+        );
+
+
+      const hookWeightKg =
+        Number(
+          slaughterRaw.hook_weight_kg ||
+          0
+        );
+
+
+      const averageCarcassWeightKg =
+        slaughterRaw
+              .average_carcass_weight_kg !==
+            null &&
+        slaughterRaw
+              .average_carcass_weight_kg !==
+            undefined
+          ? Number(
+              slaughterRaw
+                .average_carcass_weight_kg,
+            )
+          : null;
+
+
+      const minCarcassWeightKg =
+        slaughterRaw
+              .min_carcass_weight_kg !==
+            null &&
+        slaughterRaw
+              .min_carcass_weight_kg !==
+            undefined
+          ? Number(
+              slaughterRaw
+                .min_carcass_weight_kg,
+            )
+          : null;
+
+
+      const maxCarcassWeightKg =
+        slaughterRaw
+              .max_carcass_weight_kg !==
+            null &&
+        slaughterRaw
+              .max_carcass_weight_kg !==
+            undefined
+          ? Number(
+              slaughterRaw
+                .max_carcass_weight_kg,
+            )
+          : null;
+
+
+      const carcassDetails =
+        Array.isArray(
+          slaughterRaw.carcasses
+        )
+          ? slaughterRaw.carcasses
+          : [];
+
+
+      const netLiveWeightKg =
+        Number(
+          data.net_weight_kg ||
+          0
+        );
+
+
+      const yieldPercent =
+        netLiveWeightKg > 0 &&
+        hookWeightKg > 0
+          ? Math.round(
+              (
+                (
+                  hookWeightKg /
+                  netLiveWeightKg
+                ) *
+                100 +
+                Number.EPSILON
+              ) *
+              100
+            ) / 100
+          : null;
+
+
+      // =================================================
       // HELPERS
       // =================================================
 
@@ -43857,6 +44212,32 @@ exports.getSellerPreliquidationPdf =
 
         })();
 
+      const weightSourceLabel =
+        (() => {
+
+          const source =
+            safeText(
+              data.weight_source ||
+                data.purchase_weight_source,
+              '',
+            );
+
+          switch (source) {
+
+            case 'origin':
+              return 'Peso de origen';
+
+            case 'plant':
+              return 'Peso en planta';
+
+            case 'not_applicable':
+              return 'No aplica';
+
+            default:
+              return source || '-';
+          }
+
+        })();
 
       const statusLabel =
         (() => {
@@ -44163,7 +44544,264 @@ exports.getSellerPreliquidationPdf =
         data.estate_name,
       );
 
+      // =================================================
+      // RESUMEN DE FAENA
+      // =================================================
 
+      sectionTitle(
+        'RESUMEN DE FAENA',
+      );
+
+
+      detailRow(
+        'Animales contratados',
+        formatNumber(
+          data.expected_quantity,
+          0,
+        ),
+      );
+
+
+      detailRow(
+        'Animales recibidos',
+        formatNumber(
+          receivedAnimals,
+          0,
+        ),
+      );
+
+
+      detailRow(
+        'Animales faenados',
+        formatNumber(
+          slaughteredAnimals,
+          0,
+        ),
+      );
+
+
+      if (
+        netLiveWeightKg > 0
+      ) {
+
+        detailRow(
+          'Peso vivo liquidable',
+          `${formatNumber(
+            netLiveWeightKg,
+            2,
+          )} kg`,
+        );
+
+      }
+
+
+      if (
+        hookWeightKg > 0
+      ) {
+
+        detailRow(
+          'Peso total de carcasa',
+          `${formatNumber(
+            hookWeightKg,
+            2,
+          )} kg`,
+        );
+
+      }
+
+
+      if (
+        yieldPercent !== null
+      ) {
+
+        detailRow(
+          'Rendimiento de carcasa',
+          `${formatNumber(
+            yieldPercent,
+            2,
+          )} %`,
+        );
+
+      }
+
+
+      if (
+        averageCarcassWeightKg !== null
+      ) {
+
+        detailRow(
+          'Peso promedio de carcasa',
+          `${formatNumber(
+            averageCarcassWeightKg,
+            2,
+          )} kg`,
+        );
+
+      }
+
+
+      if (
+        minCarcassWeightKg !== null
+      ) {
+
+        detailRow(
+          'Carcasa de menor peso',
+          `${formatNumber(
+            minCarcassWeightKg,
+            2,
+          )} kg`,
+        );
+
+      }
+
+
+      if (
+        maxCarcassWeightKg !== null
+      ) {
+
+        detailRow(
+          'Carcasa de mayor peso',
+          `${formatNumber(
+            maxCarcassWeightKg,
+            2,
+          )} kg`,
+        );
+
+      }
+
+
+      if (
+        incompleteAnimals > 0
+      ) {
+
+        detailRow(
+          'Observación',
+          incompleteAnimals === 1
+            ? 'Existe 1 animal con registro incompleto de medias reses.'
+            : `Existen ${incompleteAnimals} animales con registro incompleto de medias reses.`,
+        );
+
+      }
+
+
+      // =================================================
+      // DETALLE DE CARCASAS
+      // =================================================
+
+      if (
+        carcassDetails.length > 0
+      ) {
+
+        sectionTitle(
+          'DETALLE DE CARCASAS',
+        );
+
+
+        for (
+          let i = 0;
+          i < carcassDetails.length;
+          i++
+        ) {
+
+          const carcass =
+            carcassDetails[i];
+
+
+          const half1 =
+            numberValue(
+              carcass[
+                'half_1_weight_kg'
+              ],
+            );
+
+
+          const half2 =
+            numberValue(
+              carcass[
+                'half_2_weight_kg'
+              ],
+            );
+
+
+          const total =
+            numberValue(
+              carcass[
+                'carcass_weight_kg'
+              ],
+            );
+
+
+          const complete =
+            carcass[
+              'is_complete'
+            ] === true;
+
+
+          const parts = [];
+
+
+          if (
+            half1 !== null
+          ) {
+
+            parts.push(
+              `Media 1: ${formatNumber(
+                half1,
+                2,
+              )} kg`,
+            );
+
+          }
+
+
+          if (
+            half2 !== null
+          ) {
+
+            parts.push(
+              `Media 2: ${formatNumber(
+                half2,
+                2,
+              )} kg`,
+            );
+
+          }
+
+
+          if (
+            total !== null
+          ) {
+
+            parts.push(
+              `Total: ${formatNumber(
+                total,
+                2,
+              )} kg`,
+            );
+
+          }
+
+
+          if (!complete) {
+
+            parts.push(
+              'REGISTRO INCOMPLETO',
+            );
+
+          }
+
+
+          detailRow(
+            `Animal ${i + 1}`,
+            parts.length > 0
+              ? parts.join('  ·  ')
+              : '-',
+          );
+
+        }
+
+      }
+      
       // =================================================
       // LIQUIDACIÓN
       // =================================================
