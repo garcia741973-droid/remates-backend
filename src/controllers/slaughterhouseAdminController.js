@@ -64334,22 +64334,9 @@ exports.exportFinalLotXlsx =
       const transportAdjustmentTotals =
         new Map();
 
-      const purchaseLotIds = [
-        ...new Set(
-          result.rows
-            .map(
-              (row) =>
-                Number(
-                  row.purchase_lot_id
-                )
-            )
-            .filter(
-              (id) =>
-                Number.isInteger(id) &&
-                id > 0
-            )
-        ),
-      ];
+        const purchaseLotIds = [
+        purchaseLotId,
+        ];
 
 
       if (purchaseLotIds.length > 0) {
