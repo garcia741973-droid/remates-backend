@@ -60126,7 +60126,10 @@ exports.exportFinalLotXlsx =
                 tg.official_guide_photo_url,
 
                 srt.live_weight_kg
-                  AS reception_live_weight_kg,
+                AS reception_live_weight_kg,
+
+                sga.arrived_at
+                AS gate_arrived_at,
 
                 srt.received_at,
 
@@ -60195,6 +60198,15 @@ exports.exportFinalLotXlsx =
 
                 ON srt.id =
                   st.reception_truck_id
+
+                LEFT JOIN
+                slaughterhouse_gate_arrivals sga
+
+                ON sga.company_id =
+                    st.company_id
+
+                AND sga.transport_negotiation_id =
+                    st.transport_negotiation_id
 
               LEFT JOIN
                 slaughterhouse_receptions sr
@@ -62815,13 +62827,15 @@ exports.exportFinalLotXlsx =
 
           'CI chofer',
 
-          'SENASAG',
+            'SENASAG',
 
-          'Llegada',
+            'Llegada Portería',
 
-          'Recepción',
+            'Recepción en planta',
 
-          'Lote planta',
+            'N° recepción',
+
+            'Lote planta',
 
           'Estado recepción',
 
@@ -62904,21 +62918,25 @@ exports.exportFinalLotXlsx =
             row.driver_ci
           ),
 
-          text(
+            text(
             row.official_guide_number_snapshot
-          ),
+            ),
 
-          dateText(
+            dateText(
+            row.gate_arrived_at
+            ),
+
+            dateText(
             row.received_at
-          ),
+            ),
 
-          text(
+            text(
             row.reception_number
-          ),
+            ),
 
-          text(
+            text(
             row.plant_lot_number
-          ),
+            ),
 
           text(
             row.reception_status
