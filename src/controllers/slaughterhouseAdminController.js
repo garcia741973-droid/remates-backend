@@ -61985,21 +61985,27 @@ exports.exportFinalLotXlsx =
         );
 
 
-      const grossLiveWeightKg =
-        preliq
-          ? number(
-              preliq.gross_weight_kg
-            )
-          : 0;
+        const plantLiveWeightKg =
+        troopsResult.rows.reduce(
+            (
+            total,
+            row
+            ) =>
+            total +
+            number(
+                row.reception_live_weight_kg
+            ),
+            0
+        );
 
 
-      const carcassYieldPercent =
-        grossLiveWeightKg > 0
-          ? (
-              hookWeightKg /
-              grossLiveWeightKg
+        const carcassYieldPercent =
+        plantLiveWeightKg > 0
+            ? (
+                hookWeightKg /
+                plantLiveWeightKg
             ) * 100
-          : 0;
+            : 0;
 
       const animalWeights =
         completedAnimals
@@ -63718,16 +63724,16 @@ exports.exportFinalLotXlsx =
         }
 
         const yieldRow =
-          addInfoRow([
+        addInfoRow([
             'Rendimiento carcasa',
             carcassYieldPercent,
             'Fórmula',
-            'Peso gancho / peso vivo bruto',
-            'Peso vivo bruto kg',
-            grossLiveWeightKg,
+            'Peso gancho / peso vivo planta',
+            'Peso vivo planta kg',
+            plantLiveWeightKg,
             'Peso gancho kg',
             hookWeightKg,
-          ]);
+        ]);
 
 
         yieldRow
