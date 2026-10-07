@@ -1041,7 +1041,7 @@ exports.getFieldApprovedTransportTrucks =
 
 
               -- ================================================
-              -- DATOS DEL CAMIÓN FRIGOSI
+              -- DATOS DEL CAMIÓN FRIGORIFICO
               -- ================================================
 
               sctr.plate,
@@ -1059,7 +1059,7 @@ exports.getFieldApprovedTransportTrucks =
               -- VÍNCULO CON PLAZA TRANSPORTE
               --
               -- Puede ser NULL.
-              -- El camión NO desaparece de la lista FRIGOSI.
+              -- El camión NO desaparece de la lista FRIGORIFICO.
               -- ================================================
 
               tt.id
@@ -1237,7 +1237,7 @@ exports.getFieldApprovedTransportTrucks =
 // - Solo Captador activo.
 // - El lote debe pertenecer al Captador autenticado.
 // - El lote ya debe estar preparado para campo.
-// - El camión debe pertenecer a la red privada FRIGOSI.
+// - El camión debe pertenecer a la red privada FRIGORIFICO.
 // - El camión debe estar vinculado a Plaza Transporte.
 // - Si existe solicitud open para el lote, se reutiliza.
 // - Si no existe, se crea.
@@ -1691,7 +1691,7 @@ exports.assignFieldPurchaseLotTransport =
 
 
       // =================================================
-      // VALIDAR CAMIÓN DE RED PRIVADA FRIGOSI
+      // VALIDAR CAMIÓN DE RED PRIVADA FRIGORIFICO
       //
       // El truck_id recibido es transporter_trucks.id,
       // NO slaughterhouse_company_trucks.id.
@@ -1810,7 +1810,7 @@ exports.assignFieldPurchaseLotTransport =
 
         return res.status(409).json({
           error:
-            'El camión no pertenece a la red privada FRIGOSI o todavía no está vinculado a Plaza Transporte',
+            'El camión no pertenece a la red privada del frigorífico o todavía no está vinculado a Plaza Transporte',
         });
       }
 
@@ -2102,7 +2102,7 @@ exports.assignFieldPurchaseLotTransport =
 
         const transportNotes =
           [
-            'Frigosi - Transporte asignado directamente',
+            `${destination} - Transporte asignado directamente`,
 
             `Lote: ${lot.lot_number}`,
 
@@ -2796,7 +2796,7 @@ exports.assignFieldPurchaseLotTransport =
       // =====================================================
 
       const assignmentMessage =
-        `✅ FRIGOSI te asignó un transporte.\n\n` +
+        `✅ ${destination} te asignó un transporte.\n\n` +
         `Lote: ${lot.lot_number}\n` +
         `Animales previstos: ${expectedQuantity}\n` +
         `Precio acordado: Bs ${finalTripPrice.toFixed(2)}\n\n` +
@@ -2907,7 +2907,7 @@ exports.assignFieldPurchaseLotTransport =
             truck.transporter_user_id,
 
           title:
-            'FRIGOSI te asignó un transporte',
+            `${destination} te asignó un transporte`,
 
           body:
             `Lote ${lot.lot_number} · ` +

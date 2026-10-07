@@ -1054,7 +1054,7 @@ exports.updateAdminUser =
 
       // -----------------------------------------------
       // VALIDAR QUE PERTENEZCA A ESTE FRIGORÍFICO
-      // Y QUE FRIGOSI ADMINISTRE SU IDENTIDAD
+      // Y QUE FRIGORIFICO ADMINISTRE SU IDENTIDAD
       // -----------------------------------------------
 
       const membershipResult =
@@ -1109,7 +1109,7 @@ exports.updateAdminUser =
 
         return res.status(403).json({
           error:
-            'La identidad de esta cuenta pertenece a Plaza Ganadera y no puede modificarse desde FRIGOSI',
+            'La identidad de esta cuenta pertenece a Plaza Ganadera y no puede modificarse desde este frigorífico',
         });
       }
 
@@ -6657,7 +6657,7 @@ exports.getCompanyPaymentAccounts =
 //   "bank_id": 1,
 //   "account_number": "1234567890",
 //   "account_type": "Corriente",
-//   "account_holder": "FRIGOSI S.A.",
+//   "account_holder": "FRIGORIFICO",
 //   "label": "Cuenta principal",
 //   "is_default": true
 // }
@@ -21644,7 +21644,7 @@ exports.requestTransportForTroop =
 
           return res.status(404).json({
             error:
-              'La ubicación seleccionada para el origen no existe o no está disponible para FRIGOSI',
+              'La ubicación seleccionada para el origen no existe o no está disponible para FRIGORIFICO',
           });
         }
 
@@ -21767,7 +21767,7 @@ exports.requestTransportForTroop =
       // Prioridad:
       // 1. Ubicación guardada seleccionada
       // 2. Coordenadas enviadas desde web
-      // 3. Coordenadas de la planta FRIGOSI
+      // 3. Coordenadas de la planta FRIGORIFICO
       // =================================================
 
       let dropoffLocation = null;
@@ -21813,7 +21813,7 @@ exports.requestTransportForTroop =
 
           return res.status(404).json({
             error:
-              'La ubicación seleccionada para el destino no existe o no está disponible para FRIGOSI',
+              'La ubicación seleccionada para el destino no existe o no está disponible para FRIGORIFICO',
           });
         }
 
@@ -21942,7 +21942,7 @@ exports.requestTransportForTroop =
 
       const transportNotes =
         [
-          `Frigosi - Lote ${context.lot_number}`,
+          `${context.company_name || 'Frigorífico'} - Lote ${context.lot_number}`,
 
           context.external_order_number
             ? `Orden externa: ${context.external_order_number}`
@@ -22862,7 +22862,7 @@ exports.requestTransportForPurchaseLot =
 
           return res.status(404).json({
             error:
-              'La ubicación seleccionada para el origen no existe o no está disponible para FRIGOSI',
+              'La ubicación seleccionada para el origen no existe o no está disponible para FRIGORIFICO',
           });
 
         }
@@ -23054,7 +23054,7 @@ exports.requestTransportForPurchaseLot =
 
           return res.status(404).json({
             error:
-              'La ubicación seleccionada para el destino no existe o no está disponible para FRIGOSI',
+              'La ubicación seleccionada para el destino no existe o no está disponible para FRIGORIFICO',
           });
 
         }
@@ -23192,7 +23192,7 @@ exports.requestTransportForPurchaseLot =
 
       const transportNotes =
         [
-          'Frigosi - Solicitud de camiones',
+          `${context.company_name || 'Frigorífico'} - Solicitud de camiones`,
 
           `Lote: ${context.lot_number}`,
 
@@ -23666,27 +23666,34 @@ exports.acceptPurchaseLotTransportNegotiation =
       // BLOQUEAR LOTE
       // =================================================
 
-      const lotResult =
+        const lotResult =
         await client.query(
-          `
+            `
             SELECT
-              id,
-              lot_number,
-              status,
-              expected_quantity
+                spl.id,
+                spl.lot_number,
+                spl.status,
+                spl.expected_quantity,
 
-            FROM slaughterhouse_purchase_lots
+                company.name
+                AS company_name
+
+            FROM slaughterhouse_purchase_lots spl
+
+            JOIN companies company
+                ON company.id =
+                spl.company_id
 
             WHERE
-              id = $1
-              AND company_id = $2
+                spl.id = $1
+                AND spl.company_id = $2
 
-            FOR UPDATE
-          `,
-          [
+            FOR UPDATE OF spl
+            `,
+            [
             purchaseLotId,
             companyId,
-          ],
+            ],
         );
 
       if (
@@ -23706,6 +23713,13 @@ exports.acceptPurchaseLotTransportNegotiation =
 
       const purchaseLot =
         lotResult.rows[0];
+
+        const companyName =
+        String(
+            purchaseLot.company_name ||
+            'Frigorífico'
+        ).trim() ||
+        'Frigorífico';
 
       if (
         ![
@@ -24359,7 +24373,7 @@ exports.acceptPurchaseLotTransportNegotiation =
       const confirmationMessage =
         `✅ Transporte confirmado.
 
-      FRIGOSI confirmó tu propuesta de transporte.
+      ${companyName} confirmó tu propuesta de transporte.
 
       Lote: ${purchaseLot.lot_number}
       Animales previstos para este camión: ${
@@ -24475,10 +24489,10 @@ exports.acceptPurchaseLotTransportNegotiation =
           title:
             'Transporte confirmado',
 
-          body:
+            body:
             expectedQuantity !== null
-              ? `FRIGOSI confirmó tu camión para ${expectedQuantity} animales. Ya puedes preparar el viaje.`
-              : 'FRIGOSI confirmó tu camión. Ya puedes preparar el viaje.',
+                ? `${companyName} confirmó tu camión para ${expectedQuantity} animales. Ya puedes preparar el viaje.`
+                : `${companyName} confirmó tu camión. Ya puedes preparar el viaje.`,
 
           data: {
             type:
@@ -26754,7 +26768,7 @@ exports.selectTroopTransportNegotiation =
 //
 // Aquí registramos la autorización corporativa:
 //
-// FRIGOSI → TRANSPORTISTA
+// FRIGORIFICO → TRANSPORTISTA
 //
 // status inicial:
 // authorized
@@ -35951,7 +35965,7 @@ exports.linkTransportGuideToTroop =
 // - NO modifica transport_negotiations.
 // - NO modifica transport_requests.
 // - NO marca received por delivered_at.
-// - La recepción física la controla Frigosi.
+// - La recepción física la controla Frigorifico.
 // =====================================================
 
 exports.syncTroopTransportState =
@@ -37783,7 +37797,7 @@ exports.receiveTroop =
   };
 
 // =====================================================
-// 📋 LISTAR RECEPCIONES - ADMIN FRIGOSI
+// 📋 LISTAR RECEPCIONES - ADMIN FRIGORIFICO
 // GET /slaughterhouse/admin/receptions
 //
 // Filtros opcionales:
@@ -38164,7 +38178,7 @@ exports.getAdminReceptions =
   };
 
 // =====================================================
-// 📋 DETALLE DE RECEPCIÓN - ADMIN FRIGOSI
+// 📋 DETALLE DE RECEPCIÓN - ADMIN FRIGORIFICO
 // GET /slaughterhouse/admin/receptions/:id
 //
 // Devuelve:
@@ -39666,7 +39680,7 @@ exports.generatePreliquidationDraft =
       //   => pesaje certificado en origen
       //
       // live_kg + plant
-      //   => peso vivo registrado en recepción FRIGOSI
+      //   => peso vivo registrado en recepción FRIGORIFICO
       //
       // hook_kg + plant
       //   => suma de peso gancho de medias reses
@@ -57167,7 +57181,7 @@ exports.exportCustomReportXlsx =
         new ExcelJS.Workbook();
 
       workbook.creator =
-        'FRIGOSI';
+        'Plaza Ganadera';
 
       workbook.created =
         new Date();
@@ -57440,7 +57454,7 @@ exports.exportCustomReportXlsx =
         text(
           report.name
         ) ||
-        'FRIGOSI_MI_INFORME';
+        'MI_INFORME';
 
       safeName =
         safeName
@@ -57464,7 +57478,7 @@ exports.exportCustomReportXlsx =
         !safeName
       ) {
         safeName =
-          'FRIGOSI_MI_INFORME';
+          'MI_INFORME';
       }
 
       const fileName =
@@ -62078,7 +62092,7 @@ exports.exportFinalLotXlsx =
 
 
       workbook.creator =
-        'Plaza Ganadera - FRIGOSI';
+        'Plaza Ganadera';
 
       workbook.created =
         new Date();
@@ -64573,7 +64587,7 @@ exports.exportFinalLotXlsx =
 
 
       const fileName =
-        `FRIGOSI_${safeLotNumber}.xlsx`;
+        `LOTE_${safeLotNumber}.xlsx`;
 
 
       const buffer =

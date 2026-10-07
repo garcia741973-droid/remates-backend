@@ -2765,7 +2765,7 @@ exports.startSlaughterhouseSlaughter =
       // compatibilidad con web/app actuales
       //
       // closed:
-      // nuevo flujo Admin Frigosi
+      // nuevo flujo Admin Frigorifico
       //
       // in_slaughter:
       // solo se admite si vamos iniciando
@@ -3098,7 +3098,7 @@ exports.startSlaughterhouseSlaughter =
       // =================================================
       // PESO VIVO EN PLANTA OBLIGATORIO
       //
-      // REGLA FRIGOSI:
+      // REGLA FRIGORIFICO:
       // - Todo ganado que entra a faena debe haber sido
       //   pesado previamente en planta.
       // - El peso en origen puede existir o no existir.
@@ -9905,7 +9905,7 @@ exports.getSlaughterhouseExportProfiles =
 // POST /slaughterhouse/export/profiles
 //
 // {
-//   "name": "Sistema FRIGOSI",
+//   "name": "Sistema FRIGORIFICO",
 //   "dataset_type": "carcasses",
 //   "columns_config": [
 //     {

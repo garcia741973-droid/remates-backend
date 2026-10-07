@@ -1902,7 +1902,7 @@ exports.getSlaughterhouseOperators =
 // BODY:
 // {
 //   "full_name": "Operador Prueba",
-//   "email": "operador@frigosi.com",
+//   "email": "operador@frigorifico.com",
 //   "phone": "70000000",
 //   "password": "123456"
 // }
