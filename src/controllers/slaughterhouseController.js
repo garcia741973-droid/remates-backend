@@ -1224,6 +1224,7 @@ exports.createSlaughterhouseGateArrival =
             tn.truck_id,
 
             tr.requester_company_id,
+            tr.purchase_lot_id,
 
             tt.plate,
             tt.brand,
@@ -1398,12 +1399,52 @@ exports.createSlaughterhouseGateArrival =
           ],
         );
 
-      // =================================================
-      // 🔔 ALARMA: CAMIÓN REGISTRADO EN PORTERÍA
-      // =================================================
 
       const gateArrival =
         arrivalResult.rows[0];
+
+      // =================================================
+      // ACTUALIZAR ESTADO DEL LOTE
+      //
+      // Al registrar la llegada en Portería,
+      // el ganado ya está físicamente en planta.
+      //
+      // Solo avanzamos estados previos al ingreso.
+      // No hacemos retroceder lotes ya recepcionados,
+      // en faena o terminados.
+      // =================================================
+
+      if (transport.purchase_lot_id) {
+
+        await pool.query(
+          `
+          UPDATE slaughterhouse_purchase_lots
+          SET
+            status = 'in_reception',
+            updated_at = NOW()
+          WHERE
+            id = $1
+            AND company_id = $2
+            AND status IN (
+              'open',
+              'transport_requested',
+              'transport_pending',
+              'in_transport',
+              'in_transit'
+            )
+          `,
+          [
+            transport.purchase_lot_id,
+            companyId,
+          ],
+        );
+
+      }
+
+
+      // =================================================
+      // 🔔 ALARMA: CAMIÓN REGISTRADO EN PORTERÍA
+      // =================================================
 
       await sendSlaughterhouseOperatorNotification({
 
@@ -1473,7 +1514,7 @@ exports.createSlaughterhouseGateArrival =
     }
 
   };
-
+  
 exports.createSlaughterhouseReception =
   async (req, res) => {
 
