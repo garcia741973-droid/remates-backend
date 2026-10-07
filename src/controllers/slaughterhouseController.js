@@ -1403,44 +1403,6 @@ exports.createSlaughterhouseGateArrival =
       const gateArrival =
         arrivalResult.rows[0];
 
-      // =================================================
-      // ACTUALIZAR ESTADO DEL LOTE
-      //
-      // Al registrar la llegada en Portería,
-      // el ganado ya está físicamente en planta.
-      //
-      // Solo avanzamos estados previos al ingreso.
-      // No hacemos retroceder lotes ya recepcionados,
-      // en faena o terminados.
-      // =================================================
-
-      if (transport.purchase_lot_id) {
-
-        await pool.query(
-          `
-          UPDATE slaughterhouse_purchase_lots
-          SET
-            status = 'in_reception',
-            updated_at = NOW()
-          WHERE
-            id = $1
-            AND company_id = $2
-            AND status IN (
-              'open',
-              'transport_requested',
-              'transport_pending',
-              'in_transport',
-              'in_transit'
-            )
-          `,
-          [
-            transport.purchase_lot_id,
-            companyId,
-          ],
-        );
-
-      }
-
 
       // =================================================
       // 🔔 ALARMA: CAMIÓN REGISTRADO EN PORTERÍA
@@ -3442,6 +3404,57 @@ exports.startSlaughterhouseSlaughter =
           ],
         );
 
+        // =================================================
+        // ACTUALIZAR LOTE DE COMPRA A FAENA
+        //
+        // Mantiene sincronizada la cabecera comercial con
+        // la tropa y la recepción.
+        //
+        // - Si se inicia una tropa, actualiza su lote.
+        // - Si se inicia la recepción completa, actualiza
+        //   los lotes vinculados a sus tropas.
+        // - No retrocede lotes terminados/cancelados.
+        // =================================================
+
+        await client.query(
+          `
+          UPDATE slaughterhouse_purchase_lots spl
+
+          SET
+            status = 'in_slaughter',
+            updated_at = NOW()
+
+          WHERE
+            spl.company_id = $1
+
+            AND spl.id IN (
+              SELECT DISTINCT
+                st.purchase_lot_id
+
+              FROM slaughterhouse_troops st
+
+              WHERE
+                st.company_id = $1
+                AND st.reception_id = $2
+                AND st.purchase_lot_id IS NOT NULL
+
+                AND (
+                  $3::int IS NULL
+                  OR st.id = $3
+                )
+            )
+
+            AND spl.status IN (
+              'received',
+              'in_transport'
+            )
+          `,
+          [
+            companyId,
+            receptionId,
+            troopId,
+          ],
+        );
 
       await client.query(
         'COMMIT',
