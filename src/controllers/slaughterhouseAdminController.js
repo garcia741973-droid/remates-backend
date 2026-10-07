@@ -62403,7 +62403,7 @@ exports.exportFinalLotXlsx =
         ],
 
         [
-          'Merma %',
+          'Destare %',
           number(
             lot.shrink_percent
           ),
@@ -62648,9 +62648,9 @@ exports.exportFinalLotXlsx =
 
           'Peso bruto kg',
 
-          'Merma %',
+          'Destare %',
 
-          'Merma kg',
+          'Destare kg',
 
           'Peso neto kg',
 
@@ -63389,8 +63389,8 @@ exports.exportFinalLotXlsx =
           preliqSheet.addRow([
             'Cantidad',
             'Peso bruto kg',
-            'Merma %',
-            'Merma kg',
+            'Destare %',
+            'Destare kg',
             'Peso neto kg',
             'Precio/kg',
             'Monto base',
