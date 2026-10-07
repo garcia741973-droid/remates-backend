@@ -59983,7 +59983,8 @@ exports.exportFinalLotXlsx =
                 slw.original_weighing_id,
 
                 COALESCE(
-                  slw.created_at,
+                    (slw.created_at AT TIME ZONE 'UTC')
+                    AS created_at,
                   st.updated_at,
                   st.created_at
                 )
@@ -60131,7 +60132,8 @@ exports.exportFinalLotXlsx =
                 sga.arrived_at
                 AS gate_arrived_at,
 
-                srt.received_at,
+                (srt.received_at AT TIME ZONE 'UTC')
+                AS received_at,
 
                 srt.plate_snapshot,
 
@@ -60144,10 +60146,11 @@ exports.exportFinalLotXlsx =
                 sr.status
                   AS reception_status,
 
-                sr.slaughter_started_at,
+                (sr.slaughter_started_at AT TIME ZONE 'UTC')
+                AS slaughter_started_at,
 
-                sr.completed_at
-                  AS slaughter_completed_at
+                (sr.completed_at AT TIME ZONE 'UTC')
+                AS slaughter_completed_at
 
               FROM
                 slaughterhouse_troops st
