@@ -59982,13 +59982,15 @@ exports.exportFinalLotXlsx =
 
                 slw.original_weighing_id,
 
+                (
                 COALESCE(
-                    (slw.created_at AT TIME ZONE 'UTC')
-                    AS created_at,
-                  st.updated_at,
-                  st.created_at
+                    slw.created_at,
+                    st.updated_at,
+                    st.created_at
                 )
-                  AS created_at
+                AT TIME ZONE 'UTC'
+                )
+                AS created_at
 
               FROM
                 slaughterhouse_troops st
