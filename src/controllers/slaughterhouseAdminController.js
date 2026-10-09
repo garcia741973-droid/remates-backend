@@ -55100,6 +55100,42 @@ exports.getTransporterPaymentsReport =
 
               tn.trip_price,
 
+              COALESCE(
+                transport_adjustments_summary.discounts_total,
+                0
+              )::numeric
+                AS transport_discounts_total,
+
+              COALESCE(
+                transport_adjustments_summary.additions_total,
+                0
+              )::numeric
+                AS transport_additions_total,
+
+              ROUND(
+                (
+                  COALESCE(
+                    tn.trip_price,
+                    0
+                  )::numeric
+                  -
+                  COALESCE(
+                    transport_adjustments_summary.discounts_total,
+                    0
+                  )::numeric
+                  +
+                  COALESCE(
+                    transport_adjustments_summary.additions_total,
+                    0
+                  )::numeric
+                ),
+                2
+              )
+                AS transport_net_payable,
+
+              transport_adjustments_summary.adjustment_notes
+                AS transport_adjustment_notes,
+
               tn.created_at
                 AS negotiation_created_at,
 
@@ -55354,6 +55390,115 @@ exports.getTransporterPaymentsReport =
               AND payment_auth.negotiation_id =
                 tn.id
 
+            LEFT JOIN LATERAL (
+
+              SELECT
+                sp.id
+
+              FROM
+                slaughterhouse_preliquidations sp
+
+              WHERE
+                sp.company_id =
+                  st.company_id
+
+                AND sp.purchase_lot_id =
+                  spl.id
+
+              ORDER BY
+                sp.version DESC,
+                sp.id DESC
+
+              LIMIT 1
+
+            ) latest_preliq
+              ON true
+
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+
+                COALESCE(
+                  SUM(
+                    CASE
+                      WHEN spa.adjustment_type =
+                        'discount'
+                      THEN spa.amount
+                      ELSE 0
+                    END
+                  ),
+                  0
+                )::numeric
+                  AS discounts_total,
+
+                COALESCE(
+                  SUM(
+                    CASE
+                      WHEN spa.adjustment_type =
+                        'addition'
+                      THEN spa.amount
+                      ELSE 0
+                    END
+                  ),
+                  0
+                )::numeric
+                  AS additions_total,
+
+                STRING_AGG(
+                  CONCAT(
+                    CASE
+                      WHEN spa.adjustment_type =
+                        'discount'
+                      THEN 'DESCUENTO: '
+
+                      WHEN spa.adjustment_type =
+                        'addition'
+                      THEN 'ADICIÓN: '
+
+                      ELSE 'AJUSTE: '
+                    END,
+
+                    COALESCE(
+                      NULLIF(TRIM(spa.description), ''),
+                      NULLIF(TRIM(spa.code), ''),
+                      'Sin detalle'
+                    ),
+
+                    ' (Bs ',
+
+                    ROUND(
+                      COALESCE(
+                        spa.amount,
+                        0
+                      )::numeric,
+                      2
+                    )::text,
+
+                    ')'
+                  ),
+                  ' | '
+                  ORDER BY spa.id
+                )
+                  AS adjustment_notes
+
+              FROM
+                slaughterhouse_preliquidation_adjustments spa
+
+              WHERE
+                spa.preliquidation_id =
+                  latest_preliq.id
+
+                AND spa.target_type =
+                  'transport'
+
+                AND spa.transport_negotiation_id =
+                  tn.id
+
+            ) transport_adjustments_summary
+              ON true
+
+
 
             WHERE
 
@@ -55452,6 +55597,7 @@ exports.getTransporterPaymentsReport =
           ],
         );
 
+      const reportRows = result.rows;
 
       // =================================================
       // RESUMEN
