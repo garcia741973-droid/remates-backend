@@ -1602,6 +1602,23 @@ exports.assignFieldPurchaseLotTransport =
       const lot =
         lotResult.rows[0];
 
+      const destination =
+        lot.company_name
+          ?.toString()
+          .trim();
+
+
+      if (!destination) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(400).json({
+          error:
+            'El frigorífico no tiene un nombre válido como destino',
+        });
+      }
 
       // =================================================
       // AUTORIZACIÓN SOBRE EL LOTE
@@ -2039,24 +2056,6 @@ exports.assignFieldPurchaseLotTransport =
               'La estancia debe tener un nombre o ubicación válida',
           });
         }
-
-
-        const destination =
-          lot.company_name;
-
-
-        if (!destination) {
-
-          await client.query(
-            'ROLLBACK'
-          );
-
-          return res.status(400).json({
-            error:
-              'El frigorífico no tiene un nombre válido como destino',
-          });
-        }
-
 
         const pickupLat =
           lot.estate_lat === null ||
