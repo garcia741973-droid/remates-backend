@@ -15092,631 +15092,691 @@ exports.preparePurchaseLotFieldPickup =
 // generado automáticamente por el sistema
 // =====================================================
 
-exports.createPurchaseLot =
-  async (req, res) => {
+exports.createPurchaseLot = async (req, res) => {
+  const client = await pool.connect();
 
-    const client =
-      await pool.connect();
+  try {
+    const companyId = Number(
+      req.slaughterhouseAdmin.company_id
+    );
 
+    const userId = Number(
+      req.slaughterhouseAdmin.user_id
+    );
 
-    try {
+    const externalOrderNumber =
+      req.body.external_order_number
+        ?.toString()
+        .trim() || null;
 
-      const companyId =
-        Number(
-          req.slaughterhouseAdmin.company_id
-        );
+    const sellerPersonId = Number(
+      req.body.seller_person_id
+    );
 
+    const estateIdRaw = req.body.estate_id;
 
-      const userId =
-        Number(
-          req.slaughterhouseAdmin.user_id
-        );
+    const estateId =
+      estateIdRaw !== undefined &&
+      estateIdRaw !== null &&
+      estateIdRaw !== ''
+        ? Number(estateIdRaw)
+        : null;
 
+    const captadorPersonIdRaw =
+      req.body.captador_person_id;
 
-      const externalOrderNumber =
-        req.body.external_order_number
-          ?.toString()
-          .trim() ||
-        null;
+    const captadorPersonId =
+      captadorPersonIdRaw !== undefined &&
+      captadorPersonIdRaw !== null &&
+      captadorPersonIdRaw !== ''
+        ? Number(captadorPersonIdRaw)
+        : null;
 
+    const commissionerPersonIdRaw =
+      req.body.commissioner_person_id;
 
-      const sellerPersonId =
-        Number(
-          req.body.seller_person_id
-        );
+    const commissionerPersonId =
+      commissionerPersonIdRaw !== undefined &&
+      commissionerPersonIdRaw !== null &&
+      commissionerPersonIdRaw !== ''
+        ? Number(commissionerPersonIdRaw)
+        : null;
 
+    const purchaseType =
+      req.body.purchase_type
+        ?.toString()
+        .trim() || null;
 
-      const estateIdRaw =
-        req.body.estate_id;
+    const currency =
+      req.body.currency
+        ?.toString()
+        .trim()
+        .toUpperCase() || 'BOB';
 
+    const commissionType =
+      req.body.commission_type
+        ?.toString()
+        .trim()
+        .toLowerCase() || null;
 
-      const estateId =
-        estateIdRaw !== undefined &&
-        estateIdRaw !== null &&
-        estateIdRaw !== ''
-          ? Number(
-              estateIdRaw
-            )
-          : null;
+    const commissionValueRaw =
+      req.body.commission_value;
 
+    const commissionValue =
+      commissionValueRaw !== undefined &&
+      commissionValueRaw !== null &&
+      commissionValueRaw !== ''
+        ? Number(commissionValueRaw)
+        : null;
 
-      const captadorPersonIdRaw =
-        req.body.captador_person_id;
+    const plannedDate =
+      req.body.planned_date
+        ?.toString()
+        .trim() || null;
 
+    const purchaseDate =
+      req.body.purchase_date
+        ?.toString()
+        .trim() || null;
 
-      const captadorPersonId =
-        captadorPersonIdRaw !== undefined &&
-        captadorPersonIdRaw !== null &&
-        captadorPersonIdRaw !== ''
-          ? Number(
-              captadorPersonIdRaw
-            )
-          : null;
+    const sellerPaymentMethodIdRaw =
+      req.body.seller_payment_method_id;
 
+    const sellerPaymentMethodId =
+      sellerPaymentMethodIdRaw !== undefined &&
+      sellerPaymentMethodIdRaw !== null &&
+      sellerPaymentMethodIdRaw !== ''
+        ? Number(sellerPaymentMethodIdRaw)
+        : null;
 
-      const commissionerPersonIdRaw =
-        req.body.commissioner_person_id;
+    const plannedPaymentDate =
+      req.body.planned_payment_date
+        ?.toString()
+        .trim() || null;
 
+    const paymentTerms =
+      req.body.payment_terms
+        ?.toString()
+        .trim() || null;
 
-      const commissionerPersonId =
-        commissionerPersonIdRaw !== undefined &&
-        commissionerPersonIdRaw !== null &&
-        commissionerPersonIdRaw !== ''
-          ? Number(
-              commissionerPersonIdRaw
-            )
-          : null;
+    const status =
+      req.body.status
+        ?.toString()
+        .trim()
+        .toLowerCase() || 'open';
 
+    const notes =
+      req.body.notes
+        ?.toString()
+        .trim() || null;
 
-      const classificationIdRaw =
-        req.body.classification_id;
+    // =================================================
+    // CATEGORÍAS NEGOCIADAS
+    //
+    // Nuevo formato:
+    //
+    // categories: [
+    //   {
+    //     classification_id,
+    //     expected_quantity,
+    //     pricing_basis,
+    //     weight_source,
+    //     price_per_unit,
+    //     shrink_percent
+    //   }
+    // ]
+    //
+    // Compatibilidad:
+    // Si todavía llega el payload antiguo,
+    // construimos automáticamente una sola categoría.
+    // =================================================
 
+    let rawCategories = [];
+
+    if (
+      Array.isArray(req.body.categories) &&
+      req.body.categories.length > 0
+    ) {
+      rawCategories = req.body.categories;
+    } else {
+      rawCategories = [
+        {
+          classification_id:
+            req.body.classification_id,
+
+          expected_quantity:
+            req.body.expected_quantity,
+
+          pricing_basis:
+            req.body.pricing_basis,
+
+          weight_source:
+            req.body.weight_source,
+
+          price_per_unit:
+            req.body.price_per_unit,
+
+          shrink_percent:
+            req.body.shrink_percent,
+        },
+      ];
+    }
+
+    const allowedPricingBasis = [
+      'live_kg',
+      'hook_kg',
+      'per_head',
+    ];
+
+    const allowedWeightSources = [
+      'origin',
+      'plant',
+      'not_applicable',
+    ];
+
+    const categories = [];
+
+    for (
+      let index = 0;
+      index < rawCategories.length;
+      index += 1
+    ) {
+      const raw =
+        rawCategories[index] || {};
 
       const classificationId =
-        classificationIdRaw !== undefined &&
-        classificationIdRaw !== null &&
-        classificationIdRaw !== ''
-          ? Number(
-              classificationIdRaw
-            )
-          : null;
-
-
-      const purchaseType =
-        req.body.purchase_type
-          ?.toString()
-          .trim() ||
-        null;
-
-      const pricingBasis =
-        req.body.pricing_basis
-          ?.toString()
-          .trim()
-          .toLowerCase() ||
-        null;
-
-
-      const weightSource =
-        req.body.weight_source
-          ?.toString()
-          .trim()
-          .toLowerCase() ||
-        null;
-
-      const expectedQuantityRaw =
-        req.body.expected_quantity;
-
+        Number(raw.classification_id);
 
       const expectedQuantity =
-        expectedQuantityRaw !== undefined &&
-        expectedQuantityRaw !== null &&
-        expectedQuantityRaw !== ''
-          ? Number(
-              expectedQuantityRaw
-            )
-          : null;
+        Number(raw.expected_quantity);
 
-
-      const pricePerUnitRaw =
-        req.body.price_per_unit;
-
-
-      const pricePerUnit =
-        pricePerUnitRaw !== undefined &&
-        pricePerUnitRaw !== null &&
-        pricePerUnitRaw !== ''
-          ? Number(
-              pricePerUnitRaw
-            )
-          : null;
-
-
-      const currency =
-        req.body.currency
+      const pricingBasis =
+        raw.pricing_basis
           ?.toString()
           .trim()
-          .toUpperCase() ||
-        'BOB';
+          .toLowerCase() || null;
 
+      const weightSource =
+        raw.weight_source
+          ?.toString()
+          .trim()
+          .toLowerCase() || null;
+
+      const pricePerUnit =
+        Number(raw.price_per_unit);
 
       const shrinkPercentRaw =
-        req.body.shrink_percent;
-
+        raw.shrink_percent;
 
       const shrinkPercent =
         shrinkPercentRaw !== undefined &&
         shrinkPercentRaw !== null &&
         shrinkPercentRaw !== ''
-          ? Number(
-              shrinkPercentRaw
-            )
+          ? Number(shrinkPercentRaw)
           : 0;
 
-
-      const commissionType =
-        req.body.commission_type
-          ?.toString()
-          .trim()
-          .toLowerCase() ||
-        null;
-
-
-      const commissionValueRaw =
-        req.body.commission_value;
-
-
-      const commissionValue =
-        commissionValueRaw !== undefined &&
-        commissionValueRaw !== null &&
-        commissionValueRaw !== ''
-          ? Number(
-              commissionValueRaw
-            )
-          : null;
-
-
-        const plannedDate =
-          req.body.planned_date
-            ?.toString()
-            .trim() ||
-          null;
-
-
-        const purchaseDate =
-          req.body.purchase_date
-            ?.toString()
-            .trim() ||
-          null;
-
-
-        const sellerPaymentMethodIdRaw =
-          req.body.seller_payment_method_id;
-
-
-        const sellerPaymentMethodId =
-          sellerPaymentMethodIdRaw !== undefined &&
-          sellerPaymentMethodIdRaw !== null &&
-          sellerPaymentMethodIdRaw !== ''
-            ? Number(
-                sellerPaymentMethodIdRaw
-              )
-            : null;
-
-
-        const plannedPaymentDate =
-          req.body.planned_payment_date
-            ?.toString()
-            .trim() ||
-          null;
-
-
-        const paymentTerms =
-          req.body.payment_terms
-            ?.toString()
-            .trim() ||
-          null;
-
-
-        const status =
-        req.body.status
-          ?.toString()
-          .trim()
-          .toLowerCase() ||
-        'open';
-
-
-      const notes =
-        req.body.notes
-          ?.toString()
-          .trim() ||
-        null;
-
-
-      // =================================================
-      // VALIDACIONES BÁSICAS
-      // =================================================
+      const lineNumber = index + 1;
 
       if (
-        !Number.isInteger(
-          sellerPersonId
-        ) ||
-        sellerPersonId <= 0
+        !Number.isInteger(classificationId) ||
+        classificationId <= 0
       ) {
-
         return res.status(400).json({
           error:
-            'seller_person_id inválido',
+            `classification_id inválido en línea ${lineNumber}`,
         });
-
       }
-
-
-      const optionalIds =
-        [
-          {
-            name:
-              'estate_id',
-            value:
-              estateId,
-          },
-          {
-            name:
-              'captador_person_id',
-            value:
-              captadorPersonId,
-          },
-          {
-            name:
-              'commissioner_person_id',
-            value:
-              commissionerPersonId,
-          },
-          {
-            name:
-              'classification_id',
-            value:
-              classificationId,
-          },
-        ];
-
-
-      for (
-        const item of optionalIds
-      ) {
-
-        if (
-          item.value !== null &&
-          (
-            !Number.isInteger(
-              item.value
-            ) ||
-            item.value <= 0
-          )
-        ) {
-
-          return res.status(400).json({
-            error:
-              `${item.name} inválido`,
-          });
-
-        }
-
-      }
-
 
       if (
-        expectedQuantity !== null &&
-        (
-          !Number.isInteger(
-            expectedQuantity
-          ) ||
-          expectedQuantity < 0
-        )
+        !Number.isInteger(expectedQuantity) ||
+        expectedQuantity <= 0
       ) {
-
         return res.status(400).json({
           error:
-            'expected_quantity debe ser un entero mayor o igual a 0',
+            `expected_quantity debe ser mayor a 0 en línea ${lineNumber}`,
         });
-
       }
 
-
       if (
-        pricePerUnit !== null &&
-        (
-          !Number.isFinite(
-            pricePerUnit
-          ) ||
-          pricePerUnit < 0
-        )
-      ) {
-
-        return res.status(400).json({
-          error:
-            'price_per_unit inválido',
-        });
-
-      }
-
-      const allowedPricingBasis = [
-        'live_kg',
-        'hook_kg',
-        'per_head',
-      ];
-
-
-      const allowedWeightSources = [
-        'origin',
-        'plant',
-        'not_applicable',
-      ];
-
-
-      if (
-        pricingBasis !== null &&
         !allowedPricingBasis.includes(
           pricingBasis
         )
       ) {
         return res.status(400).json({
           error:
-            'pricing_basis inválido',
+            `pricing_basis inválido en línea ${lineNumber}`,
         });
       }
 
-
       if (
-        weightSource !== null &&
         !allowedWeightSources.includes(
           weightSource
         )
       ) {
         return res.status(400).json({
           error:
-            'weight_source inválido',
+            `weight_source inválido en línea ${lineNumber}`,
         });
       }
 
-
-      // Si se informa uno, debe informarse el otro.
-      if (
-        (
-          pricingBasis === null &&
-          weightSource !== null
-        ) ||
-        (
-          pricingBasis !== null &&
-          weightSource === null
-        )
-      ) {
-        return res.status(400).json({
-          error:
-            'pricing_basis y weight_source deben definirse juntos',
-        });
-      }
-
-
-      // KILO VIVO
-      // Puede pesarse en origen o en planta.
       if (
         pricingBasis === 'live_kg' &&
         ![
           'origin',
           'plant',
-        ].includes(
-          weightSource
-        )
+        ].includes(weightSource)
       ) {
         return res.status(400).json({
           error:
-            'Una compra por kilo vivo debe pesarse en origen o en planta',
-        });
-      }
-
-
-      // Si ya se definió la modalidad comercial,
-      // debe existir precio acordado.
-      if (
-        pricingBasis !== null &&
-        (
-          pricePerUnit === null ||
-          !Number.isFinite(
-            pricePerUnit
-          ) ||
-          pricePerUnit <= 0
-        )
-      ) {
-        return res.status(400).json({
-          error:
-            'Debe indicar un precio mayor a 0 para la modalidad de compra seleccionada',
+            `Una compra por kilo vivo debe pesarse en origen o planta. Línea ${lineNumber}`,
         });
       }
 
       if (
-        !Number.isFinite(
-          shrinkPercent
-        ) ||
+        !Number.isFinite(pricePerUnit) ||
+        pricePerUnit <= 0
+      ) {
+        return res.status(400).json({
+          error:
+            `price_per_unit debe ser mayor a 0 en línea ${lineNumber}`,
+        });
+      }
+
+      if (
+        !Number.isFinite(shrinkPercent) ||
         shrinkPercent < 0 ||
         shrinkPercent > 100
       ) {
-
         return res.status(400).json({
           error:
-            'shrink_percent debe estar entre 0 y 100',
-        });
-
-      }
-
-      if (
-        purchaseDate !== null &&
-        !/^\d{4}-\d{2}-\d{2}$/.test(
-          purchaseDate
-        )
-      ) {
-        return res.status(400).json({
-          error:
-            'purchase_date debe tener formato YYYY-MM-DD',
+            `shrink_percent debe estar entre 0 y 100 en línea ${lineNumber}`,
         });
       }
 
+      categories.push({
+        line_number: lineNumber,
+        classification_id:
+          classificationId,
+        expected_quantity:
+          expectedQuantity,
+        pricing_basis:
+          pricingBasis,
+        weight_source:
+          weightSource,
+        price_per_unit:
+          pricePerUnit,
+        currency,
+        shrink_percent:
+          pricingBasis === 'live_kg'
+            ? shrinkPercent
+            : 0,
+      });
+    }
 
-      if (
-        plannedDate !== null &&
-        !/^\d{4}-\d{2}-\d{2}$/.test(
-          plannedDate
-        )
-      ) {
-        return res.status(400).json({
-          error:
-            'planned_date debe tener formato YYYY-MM-DD',
-        });
-      }
+    if (categories.length === 0) {
+      return res.status(400).json({
+        error:
+          'Debe existir al menos una categoría negociada',
+      });
+    }
 
+    // =================================================
+    // TOTAL DEL LOTE
+    // =================================================
 
-      if (
-        plannedPaymentDate !== null &&
-        !/^\d{4}-\d{2}-\d{2}$/.test(
-          plannedPaymentDate
-        )
-      ) {
-        return res.status(400).json({
-          error:
-            'planned_payment_date debe tener formato YYYY-MM-DD',
-        });
-      }
-
-
-      if (
-        sellerPaymentMethodId !== null &&
-        (
-          !Number.isInteger(
-            sellerPaymentMethodId
-          ) ||
-          sellerPaymentMethodId <= 0
-        )
-      ) {
-        return res.status(400).json({
-          error:
-            'seller_payment_method_id inválido',
-        });
-      }
-
-      const allowedCommissionTypes =
-      [
-          'per_head',
-          'percent',
-          'fixed',
-          'per_kg_initial',
-          'per_kg_hook',
-      ];
-
-
-      if (
-        commissionType !== null &&
-        !allowedCommissionTypes.includes(
-          commissionType
-        )
-      ) {
-
-        return res.status(400).json({
-          error:
-            'commission_type inválido',
-        });
-
-      }
-
-
-      if (
-        commissionValue !== null &&
-        (
-          !Number.isFinite(
-            commissionValue
-          ) ||
-          commissionValue < 0
-        )
-      ) {
-
-        return res.status(400).json({
-          error:
-            'commission_value inválido',
-        });
-
-      }
-
-
-      if (
-        commissionType === 'percent' &&
-        commissionValue !== null &&
-        commissionValue > 100
-      ) {
-
-        return res.status(400).json({
-          error:
-            'La comisión porcentual no puede superar 100',
-        });
-
-      }
-
-
-      if (
-        commissionType === null &&
-        commissionValue !== null
-      ) {
-
-        return res.status(400).json({
-          error:
-            'Debe indicar commission_type si existe commission_value',
-        });
-
-      }
-
-
-      if (
-        commissionType !== null &&
-        commissionValue === null
-      ) {
-
-        return res.status(400).json({
-          error:
-            'Debe indicar commission_value',
-        });
-
-      }
-
-
-      if (
-        ![
-          'draft',
-          'open',
-        ].includes(
-          status
-        )
-      ) {
-
-        return res.status(400).json({
-          error:
-            'Al crear un lote el estado debe ser draft u open',
-        });
-
-      }
-
-
-      await client.query(
-        'BEGIN'
+    const expectedQuantity =
+      categories.reduce(
+        (total, item) =>
+          total +
+          Number(
+            item.expected_quantity || 0
+          ),
+        0
       );
 
+    // =================================================
+    // CAMPOS LEGACY / COMPATIBILIDAD
+    //
+    // Mientras migramos los demás módulos,
+    // conservamos en el lote principal los valores
+    // de la primera línea.
+    //
+    // La fuente real nueva será categories[].
+    // =================================================
 
-      // =================================================
-      // VALIDAR VENDEDOR
-      // =================================================
+    const primaryCategory =
+      categories[0];
 
-      const sellerResult =
+    const classificationId =
+      primaryCategory.classification_id;
+
+    const pricingBasis =
+      primaryCategory.pricing_basis;
+
+    const weightSource =
+      primaryCategory.weight_source;
+
+    const pricePerUnit =
+      primaryCategory.price_per_unit;
+
+    const shrinkPercent =
+      primaryCategory.shrink_percent;
+
+    // =================================================
+    // VALIDACIONES GENERALES
+    // =================================================
+
+    if (
+      !Number.isInteger(sellerPersonId) ||
+      sellerPersonId <= 0
+    ) {
+      return res.status(400).json({
+        error:
+          'seller_person_id inválido',
+      });
+    }
+
+    const optionalIds = [
+      {
+        name: 'estate_id',
+        value: estateId,
+      },
+      {
+        name: 'captador_person_id',
+        value: captadorPersonId,
+      },
+      {
+        name: 'commissioner_person_id',
+        value: commissionerPersonId,
+      },
+    ];
+
+    for (const item of optionalIds) {
+      if (
+        item.value !== null &&
+        (
+          !Number.isInteger(item.value) ||
+          item.value <= 0
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            `${item.name} inválido`,
+        });
+      }
+    }
+
+    if (
+      purchaseDate !== null &&
+      !/^\d{4}-\d{2}-\d{2}$/.test(
+        purchaseDate
+      )
+    ) {
+      return res.status(400).json({
+        error:
+          'purchase_date debe tener formato YYYY-MM-DD',
+      });
+    }
+
+    if (
+      plannedDate !== null &&
+      !/^\d{4}-\d{2}-\d{2}$/.test(
+        plannedDate
+      )
+    ) {
+      return res.status(400).json({
+        error:
+          'planned_date debe tener formato YYYY-MM-DD',
+      });
+    }
+
+    if (
+      plannedPaymentDate !== null &&
+      !/^\d{4}-\d{2}-\d{2}$/.test(
+        plannedPaymentDate
+      )
+    ) {
+      return res.status(400).json({
+        error:
+          'planned_payment_date debe tener formato YYYY-MM-DD',
+      });
+    }
+
+    if (
+      sellerPaymentMethodId !== null &&
+      (
+        !Number.isInteger(
+          sellerPaymentMethodId
+        ) ||
+        sellerPaymentMethodId <= 0
+      )
+    ) {
+      return res.status(400).json({
+        error:
+          'seller_payment_method_id inválido',
+      });
+    }
+
+    const allowedCommissionTypes = [
+      'per_head',
+      'percent',
+      'fixed',
+      'per_kg_initial',
+      'per_kg_hook',
+    ];
+
+    if (
+      commissionType !== null &&
+      !allowedCommissionTypes.includes(
+        commissionType
+      )
+    ) {
+      return res.status(400).json({
+        error:
+          'commission_type inválido',
+      });
+    }
+
+    if (
+      commissionValue !== null &&
+      (
+        !Number.isFinite(
+          commissionValue
+        ) ||
+        commissionValue < 0
+      )
+    ) {
+      return res.status(400).json({
+        error:
+          'commission_value inválido',
+      });
+    }
+
+    if (
+      commissionType === 'percent' &&
+      commissionValue !== null &&
+      commissionValue > 100
+    ) {
+      return res.status(400).json({
+        error:
+          'La comisión porcentual no puede superar 100',
+      });
+    }
+
+    if (
+      commissionType === null &&
+      commissionValue !== null
+    ) {
+      return res.status(400).json({
+        error:
+          'Debe indicar commission_type si existe commission_value',
+      });
+    }
+
+    if (
+      commissionType !== null &&
+      commissionValue === null
+    ) {
+      return res.status(400).json({
+        error:
+          'Debe indicar commission_value',
+      });
+    }
+
+    if (
+      ![
+        'draft',
+        'open',
+      ].includes(status)
+    ) {
+      return res.status(400).json({
+        error:
+          'Al crear un lote el estado debe ser draft u open',
+      });
+    }
+
+    await client.query('BEGIN');
+
+    // =================================================
+    // VENDEDOR
+    // =================================================
+
+    const sellerResult =
+      await client.query(
+        `
+          SELECT sp.id
+
+          FROM slaughterhouse_people sp
+
+          WHERE
+            sp.id = $1
+            AND sp.company_id = $2
+            AND sp.is_active = true
+
+            AND EXISTS (
+              SELECT 1
+
+              FROM slaughterhouse_person_roles spr
+
+              WHERE
+                spr.person_id = sp.id
+                AND spr.role = 'seller'
+                AND spr.is_active = true
+            )
+
+          LIMIT 1
+        `,
+        [
+          sellerPersonId,
+          companyId,
+        ],
+      );
+
+    if (
+      sellerResult.rows.length === 0
+    ) {
+      await client.query('ROLLBACK');
+
+      return res.status(400).json({
+        error:
+          'El vendedor no existe, está inactivo o no tiene rol seller',
+      });
+    }
+
+    // =================================================
+    // MÉTODO DE PAGO
+    // =================================================
+
+    if (
+      sellerPaymentMethodId !== null
+    ) {
+      const paymentMethodResult =
         await client.query(
           `
-            SELECT
-              sp.id,
-              sp.full_name
+            SELECT sppm.id
+
+            FROM slaughterhouse_person_payment_methods sppm
+
+            JOIN slaughterhouse_people sp
+              ON sp.id = sppm.person_id
+
+            WHERE
+              sppm.id = $1
+              AND sppm.person_id = $2
+              AND sp.company_id = $3
+              AND sppm.is_active = true
+
+            LIMIT 1
+          `,
+          [
+            sellerPaymentMethodId,
+            sellerPersonId,
+            companyId,
+          ],
+        );
+
+      if (
+        paymentMethodResult.rows.length === 0
+      ) {
+        await client.query('ROLLBACK');
+
+        return res.status(400).json({
+          error:
+            'El método de pago seleccionado no pertenece al vendedor o está inactivo',
+        });
+      }
+    }
+
+    // =================================================
+    // ESTANCIA
+    // =================================================
+
+    if (estateId !== null) {
+      const estateResult =
+        await client.query(
+          `
+            SELECT id
+
+            FROM slaughterhouse_estates
+
+            WHERE
+              id = $1
+              AND company_id = $2
+              AND seller_person_id = $3
+              AND is_active = true
+
+            LIMIT 1
+          `,
+          [
+            estateId,
+            companyId,
+            sellerPersonId,
+          ],
+        );
+
+      if (
+        estateResult.rows.length === 0
+      ) {
+        await client.query('ROLLBACK');
+
+        return res.status(400).json({
+          error:
+            'La estancia no existe, está inactiva o no pertenece al vendedor seleccionado',
+        });
+      }
+    }
+
+    // =================================================
+    // CAPTADOR
+    // =================================================
+
+    if (
+      captadorPersonId !== null
+    ) {
+      const captadorResult =
+        await client.query(
+          `
+            SELECT sp.id
 
             FROM slaughterhouse_people sp
 
@@ -15732,347 +15792,169 @@ exports.createPurchaseLot =
 
                 WHERE
                   spr.person_id = sp.id
-                  AND spr.role = 'seller'
+                  AND spr.role = 'captador'
                   AND spr.is_active = true
               )
 
             LIMIT 1
           `,
           [
-            sellerPersonId,
+            captadorPersonId,
             companyId,
           ],
         );
 
-
       if (
-        sellerResult.rows.length === 0
+        captadorResult.rows.length === 0
       ) {
-        await client.query(
-          'ROLLBACK'
-        );
-
+        await client.query('ROLLBACK');
 
         return res.status(400).json({
           error:
-            'El vendedor no existe, está inactivo o no tiene rol seller',
+            'El captador no existe, está inactivo o no tiene rol captador',
         });
       }
-
-
-      // =================================================
-      // VALIDAR MÉTODO DE PAGO DEL VENDEDOR
-      //
-      // Si se seleccionó una cuenta / QR / método,
-      // debe pertenecer al mismo vendedor y estar activo.
-      // =================================================
-
-      if (
-        sellerPaymentMethodId !== null
-      ) {
-        const paymentMethodResult =
-          await client.query(
-            `
-              SELECT
-                sppm.id
-              FROM slaughterhouse_person_payment_methods sppm
-              JOIN slaughterhouse_people sp
-                ON sp.id = sppm.person_id
-              WHERE
-                sppm.id = $1
-                AND sppm.person_id = $2
-                AND sp.company_id = $3
-                AND sppm.is_active = true
-              LIMIT 1
-            `,
-            [
-              sellerPaymentMethodId,
-              sellerPersonId,
-              companyId,
-            ],
-          );
-
-
-        if (
-          paymentMethodResult.rows.length === 0
-        ) {
-          await client.query(
-            'ROLLBACK'
-          );
-
-
-          return res.status(400).json({
-            error:
-              'El método de pago seleccionado no pertenece al vendedor o está inactivo',
-          });
-        }
-      }
-
-
-      // =================================================
-      // VALIDAR ESTANCIA
-      // Debe pertenecer al vendedor seleccionado.
-      // =================================================
-
-      if (
-        estateId !== null
-      ) {
-
-        const estateResult =
-          await client.query(
-            `
-              SELECT id
-
-              FROM slaughterhouse_estates
-
-              WHERE
-                id = $1
-                AND company_id = $2
-                AND seller_person_id = $3
-                AND is_active = true
-
-              LIMIT 1
-            `,
-            [
-              estateId,
-              companyId,
-              sellerPersonId,
-            ],
-          );
-
-
-        if (
-          estateResult.rows.length === 0
-        ) {
-
-          await client.query(
-            'ROLLBACK'
-          );
-
-
-          return res.status(400).json({
-            error:
-              'La estancia no existe, está inactiva o no pertenece al vendedor seleccionado',
-          });
-
-        }
-
-      }
-
-
-      // =================================================
-      // VALIDAR CAPTADOR
-      // =================================================
-
-      if (
-        captadorPersonId !== null
-      ) {
-
-        const captadorResult =
-          await client.query(
-            `
-              SELECT sp.id
-
-              FROM slaughterhouse_people sp
-
-              WHERE
-                sp.id = $1
-                AND sp.company_id = $2
-                AND sp.is_active = true
-
-                AND EXISTS (
-                  SELECT 1
-
-                  FROM slaughterhouse_person_roles spr
-
-                  WHERE
-                    spr.person_id = sp.id
-                    AND spr.role = 'captador'
-                    AND spr.is_active = true
-                )
-
-              LIMIT 1
-            `,
-            [
-              captadorPersonId,
-              companyId,
-            ],
-          );
-
-
-        if (
-          captadorResult.rows.length === 0
-        ) {
-
-          await client.query(
-            'ROLLBACK'
-          );
-
-
-          return res.status(400).json({
-            error:
-              'El captador no existe, está inactivo o no tiene rol captador',
-          });
-
-        }
-
-      }
-
-
-      // =================================================
-      // VALIDAR COMISIONISTA
-      // =================================================
-
-      if (
-        commissionerPersonId !== null
-      ) {
-
-        const commissionerResult =
-          await client.query(
-            `
-              SELECT sp.id
-
-              FROM slaughterhouse_people sp
-
-              WHERE
-                sp.id = $1
-                AND sp.company_id = $2
-                AND sp.is_active = true
-
-                AND EXISTS (
-                  SELECT 1
-
-                  FROM slaughterhouse_person_roles spr
-
-                  WHERE
-                    spr.person_id = sp.id
-                    AND spr.role = 'commissioner'
-                    AND spr.is_active = true
-                )
-
-              LIMIT 1
-            `,
-            [
-              commissionerPersonId,
-              companyId,
-            ],
-          );
-
-
-        if (
-          commissionerResult.rows.length === 0
-        ) {
-
-          await client.query(
-            'ROLLBACK'
-          );
-
-
-          return res.status(400).json({
-            error:
-              'El comisionista no existe, está inactivo o no tiene rol commissioner',
-          });
-
-        }
-
-      }
-
-
-      // =================================================
-      // VALIDAR CLASIFICACIÓN
-      // =================================================
-
-      if (
-        classificationId !== null
-      ) {
-
-        const classificationResult =
-          await client.query(
-            `
-              SELECT id
-
-              FROM slaughterhouse_animal_classifications
-
-              WHERE
-                id = $1
-                AND company_id = $2
-                AND is_active = true
-
-              LIMIT 1
-            `,
-            [
-              classificationId,
-              companyId,
-            ],
-          );
-
-
-        if (
-          classificationResult.rows.length === 0
-        ) {
-
-          await client.query(
-            'ROLLBACK'
-          );
-
-
-          return res.status(400).json({
-            error:
-              'Clasificación animal no encontrada o inactiva',
-          });
-
-        }
-
-      }
-
-
-      // =================================================
-      // GENERAR NÚMERO INTERNO DEL LOTE
-      //
-      // Tomamos el siguiente ID de la misma secuencia
-      // para garantizar unicidad.
-      //
-      // Ejemplo:
-      // LOT-10-2026-000001
-      // =================================================
-
-      const sequenceResult =
+    }
+
+    // =================================================
+    // COMISIONISTA
+    // =================================================
+
+    if (
+      commissionerPersonId !== null
+    ) {
+      const commissionerResult =
         await client.query(
           `
-            SELECT
-              nextval(
-                'slaughterhouse_purchase_lots_id_seq'
-              )::int
-                AS next_id
-          `
+            SELECT sp.id
+
+            FROM slaughterhouse_people sp
+
+            WHERE
+              sp.id = $1
+              AND sp.company_id = $2
+              AND sp.is_active = true
+
+              AND EXISTS (
+                SELECT 1
+
+                FROM slaughterhouse_person_roles spr
+
+                WHERE
+                  spr.person_id = sp.id
+                  AND spr.role = 'commissioner'
+                  AND spr.is_active = true
+              )
+
+            LIMIT 1
+          `,
+          [
+            commissionerPersonId,
+            companyId,
+          ],
         );
 
+      if (
+        commissionerResult.rows.length === 0
+      ) {
+        await client.query('ROLLBACK');
 
-      const nextId =
-        Number(
-          sequenceResult.rows[0]
-            .next_id
-        );
+        return res.status(400).json({
+          error:
+            'El comisionista no existe, está inactivo o no tiene rol commissioner',
+        });
+      }
+    }
 
+    // =================================================
+    // VALIDAR TODAS LAS CLASIFICACIONES
+    // =================================================
 
-      const year =
-        new Date()
-          .getFullYear();
+    const classificationIds = [
+      ...new Set(
+        categories.map(
+          (item) =>
+            item.classification_id
+        )
+      ),
+    ];
 
+    const classificationsResult =
+      await client.query(
+        `
+          SELECT id
 
-      const lotNumber =
-        `LOT-${companyId}-${year}-${String(
-          nextId
-        ).padStart(6, '0')}`;
+          FROM slaughterhouse_animal_classifications
 
+          WHERE
+            company_id = $1
+            AND is_active = true
+            AND id = ANY($2::int[])
+        `,
+        [
+          companyId,
+          classificationIds,
+        ],
+      );
 
-      // =================================================
-      // CREAR LOTE
-      // =================================================
+    const validClassificationIds =
+      new Set(
+        classificationsResult.rows.map(
+          (item) =>
+            Number(item.id)
+        )
+      );
 
-      const result =
-        await client.query(
-          `
+    for (
+      const category of categories
+    ) {
+      if (
+        !validClassificationIds.has(
+          category.classification_id
+        )
+      ) {
+        await client.query('ROLLBACK');
+
+        return res.status(400).json({
+          error:
+            `Clasificación ${category.classification_id} no encontrada o inactiva`,
+        });
+      }
+    }
+
+    // =================================================
+    // NÚMERO DE LOTE
+    // =================================================
+
+    const sequenceResult =
+      await client.query(
+        `
+          SELECT
+            nextval(
+              'slaughterhouse_purchase_lots_id_seq'
+            )::int AS next_id
+        `
+      );
+
+    const nextId = Number(
+      sequenceResult.rows[0].next_id
+    );
+
+    const year =
+      new Date().getFullYear();
+
+    const lotNumber =
+      `LOT-${companyId}-${year}-${String(
+        nextId
+      ).padStart(6, '0')}`;
+
+    // =================================================
+    // CREAR LOTE PRINCIPAL
+    // =================================================
+
+    const result =
+      await client.query(
+        `
           INSERT INTO slaughterhouse_purchase_lots (
             id,
             company_id,
@@ -16110,132 +15992,183 @@ exports.createPurchaseLot =
             $26
           )
           RETURNING *
+        `,
+        [
+          nextId,
+          companyId,
+          lotNumber,
+          externalOrderNumber,
+          sellerPersonId,
+          estateId,
+          captadorPersonId,
+          commissionerPersonId,
+
+          // compatibilidad legacy
+          classificationId,
+
+          purchaseType,
+
+          // compatibilidad legacy
+          pricingBasis,
+          weightSource,
+
+          // TOTAL real de todas las líneas
+          expectedQuantity,
+
+          // compatibilidad legacy
+          pricePerUnit,
+
+          currency,
+
+          // compatibilidad legacy
+          shrinkPercent,
+
+          commissionType,
+          commissionValue,
+          purchaseDate,
+          plannedDate,
+          sellerPaymentMethodId,
+          plannedPaymentDate,
+          paymentTerms,
+          status,
+          notes,
+          userId,
+        ],
+      );
+
+    const purchaseLot =
+      result.rows[0];
+
+    // =================================================
+    // CREAR LÍNEAS / CATEGORÍAS
+    // =================================================
+
+    const insertedCategories = [];
+
+    for (
+      const category of categories
+    ) {
+      const categoryResult =
+        await client.query(
+          `
+            INSERT INTO slaughterhouse_purchase_lot_categories (
+              company_id,
+              purchase_lot_id,
+              line_number,
+              classification_id,
+              expected_quantity,
+              pricing_basis,
+              weight_source,
+              price_per_unit,
+              currency,
+              shrink_percent,
+              created_by
+            )
+            VALUES (
+              $1,$2,$3,$4,$5,
+              $6,$7,$8,$9,$10,
+              $11
+            )
+            RETURNING *
           `,
           [
-            nextId,
             companyId,
-            lotNumber,
-            externalOrderNumber,
-            sellerPersonId,
-            estateId,
-            captadorPersonId,
-            commissionerPersonId,
-            classificationId,
-            purchaseType,
-            pricingBasis,
-            weightSource,
-            expectedQuantity,
-            pricePerUnit,
-            currency,
-            shrinkPercent,
-            commissionType,
-            commissionValue,
-            purchaseDate,
-            plannedDate,
-            sellerPaymentMethodId,
-            plannedPaymentDate,
-            paymentTerms,
-            status,
-            notes,
+            purchaseLot.id,
+            category.line_number,
+            category.classification_id,
+            category.expected_quantity,
+            category.pricing_basis,
+            category.weight_source,
+            category.price_per_unit,
+            category.currency,
+            category.shrink_percent,
             userId,
           ],
         );
 
-
-      const purchaseLot =
-        result.rows[0];
-
-
-      // =================================================
-      // AUDITORÍA
-      // =================================================
-
-      await client.query(
-        `
-          INSERT INTO slaughterhouse_audit_log (
-            company_id,
-            user_id,
-            entity_type,
-            entity_id,
-            action,
-            new_data
-          )
-
-          VALUES (
-            $1,
-            $2,
-            'purchase_lot',
-            $3,
-            'create',
-            $4::jsonb
-          )
-        `,
-        [
-          companyId,
-          userId,
-          String(
-            purchaseLot.id
-          ),
-          JSON.stringify(
-            purchaseLot
-          ),
-        ],
+      insertedCategories.push(
+        categoryResult.rows[0]
       );
-
-
-      await client.query(
-        'COMMIT'
-      );
-
-
-      return res.status(201).json({
-        success: true,
-
-        message:
-          'Lote de compra creado correctamente',
-
-        purchase_lot:
-          purchaseLot,
-      });
-
-    } catch (error) {
-
-      await client.query(
-        'ROLLBACK'
-      );
-
-
-      console.error(
-        'CREATE SLAUGHTERHOUSE PURCHASE LOT ERROR:',
-        error
-      );
-
-
-      if (
-        error.code ===
-        '23505'
-      ) {
-
-        return res.status(409).json({
-          error:
-            'Ya existe un lote con ese número',
-        });
-
-      }
-
-
-      return res.status(500).json({
-        error:
-          'Error creando lote de compra',
-      });
-
-    } finally {
-
-      client.release();
-
     }
 
-  };
+    // =================================================
+    // AUDITORÍA
+    // =================================================
+
+    await client.query(
+      `
+        INSERT INTO slaughterhouse_audit_log (
+          company_id,
+          user_id,
+          entity_type,
+          entity_id,
+          action,
+          new_data
+        )
+        VALUES (
+          $1,
+          $2,
+          'purchase_lot',
+          $3,
+          'create',
+          $4::jsonb
+        )
+      `,
+      [
+        companyId,
+        userId,
+        String(purchaseLot.id),
+        JSON.stringify({
+          ...purchaseLot,
+          categories:
+            insertedCategories,
+        }),
+      ],
+    );
+
+    await client.query('COMMIT');
+
+    return res.status(201).json({
+      success: true,
+
+      message:
+        'Lote de compra creado correctamente',
+
+      purchase_lot:
+        purchaseLot,
+
+      categories:
+        insertedCategories,
+    });
+
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (_) {}
+
+    console.error(
+      'CREATE SLAUGHTERHOUSE PURCHASE LOT ERROR:',
+      error
+    );
+
+    if (
+      error.code === '23505'
+    ) {
+      return res.status(409).json({
+        error:
+          'Ya existe un lote o línea con esos datos',
+      });
+    }
+
+    return res.status(500).json({
+      error:
+        'Error creando lote de compra',
+    });
+
+  } finally {
+    client.release();
+  }
+};
   
 // =====================================================
 // 📂 DETALLE / EXPEDIENTE DE LOTE DE COMPRA
@@ -16424,12 +16357,73 @@ exports.getPurchaseLotById =
       // =================================================
 
       const [
+        categoriesResult,
         troopsResult,
         weighingsResult,
         authorizationsResult,
         preliquidationsResult,
       ] =
         await Promise.all([
+
+          // =============================================
+          // CATEGORÍAS NEGOCIADAS
+          // =============================================
+
+          pool.query(
+            `
+              SELECT
+                plc.id,
+                plc.company_id,
+                plc.purchase_lot_id,
+                plc.line_number,
+
+                plc.classification_id,
+
+                classification.generated_code
+                  AS classification_code,
+
+                classification.display_name
+                  AS classification_name,
+
+                classification.category_id,
+                classification.breed_id,
+                classification.feeding_method_id,
+                classification.age_range_id,
+
+                plc.expected_quantity,
+                plc.pricing_basis,
+                plc.weight_source,
+                plc.price_per_unit,
+                plc.currency,
+                plc.shrink_percent,
+
+                plc.created_by,
+                plc.created_at,
+                plc.updated_at
+
+              FROM
+                slaughterhouse_purchase_lot_categories plc
+
+              JOIN
+                slaughterhouse_animal_classifications classification
+                  ON classification.id =
+                    plc.classification_id
+                  AND classification.company_id =
+                    plc.company_id
+
+              WHERE
+                plc.purchase_lot_id = $1
+                AND plc.company_id = $2
+
+              ORDER BY
+                plc.line_number ASC,
+                plc.id ASC
+            `,
+            [
+              purchaseLotId,
+              companyId,
+            ],
+          ),
 
           // =============================================
           // TROPAS
@@ -16702,6 +16696,8 @@ exports.getPurchaseLotById =
 
         ]);
 
+      const categories =
+        categoriesResult.rows;
 
       const troops =
         troopsResult.rows;
@@ -16775,6 +16771,19 @@ exports.getPurchaseLotById =
 
       const summary = {
 
+        categories_count:
+          categories.length,
+
+        contracted_quantity:
+          categories.reduce(
+            (total, item) =>
+              total +
+              Number(
+                item.expected_quantity || 0
+              ),
+            0
+          ),
+
         troops_count:
           troops.length,
 
@@ -16836,6 +16845,8 @@ exports.getPurchaseLotById =
 
         purchase_lot:
           purchaseLot,
+
+        categories,
 
         summary,
 
@@ -16976,8 +16987,85 @@ exports.updatePurchaseLot =
           : null;
 
 
+      // =================================================
+      // CATEGORÍAS NEGOCIADAS
+      //
+      // Nuevo formato:
+      // req.body.categories = [...]
+      //
+      // Compatibilidad:
+      // Si llega todavía el formato antiguo,
+      // lo convertimos automáticamente en una sola línea.
+      // =================================================
+
+      const purchaseType =
+        req.body.purchase_type
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const currency =
+        req.body.currency
+          ?.toString()
+          .trim()
+          .toUpperCase() ||
+        'BOB';
+
+
+      let rawCategories = [];
+
+
+      if (
+        Array.isArray(
+          req.body.categories
+        ) &&
+        req.body.categories.length > 0
+      ) {
+
+        rawCategories =
+          req.body.categories;
+
+      } else {
+
+        rawCategories = [
+          {
+            classification_id:
+              req.body.classification_id,
+
+            expected_quantity:
+              req.body.expected_quantity,
+
+            pricing_basis:
+              req.body.pricing_basis,
+
+            weight_source:
+              req.body.weight_source,
+
+            price_per_unit:
+              req.body.price_per_unit,
+
+            shrink_percent:
+              req.body.shrink_percent,
+          },
+        ];
+
+      }
+
+
+      // =================================================
+      // COMPATIBILIDAD DEL ENCABEZADO
+      //
+      // El lote principal conserva temporalmente
+      // los datos de la primera categoría.
+      // =================================================
+
+      const primaryRawCategory =
+        rawCategories[0] || {};
+
+
       const classificationIdRaw =
-        req.body.classification_id;
+        primaryRawCategory.classification_id;
 
 
       const classificationId =
@@ -16990,14 +17078,8 @@ exports.updatePurchaseLot =
           : null;
 
 
-      const purchaseType =
-        req.body.purchase_type
-          ?.toString()
-          .trim() ||
-        null;
-
       const pricingBasis =
-        req.body.pricing_basis
+        primaryRawCategory.pricing_basis
           ?.toString()
           .trim()
           .toLowerCase() ||
@@ -17005,28 +17087,15 @@ exports.updatePurchaseLot =
 
 
       const weightSource =
-        req.body.weight_source
+        primaryRawCategory.weight_source
           ?.toString()
           .trim()
           .toLowerCase() ||
         null;
 
-      const expectedQuantityRaw =
-        req.body.expected_quantity;
-
-
-      const expectedQuantity =
-        expectedQuantityRaw !== undefined &&
-        expectedQuantityRaw !== null &&
-        expectedQuantityRaw !== ''
-          ? Number(
-              expectedQuantityRaw
-            )
-          : null;
-
 
       const pricePerUnitRaw =
-        req.body.price_per_unit;
+        primaryRawCategory.price_per_unit;
 
 
       const pricePerUnit =
@@ -17039,16 +17108,8 @@ exports.updatePurchaseLot =
           : null;
 
 
-      const currency =
-        req.body.currency
-          ?.toString()
-          .trim()
-          .toUpperCase() ||
-        'BOB';
-
-
       const shrinkPercentRaw =
-        req.body.shrink_percent;
+        primaryRawCategory.shrink_percent;
 
 
       const shrinkPercent =
@@ -17059,6 +17120,27 @@ exports.updatePurchaseLot =
               shrinkPercentRaw
             )
           : 0;
+
+
+      // =================================================
+      // CANTIDAD TOTAL DEL LOTE
+      //
+      // Ya no viene escrita independientemente.
+      // Es la suma de todas las categorías.
+      // =================================================
+
+      const expectedQuantity =
+        rawCategories.reduce(
+          (
+            total,
+            item
+          ) =>
+            total +
+            Number(
+              item?.expected_quantity || 0
+            ),
+          0
+        );
 
 
       const commissionType =
@@ -17159,37 +17241,28 @@ exports.updatePurchaseLot =
       }
 
 
-      const optionalIds =
-        [
-          {
-            name: 'estate_id',
-            value: estateId,
-          },
-          {
-            name: 'captador_person_id',
-            value: captadorPersonId,
-          },
-          {
-            name: 'commissioner_person_id',
-            value: commissionerPersonId,
-          },
-          {
-            name: 'classification_id',
-            value: classificationId,
-          },
-        ];
+      const optionalIds = [
+        {
+          name: 'estate_id',
+          value: estateId,
+        },
+        {
+          name: 'captador_person_id',
+          value: captadorPersonId,
+        },
+        {
+          name: 'commissioner_person_id',
+          value: commissionerPersonId,
+        },
+      ];
 
 
-      for (
-        const item of optionalIds
-      ) {
+      for (const item of optionalIds) {
 
         if (
           item.value !== null &&
           (
-            !Number.isInteger(
-              item.value
-            ) ||
+            !Number.isInteger(item.value) ||
             item.value <= 0
           )
         ) {
@@ -17204,40 +17277,9 @@ exports.updatePurchaseLot =
       }
 
 
-      if (
-        expectedQuantity !== null &&
-        (
-          !Number.isInteger(
-            expectedQuantity
-          ) ||
-          expectedQuantity < 0
-        )
-      ) {
-
-        return res.status(400).json({
-          error:
-            'expected_quantity debe ser un entero mayor o igual a 0',
-        });
-
-      }
-
-
-      if (
-        pricePerUnit !== null &&
-        (
-          !Number.isFinite(
-            pricePerUnit
-          ) ||
-          pricePerUnit < 0
-        )
-      ) {
-
-        return res.status(400).json({
-          error:
-            'price_per_unit inválido',
-        });
-
-      }
+      // =================================================
+      // VALIDAR TODAS LAS CATEGORÍAS
+      // =================================================
 
       const allowedPricingBasis = [
         'live_kg',
@@ -17253,96 +17295,218 @@ exports.updatePurchaseLot =
       ];
 
 
-      if (
-        pricingBasis !== null &&
-        !allowedPricingBasis.includes(
-          pricingBasis
-        )
+      const categories = [];
+
+
+      for (
+        let index = 0;
+        index < rawCategories.length;
+        index += 1
       ) {
-        return res.status(400).json({
-          error:
-            'pricing_basis inválido',
-        });
-      }
+
+        const raw =
+          rawCategories[index] || {};
 
 
-      if (
-        weightSource !== null &&
-        !allowedWeightSources.includes(
-          weightSource
-        )
-      ) {
-        return res.status(400).json({
-          error:
-            'weight_source inválido',
-        });
-      }
+        const lineNumber =
+          index + 1;
 
 
-      if (
-        (
-          pricingBasis === null &&
-          weightSource !== null
-        ) ||
-        (
-          pricingBasis !== null &&
-          weightSource === null
-        )
-      ) {
-        return res.status(400).json({
-          error:
-            'pricing_basis y weight_source deben definirse juntos',
-        });
-      }
+        const categoryClassificationId =
+          Number(
+            raw.classification_id
+          );
 
 
-      if (
-        pricingBasis === 'live_kg' &&
-        ![
-          'origin',
-          'plant',
-        ].includes(
-          weightSource
-        )
-      ) {
-        return res.status(400).json({
-          error:
-            'Una compra por kilo vivo debe pesarse en origen o en planta',
-        });
-      }
+        const categoryExpectedQuantity =
+          Number(
+            raw.expected_quantity
+          );
 
 
-      if (
-        pricingBasis !== null &&
-        (
-          pricePerUnit === null ||
-          !Number.isFinite(
-            pricePerUnit
+        const categoryPricingBasis =
+          raw.pricing_basis
+            ?.toString()
+            .trim()
+            .toLowerCase() ||
+          null;
+
+
+        const categoryWeightSource =
+          raw.weight_source
+            ?.toString()
+            .trim()
+            .toLowerCase() ||
+          null;
+
+
+        const categoryPricePerUnit =
+          Number(
+            raw.price_per_unit
+          );
+
+
+        const categoryShrinkRaw =
+          raw.shrink_percent;
+
+
+        const categoryShrinkPercent =
+          categoryShrinkRaw !== undefined &&
+          categoryShrinkRaw !== null &&
+          categoryShrinkRaw !== ''
+            ? Number(
+                categoryShrinkRaw
+              )
+            : 0;
+
+
+        if (
+          !Number.isInteger(
+            categoryClassificationId
           ) ||
-          pricePerUnit <= 0
-        )
-      ) {
-        return res.status(400).json({
-          error:
-            'Debe indicar un precio mayor a 0 para la modalidad de compra seleccionada',
+          categoryClassificationId <= 0
+        ) {
+
+          return res.status(400).json({
+            error:
+              `classification_id inválido en línea ${lineNumber}`,
+          });
+
+        }
+
+
+        if (
+          !Number.isInteger(
+            categoryExpectedQuantity
+          ) ||
+          categoryExpectedQuantity <= 0
+        ) {
+
+          return res.status(400).json({
+            error:
+              `expected_quantity debe ser mayor a 0 en línea ${lineNumber}`,
+          });
+
+        }
+
+
+        if (
+          !allowedPricingBasis.includes(
+            categoryPricingBasis
+          )
+        ) {
+
+          return res.status(400).json({
+            error:
+              `pricing_basis inválido en línea ${lineNumber}`,
+          });
+
+        }
+
+
+        if (
+          !allowedWeightSources.includes(
+            categoryWeightSource
+          )
+        ) {
+
+          return res.status(400).json({
+            error:
+              `weight_source inválido en línea ${lineNumber}`,
+          });
+
+        }
+
+
+        if (
+          categoryPricingBasis === 'live_kg' &&
+          ![
+            'origin',
+            'plant',
+          ].includes(
+            categoryWeightSource
+          )
+        ) {
+
+          return res.status(400).json({
+            error:
+              `Una compra por kilo vivo debe pesarse en origen o planta. Línea ${lineNumber}`,
+          });
+
+        }
+
+
+        if (
+          !Number.isFinite(
+            categoryPricePerUnit
+          ) ||
+          categoryPricePerUnit <= 0
+        ) {
+
+          return res.status(400).json({
+            error:
+              `price_per_unit debe ser mayor a 0 en línea ${lineNumber}`,
+          });
+
+        }
+
+
+        if (
+          !Number.isFinite(
+            categoryShrinkPercent
+          ) ||
+          categoryShrinkPercent < 0 ||
+          categoryShrinkPercent > 100
+        ) {
+
+          return res.status(400).json({
+            error:
+              `shrink_percent debe estar entre 0 y 100 en línea ${lineNumber}`,
+          });
+
+        }
+
+
+        categories.push({
+          line_number:
+            lineNumber,
+
+          classification_id:
+            categoryClassificationId,
+
+          expected_quantity:
+            categoryExpectedQuantity,
+
+          pricing_basis:
+            categoryPricingBasis,
+
+          weight_source:
+            categoryWeightSource,
+
+          price_per_unit:
+            categoryPricePerUnit,
+
+          currency,
+
+          shrink_percent:
+            categoryPricingBasis === 'live_kg'
+              ? categoryShrinkPercent
+              : 0,
         });
+
       }
+
 
       if (
-        !Number.isFinite(
-          shrinkPercent
-        ) ||
-        shrinkPercent < 0 ||
-        shrinkPercent > 100
+        categories.length === 0
       ) {
 
         return res.status(400).json({
           error:
-            'shrink_percent debe estar entre 0 y 100',
+            'Debe existir al menos una categoría negociada',
         });
 
       }
-
 
       const allowedCommissionTypes =
         [
@@ -17969,36 +18133,55 @@ exports.updatePurchaseLot =
 
 
       // =================================================
-      // VALIDAR CLASIFICACIÓN
+      // VALIDAR TODAS LAS CLASIFICACIONES
       // =================================================
 
-      if (
-        classificationId !== null
+      const classificationIds = [
+        ...new Set(
+          categories.map(
+            (item) =>
+              item.classification_id
+          )
+        ),
+      ];
+
+
+      const classificationsResult =
+        await client.query(
+          `
+            SELECT id
+
+            FROM slaughterhouse_animal_classifications
+
+            WHERE
+              company_id = $1
+              AND is_active = true
+              AND id = ANY($2::int[])
+          `,
+          [
+            companyId,
+            classificationIds,
+          ],
+        );
+
+
+      const validClassificationIds =
+        new Set(
+          classificationsResult.rows.map(
+            (item) =>
+              Number(item.id)
+          )
+        );
+
+
+      for (
+        const category of categories
       ) {
 
-        const classificationResult =
-          await client.query(
-            `
-              SELECT id
-
-              FROM slaughterhouse_animal_classifications
-
-              WHERE
-                id = $1
-                AND company_id = $2
-                AND is_active = true
-
-              LIMIT 1
-            `,
-            [
-              classificationId,
-              companyId,
-            ],
-          );
-
-
         if (
-          classificationResult.rows.length === 0
+          !validClassificationIds.has(
+            category.classification_id
+          )
         ) {
 
           await client.query(
@@ -18008,7 +18191,7 @@ exports.updatePurchaseLot =
 
           return res.status(400).json({
             error:
-              'Clasificación animal no encontrada o inactiva',
+              `Clasificación ${category.classification_id} no encontrada o inactiva`,
           });
 
         }
@@ -18088,6 +18271,106 @@ exports.updatePurchaseLot =
       const purchaseLot =
         result.rows[0];
 
+      // =================================================
+      // REEMPLAZAR CATEGORÍAS NEGOCIADAS
+      //
+      // Solo llegamos aquí si el lote sigue draft/open,
+      // por lo que podemos reemplazar sus líneas
+      // comerciales dentro de la misma transacción.
+      // =================================================
+
+      const previousCategoriesResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM slaughterhouse_purchase_lot_categories
+
+            WHERE
+              purchase_lot_id = $1
+              AND company_id = $2
+
+            ORDER BY
+              line_number ASC,
+              id ASC
+          `,
+          [
+            purchaseLotId,
+            companyId,
+          ],
+        );
+
+
+      const previousCategories =
+        previousCategoriesResult.rows;
+
+
+      await client.query(
+        `
+          DELETE FROM slaughterhouse_purchase_lot_categories
+
+          WHERE
+            purchase_lot_id = $1
+            AND company_id = $2
+        `,
+        [
+          purchaseLotId,
+          companyId,
+        ],
+      );
+
+
+      const updatedCategories = [];
+
+
+      for (
+        const category of categories
+      ) {
+
+        const categoryResult =
+          await client.query(
+            `
+              INSERT INTO slaughterhouse_purchase_lot_categories (
+                company_id,
+                purchase_lot_id,
+                line_number,
+                classification_id,
+                expected_quantity,
+                pricing_basis,
+                weight_source,
+                price_per_unit,
+                currency,
+                shrink_percent,
+                created_by
+              )
+              VALUES (
+                $1,$2,$3,$4,$5,
+                $6,$7,$8,$9,$10,
+                $11
+              )
+              RETURNING *
+            `,
+            [
+              companyId,
+              purchaseLotId,
+              category.line_number,
+              category.classification_id,
+              category.expected_quantity,
+              category.pricing_basis,
+              category.weight_source,
+              category.price_per_unit,
+              category.currency,
+              category.shrink_percent,
+              userId,
+            ],
+          );
+
+
+        updatedCategories.push(
+          categoryResult.rows[0]
+        );
+
+      }
 
       // =================================================
       // AUDITORÍA
@@ -18121,12 +18404,16 @@ exports.updatePurchaseLot =
           String(
             purchaseLotId
           ),
-          JSON.stringify(
-            previous
-          ),
-          JSON.stringify(
-            purchaseLot
-          ),
+          JSON.stringify({
+            ...previous,
+            categories:
+              previousCategories,
+          }),
+          JSON.stringify({
+            ...purchaseLot,
+            categories:
+              updatedCategories,
+          }),
         ],
       );
 
@@ -18144,6 +18431,9 @@ exports.updatePurchaseLot =
 
         purchase_lot:
           purchaseLot,
+
+        categories:
+          updatedCategories,
       });
 
     } catch (error) {
