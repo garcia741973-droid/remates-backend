@@ -668,22 +668,334 @@ exports.issueFieldAuthorization =
 
       // ===============================================
       // SNAPSHOT DE EMISIÓN
+      //
+      // A partir de V2 el QR congela TODAS las
+      // categorías comerciales contratadas.
+      //
+      // El QR NO representa lo que finalmente se
+      // cargó en campo.
+      //
+      // Representa únicamente LO PACTADO.
       // ===============================================
+
+
+      // ===============================================
+      // CATEGORÍAS COMERCIALES CONTRATADAS
+      // ===============================================
+
+      const categoriesResult =
+        await client.query(
+          `
+            SELECT
+              plc.id
+                AS purchase_lot_category_id,
+
+              plc.line_number,
+
+              plc.classification_id,
+
+              classification.generated_code
+                AS classification_code,
+
+              classification.display_name
+                AS classification_name,
+
+              plc.expected_quantity,
+
+              plc.pricing_basis,
+
+              plc.weight_source,
+
+              plc.price_per_unit,
+
+              plc.currency,
+
+              plc.shrink_percent
+
+            FROM slaughterhouse_purchase_lot_categories plc
+
+            JOIN slaughterhouse_animal_classifications classification
+              ON classification.id =
+                plc.classification_id
+              AND classification.company_id =
+                plc.company_id
+
+            WHERE
+              plc.company_id = $1
+              AND plc.purchase_lot_id = $2
+
+            ORDER BY
+              plc.line_number ASC,
+              plc.id ASC
+          `,
+          [
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+
+      let commercialCategories =
+        categoriesResult.rows.map(
+          (row) => ({
+            purchase_lot_category_id:
+              Number(
+                row.purchase_lot_category_id
+              ),
+
+            line_number:
+              Number(
+                row.line_number
+              ),
+
+            classification_id:
+              Number(
+                row.classification_id
+              ),
+
+            classification_code:
+              row.classification_code ||
+              null,
+
+            classification_name:
+              row.classification_name ||
+              null,
+
+            expected_quantity:
+              Number(
+                row.expected_quantity
+              ),
+
+            pricing_basis:
+              row.pricing_basis,
+
+            weight_source:
+              row.weight_source,
+
+            price_per_unit:
+              Number(
+                row.price_per_unit
+              ),
+
+            currency:
+              row.currency ||
+              purchaseLot.currency ||
+              'BOB',
+
+            shrink_percent:
+              Number(
+                row.shrink_percent ||
+                0
+              ),
+          }),
+        );
+
+
+      // ===============================================
+      // COMPATIBILIDAD CON LOTES ANTIGUOS
+      //
+      // Normalmente no debería entrar aquí porque
+      // la migración ya creó las líneas hijas.
+      //
+      // Se mantiene como protección para registros
+      // legacy.
+      // ===============================================
+
+      if (
+        commercialCategories.length === 0 &&
+        purchaseLot.classification_id !== null
+      ) {
+
+        commercialCategories = [
+          {
+            purchase_lot_category_id:
+              null,
+
+            line_number:
+              1,
+
+            classification_id:
+              Number(
+                purchaseLot
+                  .classification_id
+              ),
+
+            classification_code:
+              purchaseLot
+                .classification_code ||
+              null,
+
+            classification_name:
+              purchaseLot
+                .classification_name ||
+              null,
+
+            expected_quantity:
+              Number(
+                purchaseLot
+                  .expected_quantity ||
+                0
+              ),
+
+            pricing_basis:
+              purchaseLot
+                .pricing_basis,
+
+            weight_source:
+              purchaseLot
+                .weight_source,
+
+            price_per_unit:
+              purchaseLot
+                .price_per_unit !== null
+                ? Number(
+                    purchaseLot
+                      .price_per_unit
+                  )
+                : null,
+
+            currency:
+              purchaseLot.currency ||
+              'BOB',
+
+            shrink_percent:
+              Number(
+                purchaseLot
+                  .shrink_percent ||
+                0
+              ),
+          },
+        ];
+
+      }
+
+
+      // ===============================================
+      // EL QR NO PUEDE EMITIRSE SIN ACUERDO COMERCIAL
+      // ===============================================
+
+      if (
+        commercialCategories.length === 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'El lote no tiene categorías comerciales contratadas. No puede emitirse el QR de campo.',
+        });
+
+      }
+
+
+      // ===============================================
+      // TOTAL CONTRATADO SEGÚN LAS LÍNEAS
+      // ===============================================
+
+      const contractedQuantity =
+        commercialCategories.reduce(
+          (
+            total,
+            category
+          ) =>
+            total +
+            Number(
+              category
+                .expected_quantity ||
+              0
+            ),
+          0
+        );
+
+
+      // ===============================================
+      // CONTROL DE INTEGRIDAD
+      //
+      // El total de las líneas comerciales debe
+      // coincidir con el total del encabezado.
+      //
+      // Si no coincide, NO emitimos un documento
+      // comercial firmado con información dudosa.
+      // ===============================================
+
+      const parentExpectedQuantity =
+        Number(
+          purchaseLot
+            .expected_quantity ||
+          0
+        );
+
+
+      if (
+        parentExpectedQuantity > 0 &&
+        contractedQuantity !==
+          parentExpectedQuantity
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+
+        return res.status(409).json({
+          error:
+            'Las categorías comerciales no coinciden con la cantidad total contratada del lote.',
+
+          expected_quantity:
+            parentExpectedQuantity,
+
+          categories_quantity:
+            contractedQuantity,
+        });
+
+      }
+
+
+      // ===============================================
+      // PRIMERA CATEGORÍA
+      //
+      // Se conserva únicamente para compatibilidad
+      // temporal con consumidores legacy.
+      //
+      // La fuente real desde ahora es categories[].
+      // ===============================================
+
+      const primaryCategory =
+        commercialCategories[0];
+
 
       // ===============================================
       // ACUERDO COMERCIAL INMUTABLE
       //
-      // Esto representa LO PACTADO.
-      // La cantidad real cargada NO va aquí.
+      // Representa LO PACTADO.
+      //
+      // No se modifica aunque después el captador:
+      //
+      // - cargue menos animales,
+      // - redistribuya categorías,
+      // - reclasifique animales,
+      // - encuentre una categoría distinta,
+      // - tenga un precio pendiente de confirmar.
+      //
+      // Todo eso pertenece a la CAPTACIÓN REAL,
+      // nunca a este snapshot.
       // ===============================================
 
       const commercialAgreement = {
+
+        version:
+          2,
+
 
         seller_person_id:
           Number(
             purchaseLot
               .seller_person_id
           ),
+
 
         estate_id:
           purchaseLot
@@ -694,62 +1006,67 @@ exports.issueFieldAuthorization =
               )
             : null,
 
-        classification_id:
-          purchaseLot
-            .classification_id !==
-            null
-            ? Number(
-                purchaseLot
-                  .classification_id
-              )
-            : null,
-
-        classification_code:
-          purchaseLot
-            .classification_code ||
-          null,
 
         purchase_type:
           purchaseLot
             .purchase_type,
 
+
+        // =============================================
+        // TOTAL GENERAL CONTRATADO
+        // =============================================
+
+        expected_quantity:
+          contractedQuantity,
+
+
+        // =============================================
+        // CAMPOS LEGACY
+        //
+        // Se mantienen por compatibilidad.
+        // Representan la primera línea únicamente.
+        // =============================================
+
+        classification_id:
+          primaryCategory
+            .classification_id,
+
+        classification_code:
+          primaryCategory
+            .classification_code,
+
+        classification_name:
+          primaryCategory
+            .classification_name,
+
         pricing_basis:
-          purchaseLot
+          primaryCategory
             .pricing_basis,
 
         weight_source:
-          purchaseLot
+          primaryCategory
             .weight_source,
 
-        expected_quantity:
-          purchaseLot
-            .expected_quantity !==
-            null
-            ? Number(
-                purchaseLot
-                  .expected_quantity
-              )
-            : null,
-
         price_per_unit:
-          purchaseLot
-            .price_per_unit !==
-            null
-            ? Number(
-                purchaseLot
-                  .price_per_unit
-              )
-            : null,
+          primaryCategory
+            .price_per_unit,
 
         currency:
-          purchaseLot.currency,
+          primaryCategory
+            .currency,
 
         shrink_percent:
-          Number(
-            purchaseLot
-              .shrink_percent ||
-            0
-          ),
+          primaryCategory
+            .shrink_percent,
+
+
+        // =============================================
+        // ACUERDO COMERCIAL REAL
+        // =============================================
+
+        categories:
+          commercialCategories,
+
 
         purchase_date:
           dateOnly(
@@ -757,11 +1074,13 @@ exports.issueFieldAuthorization =
               .purchase_date
           ),
 
+
         planned_date:
           dateOnly(
             purchaseLot
               .planned_date
           ),
+
 
         seller_payment_method_id:
           purchaseLot
@@ -773,11 +1092,13 @@ exports.issueFieldAuthorization =
               )
             : null,
 
+
         planned_payment_date:
           dateOnly(
             purchaseLot
               .planned_payment_date
           ),
+
 
         payment_terms:
           purchaseLot
@@ -786,6 +1107,25 @@ exports.issueFieldAuthorization =
 
       };
 
+
+      // ===============================================
+      // HASH DEL CONTRATO
+      //
+      // Como categories[] forma parte del objeto,
+      // cualquier cambio en:
+      //
+      // - categoría
+      // - cantidad
+      // - precio
+      // - base de precio
+      // - fuente de peso
+      // - destare
+      //
+      // cambia este hash.
+      //
+      // Este hash ya viaja dentro del QR firmado.
+      // ===============================================
+
       const commercialAgreementHash =
         sha256Hex(
           canonicalJson(
@@ -793,54 +1133,113 @@ exports.issueFieldAuthorization =
           )
         );
 
+
+      // ===============================================
+      // SNAPSHOT COMPLETO DE LA AUTORIZACIÓN
+      // ===============================================
+
       const detailsSnapshot = {
+
+        snapshot_version:
+          2,
+
 
         purchase_lot_id:
           purchaseLotId,
 
+
         lot_number:
-          purchaseLot.lot_number,
+          purchaseLot
+            .lot_number,
+
 
         troop_id:
           troopId,
+
+
+        troop_expected_quantity:
+          troop.expected_quantity !==
+            null
+            ? Number(
+                troop
+                  .expected_quantity
+              )
+            : null,
+
 
         capture_sheet_id:
           purchaseLot
             .capture_sheet_id,
 
+
         seller_person_id:
-          purchaseLot
-            .seller_person_id,
+          Number(
+            purchaseLot
+              .seller_person_id
+          ),
+
 
         seller_name:
           purchaseLot
             .seller_name,
 
+
         estate_id:
           purchaseLot
-            .estate_id,
+            .estate_id !== null
+            ? Number(
+                purchaseLot
+                  .estate_id
+              )
+            : null,
+
 
         estate_name:
           purchaseLot
             .estate_name,
 
+
+        // =============================================
+        // LEGACY
+        // =============================================
+
         classification_id:
-          purchaseLot
+          primaryCategory
             .classification_id,
 
         classification_code:
-          purchaseLot
+          primaryCategory
             .classification_code,
 
         classification_name:
-          purchaseLot
+          primaryCategory
             .classification_name,
+
+
+        // =============================================
+        // NUEVO MODELO MULTICATEGORÍA
+        // =============================================
+
+        expected_quantity:
+          contractedQuantity,
+
+        categories_count:
+          commercialCategories.length,
+
+        categories:
+          commercialCategories,
+
+
+        // =============================================
+        // CONTRATO ORIGINAL COMPLETO
+        // =============================================
 
         commercial_agreement:
           commercialAgreement,
 
         commercial_agreement_hash:
           commercialAgreementHash,
+
 
         expected_date:
           expectedDate ||
