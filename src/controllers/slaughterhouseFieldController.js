@@ -786,15 +786,535 @@ exports.getAssignedCaptureSheetById =
         );
 
 
+      // =================================================
+      // MODELO MULTICATEGORÍA PARA TRABAJO DE CAMPO
+      //
+      // El teléfono recibe:
+      //
+      // - categorías comerciales contratadas
+      // - catálogo activo para reclasificación
+      // - cargas parciales ya sincronizadas
+      //
+      // Todo esto queda disponible también en Hive.
+      // =================================================
+
+      const lotIds =
+        lotsResult.rows.map(
+          (row) =>
+            Number(row.id)
+        );
+
+
+      let contractedCategoryRows =
+        [];
+
+      let partialLoadRows =
+        [];
+
+
+      if (
+        lotIds.length > 0
+      ) {
+
+        const [
+          contractedCategoriesResult,
+          partialLoadsResult,
+        ] =
+          await Promise.all([
+
+            pool.query(
+              `
+                SELECT
+                  plc.id
+                    AS purchase_lot_category_id,
+
+                  plc.purchase_lot_id,
+                  plc.line_number,
+                  plc.classification_id,
+
+                  sac.generated_code
+                    AS classification_code,
+
+                  sac.display_name
+                    AS classification_name,
+
+                  plc.expected_quantity,
+                  plc.pricing_basis,
+                  plc.weight_source,
+                  plc.price_per_unit,
+                  plc.currency,
+                  plc.shrink_percent
+
+                FROM slaughterhouse_purchase_lot_categories plc
+
+                JOIN slaughterhouse_animal_classifications sac
+                  ON sac.id =
+                    plc.classification_id
+                  AND sac.company_id =
+                    plc.company_id
+
+                WHERE
+                  plc.company_id = $1
+                  AND plc.purchase_lot_id =
+                    ANY($2::int[])
+
+                ORDER BY
+                  plc.purchase_lot_id ASC,
+                  plc.line_number ASC,
+                  plc.id ASC
+              `,
+              [
+                companyId,
+                lotIds,
+              ],
+            ),
+
+
+            pool.query(
+              `
+                SELECT
+                  spl.id,
+                  spl.company_id,
+                  spl.purchase_lot_id,
+                  spl.troop_id,
+                  spl.capture_sheet_id,
+                  spl.partial_number,
+                  spl.partial_code,
+                  spl.field_sync_id,
+                  spl.captador_person_id,
+                  spl.captador_assignment_version,
+                  spl.estate_id,
+                  spl.pickup_reference,
+                  spl.notes,
+                  spl.event_lat,
+                  spl.event_lng,
+                  spl.event_local_time,
+                  spl.status,
+                  spl.total_quantity,
+                  spl.gross_weight_kg,
+                  spl.created_at,
+                  spl.updated_at,
+
+                  COALESCE(
+                    (
+                      SELECT
+                        jsonb_agg(
+                          jsonb_build_object(
+                            'id',
+                              plc.id,
+
+                            'line_number',
+                              plc.line_number,
+
+                            'original_purchase_lot_category_id',
+                              plc.original_purchase_lot_category_id,
+
+                            'contracted_category_id',
+                              plc.contracted_category_id,
+
+                            'actual_classification_id',
+                              plc.actual_classification_id,
+
+                            'actual_classification_code',
+                              actual_classification.generated_code,
+
+                            'actual_classification_name',
+                              actual_classification.display_name,
+
+                            'quantity',
+                              plc.quantity,
+
+                            'commercial_status',
+                              plc.commercial_status,
+
+                            'pricing_basis',
+                              plc.pricing_basis,
+
+                            'weight_source',
+                              plc.weight_source,
+
+                            'price_per_unit',
+                              plc.price_per_unit,
+
+                            'currency',
+                              plc.currency,
+
+                            'shrink_percent',
+                              plc.shrink_percent,
+
+                            'observation',
+                              plc.observation,
+
+                            'weight_mode',
+                              plc.weight_mode,
+
+                            'gross_weight_kg',
+                              plc.gross_weight_kg,
+
+                            'price_confirmed_by',
+                              plc.price_confirmed_by,
+
+                            'price_confirmed_at',
+                              plc.price_confirmed_at,
+
+                            'weights',
+                              COALESCE(
+                                (
+                                  SELECT
+                                    jsonb_agg(
+                                      jsonb_build_object(
+                                        'id',
+                                          weight.id,
+
+                                        'sequence_number',
+                                          weight.sequence_number,
+
+                                        'weight_kg',
+                                          weight.weight_kg,
+
+                                        'notes',
+                                          weight.notes
+                                      )
+                                      ORDER BY
+                                        weight.sequence_number ASC
+                                    )
+
+                                  FROM slaughterhouse_field_partial_load_weights weight
+
+                                  WHERE
+                                    weight.partial_load_category_id =
+                                      plc.id
+                                ),
+                                '[]'::jsonb
+                              )
+                          )
+                          ORDER BY
+                            plc.line_number ASC
+                        )
+
+                      FROM slaughterhouse_field_partial_load_categories plc
+
+                      JOIN slaughterhouse_animal_classifications actual_classification
+                        ON actual_classification.id =
+                          plc.actual_classification_id
+                        AND actual_classification.company_id =
+                          plc.company_id
+
+                      WHERE
+                        plc.partial_load_id =
+                          spl.id
+                    ),
+                    '[]'::jsonb
+                  )
+                    AS categories
+
+                FROM slaughterhouse_field_partial_loads spl
+
+                WHERE
+                  spl.company_id = $1
+                  AND spl.capture_sheet_id = $2
+                  AND spl.purchase_lot_id =
+                    ANY($3::int[])
+
+                ORDER BY
+                  spl.purchase_lot_id ASC,
+                  spl.troop_id ASC,
+                  spl.partial_number ASC,
+                  spl.id ASC
+              `,
+              [
+                companyId,
+                captureSheetId,
+                lotIds,
+              ],
+            ),
+
+          ]);
+
+
+        contractedCategoryRows =
+          contractedCategoriesResult.rows;
+
+        partialLoadRows =
+          partialLoadsResult.rows;
+
+      }
+
+
+      // =================================================
+      // CATÁLOGO ACTIVO DE CLASIFICACIONES
+      //
+      // Se descarga junto con la hoja para que el
+      // captador pueda reclasificar OFFLINE.
+      //
+      // El captador NO crea categorías nuevas.
+      // =================================================
+
+      const classificationCatalogResult =
+        await pool.query(
+          `
+            SELECT
+              sac.id,
+              sac.generated_code,
+              sac.display_name,
+
+              category.name
+                AS category_name,
+
+              breed.name
+                AS breed_name,
+
+              feeding.name
+                AS feeding_method_name,
+
+              age.name
+                AS age_range_name,
+
+              age.min_months,
+              age.max_months
+
+            FROM slaughterhouse_animal_classifications sac
+
+            JOIN slaughterhouse_animal_categories category
+              ON category.id =
+                sac.category_id
+              AND category.company_id =
+                sac.company_id
+
+            JOIN slaughterhouse_breeds breed
+              ON breed.id =
+                sac.breed_id
+              AND breed.company_id =
+                sac.company_id
+
+            JOIN slaughterhouse_feeding_methods feeding
+              ON feeding.id =
+                sac.feeding_method_id
+              AND feeding.company_id =
+                sac.company_id
+
+            JOIN slaughterhouse_age_ranges age
+              ON age.id =
+                sac.age_range_id
+              AND age.company_id =
+                sac.company_id
+
+            WHERE
+              sac.company_id = $1
+              AND sac.is_active = true
+
+            ORDER BY
+              category.name ASC,
+              breed.name ASC,
+              feeding.name ASC,
+              age.min_months ASC NULLS FIRST,
+              sac.id ASC
+          `,
+          [
+            companyId,
+          ],
+        );
+
+
+      // =================================================
+      // AGRUPAR CATEGORÍAS CONTRATADAS POR LOTE
+      // =================================================
+
+      const contractedByLot =
+        new Map();
+
+
+      for (
+        const row
+        of contractedCategoryRows
+      ) {
+
+        const lotId =
+          Number(
+            row.purchase_lot_id
+          );
+
+
+        if (
+          !contractedByLot.has(
+            lotId
+          )
+        ) {
+
+          contractedByLot.set(
+            lotId,
+            []
+          );
+
+        }
+
+
+        contractedByLot
+          .get(lotId)
+          .push({
+            purchase_lot_category_id:
+              Number(
+                row.purchase_lot_category_id
+              ),
+
+            line_number:
+              Number(
+                row.line_number
+              ),
+
+            classification_id:
+              Number(
+                row.classification_id
+              ),
+
+            classification_code:
+              row.classification_code,
+
+            classification_name:
+              row.classification_name,
+
+            expected_quantity:
+              Number(
+                row.expected_quantity
+              ),
+
+            pricing_basis:
+              row.pricing_basis,
+
+            weight_source:
+              row.weight_source,
+
+            price_per_unit:
+              Number(
+                row.price_per_unit
+              ),
+
+            currency:
+              row.currency,
+
+            shrink_percent:
+              Number(
+                row.shrink_percent ||
+                0
+              ),
+          });
+
+      }
+
+
+      // =================================================
+      // AGRUPAR CARGAS PARCIALES POR TROPA
+      // =================================================
+
+      const partialLoadsByTroop =
+        new Map();
+
+
+      for (
+        const partialLoad
+        of partialLoadRows
+      ) {
+
+        const troopId =
+          Number(
+            partialLoad.troop_id
+          );
+
+
+        if (
+          !partialLoadsByTroop.has(
+            troopId
+          )
+        ) {
+
+          partialLoadsByTroop.set(
+            troopId,
+            []
+          );
+
+        }
+
+
+        partialLoadsByTroop
+          .get(troopId)
+          .push(
+            partialLoad
+          );
+
+      }
+
+
+      // =================================================
+      // RESPUESTA DE LOTES ENRIQUECIDA
+      // =================================================
+
+      const lotsForResponse =
+        lotsResult.rows.map(
+          (row) => {
+
+            const lotId =
+              Number(row.id);
+
+
+            const rawTroops =
+              Array.isArray(
+                row.troops
+              )
+                ? row.troops
+                : [];
+
+
+            const troops =
+              rawTroops.map(
+                (troop) => {
+
+                  const troopId =
+                    Number(
+                      troop.id
+                    );
+
+
+                  return {
+                    ...troop,
+
+                    partial_loads:
+                      partialLoadsByTroop
+                        .get(
+                          troopId
+                        ) ||
+                      [],
+                  };
+
+                },
+              );
+
+
+            return {
+              ...row,
+
+              categories:
+                contractedByLot.get(
+                  lotId
+                ) ||
+                [],
+
+              troops,
+            };
+
+          },
+        );
+
+
       const totalExpectedQuantity =
-        lotsResult.rows.reduce(
+        lotsForResponse.reduce(
           (
             total,
             lot,
           ) =>
             total +
             Number(
-              lot.expected_quantity || 0
+              lot.expected_quantity ||
+              0
             ),
           0,
         );
@@ -819,14 +1339,17 @@ exports.getAssignedCaptureSheetById =
 
         summary: {
           lot_count:
-            lotsResult.rows.length,
+            lotsForResponse.length,
 
           total_expected_quantity:
             totalExpectedQuantity,
         },
 
+        classification_catalog:
+          classificationCatalogResult.rows,
+
         lots:
-          lotsResult.rows,
+          lotsForResponse,
       });
 
     } catch (error) {
@@ -3089,6 +3612,2787 @@ exports.assignFieldPurchaseLotTransport =
       return res.status(500).json({
         error:
           'Error asignando el camión al lote',
+      });
+
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+// =====================================================
+// 🐂 SINCRONIZAR CARGA PARCIAL MULTICATEGORÍA
+//
+// POST
+// /slaughterhouse/field/
+// capture-sheets/:captureSheetId/
+// lots/:purchaseLotId/
+// troops/:troopId/
+// partial-loads/sync
+//
+// La carga se crea localmente en Hive y utiliza
+// field_sync_id como identidad estable.
+//
+// REGLAS:
+//
+// - Una tropa puede tener N cargas parciales.
+// - La tropa ya debe existir.
+// - Campo NO crea tropas.
+// - Cada línea usa una clasificación existente.
+// - Si la clasificación está contratada:
+//      usa automáticamente SUS condiciones.
+// - Si existe en maestro pero NO fue contratada:
+//      pending_price
+//      observación obligatoria.
+// - No modifica el acuerdo comercial original.
+// - No certifica.
+// - No despacha.
+// =====================================================
+
+exports.syncFieldPartialLoad =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    let transactionStarted =
+      false;
+
+
+    const reject = (
+      httpStatus,
+      message,
+      appCode = null,
+    ) => {
+
+      const error =
+        new Error(message);
+
+      error.httpStatus =
+        httpStatus;
+
+      error.appCode =
+        appCode;
+
+      throw error;
+
+    };
+
+
+    try {
+
+      const userId =
+        Number(
+          req.user?.user_id ??
+          req.user?.id
+        );
+
+
+      const companyId =
+        Number(
+          req.user?.company_id
+        );
+
+
+      const captureSheetId =
+        Number(
+          req.params.captureSheetId
+        );
+
+
+      const purchaseLotId =
+        Number(
+          req.params.purchaseLotId
+        );
+
+
+      const troopId =
+        Number(
+          req.params.troopId
+        );
+
+
+      const captadorAssignmentVersion =
+        Number(
+          req.body
+            ?.captador_assignment_version
+        );
+
+
+      const fieldSyncId =
+        req.body
+          ?.field_sync_id
+          ?.toString()
+          .trim() ||
+        '';
+
+
+      const partialNumber =
+        Number(
+          req.body
+            ?.partial_number
+        );
+
+
+      const pickupReference =
+        req.body
+          ?.pickup_reference
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const notes =
+        req.body
+          ?.notes
+          ?.toString()
+          .trim() ||
+        null;
+
+
+      const eventLat =
+        req.body?.event_lat ===
+          null ||
+        req.body?.event_lat ===
+          undefined
+          ? null
+          : Number(
+              req.body.event_lat
+            );
+
+
+      const eventLng =
+        req.body?.event_lng ===
+          null ||
+        req.body?.event_lng ===
+          undefined
+          ? null
+          : Number(
+              req.body.event_lng
+            );
+
+
+      const eventLocalTimeInput =
+        req.body
+          ?.event_local_time ||
+        null;
+
+
+      const rawCategories =
+        Array.isArray(
+          req.body?.categories
+        )
+          ? req.body.categories
+          : [];
+
+
+      // =================================================
+      // VALIDACIONES BÁSICAS
+      // =================================================
+
+      if (
+        !Number.isInteger(userId) ||
+        userId <= 0
+      ) {
+        reject(
+          401,
+          'Usuario autenticado inválido'
+        );
+      }
+
+
+      if (
+        !Number.isInteger(companyId) ||
+        companyId <= 0
+      ) {
+        reject(
+          400,
+          'Contexto de empresa inválido'
+        );
+      }
+
+
+      if (
+        !Number.isInteger(
+          captureSheetId
+        ) ||
+        captureSheetId <= 0 ||
+        !Number.isInteger(
+          purchaseLotId
+        ) ||
+        purchaseLotId <= 0 ||
+        !Number.isInteger(
+          troopId
+        ) ||
+        troopId <= 0
+      ) {
+        reject(
+          400,
+          'Identificación de operación inválida'
+        );
+      }
+
+
+      if (
+        !Number.isInteger(
+          captadorAssignmentVersion
+        ) ||
+        captadorAssignmentVersion <= 0
+      ) {
+        reject(
+          400,
+          'captador_assignment_version inválido'
+        );
+      }
+
+
+      if (
+        fieldSyncId.length === 0 ||
+        fieldSyncId.length > 160
+      ) {
+        reject(
+          400,
+          'field_sync_id inválido'
+        );
+      }
+
+
+      if (
+        !Number.isInteger(
+          partialNumber
+        ) ||
+        partialNumber <= 0
+      ) {
+        reject(
+          400,
+          'partial_number inválido'
+        );
+      }
+
+
+      if (
+        rawCategories.length === 0
+      ) {
+        reject(
+          400,
+          'La carga parcial debe contener al menos una categoría'
+        );
+      }
+
+
+      if (
+        eventLat !== null &&
+        (
+          !Number.isFinite(
+            eventLat
+          ) ||
+          eventLat < -90 ||
+          eventLat > 90
+        )
+      ) {
+        reject(
+          400,
+          'event_lat inválido'
+        );
+      }
+
+
+      if (
+        eventLng !== null &&
+        (
+          !Number.isFinite(
+            eventLng
+          ) ||
+          eventLng < -180 ||
+          eventLng > 180
+        )
+      ) {
+        reject(
+          400,
+          'event_lng inválido'
+        );
+      }
+
+
+      let eventLocalTime =
+        null;
+
+
+      if (
+        eventLocalTimeInput !==
+        null
+      ) {
+
+        eventLocalTime =
+          new Date(
+            eventLocalTimeInput
+          );
+
+
+        if (
+          Number.isNaN(
+            eventLocalTime
+              .getTime()
+          )
+        ) {
+
+          reject(
+            400,
+            'event_local_time inválido'
+          );
+
+        }
+
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+      transactionStarted =
+        true;
+
+
+      // =================================================
+      // CAPTADOR AUTENTICADO
+      // =================================================
+
+      const captadorResult =
+        await client.query(
+          `
+            SELECT
+              sp.id,
+              sp.full_name
+
+            FROM slaughterhouse_people sp
+
+            JOIN slaughterhouse_person_roles spr
+              ON spr.person_id =
+                sp.id
+              AND spr.role =
+                'captador'
+              AND spr.is_active =
+                true
+
+            WHERE
+              sp.company_id = $1
+              AND sp.user_id = $2
+              AND sp.is_active =
+                true
+
+            LIMIT 1
+
+            FOR UPDATE OF sp
+          `,
+          [
+            companyId,
+            userId,
+          ],
+        );
+
+
+      if (
+        captadorResult.rows.length ===
+        0
+      ) {
+
+        reject(
+          403,
+          'El usuario no está habilitado como captador/comprador en este frigorífico'
+        );
+
+      }
+
+
+      const captador =
+        captadorResult.rows[0];
+
+
+      // =================================================
+      // LOTE + ASIGNACIÓN
+      // =================================================
+
+      const lotResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              lot_number,
+              capture_sheet_id,
+              captador_person_id,
+              captador_assignment_version,
+              estate_id,
+              currency,
+              status
+
+            FROM slaughterhouse_purchase_lots
+
+            WHERE
+              id = $1
+              AND company_id = $2
+              AND capture_sheet_id = $3
+
+            FOR UPDATE
+          `,
+          [
+            purchaseLotId,
+            companyId,
+            captureSheetId,
+          ],
+        );
+
+
+      if (
+        lotResult.rows.length ===
+        0
+      ) {
+
+        reject(
+          404,
+          'Lote de compra no encontrado'
+        );
+
+      }
+
+
+      const lot =
+        lotResult.rows[0];
+
+
+      if (
+        Number(
+          lot.captador_person_id
+        ) !==
+          Number(
+            captador.id
+          ) ||
+        Number(
+          lot.captador_assignment_version
+        ) !==
+          captadorAssignmentVersion
+      ) {
+
+        reject(
+          409,
+          'La asignación del captador cambió',
+          'assignment_revoked'
+        );
+
+      }
+
+
+      if (
+        ![
+          'open',
+          'in_transport',
+        ].includes(
+          lot.status
+        )
+      ) {
+
+        reject(
+          409,
+          `El lote no admite captura de campo en estado ${lot.status}`
+        );
+
+      }
+
+
+      // =================================================
+      // TROPA / CAMIÓN
+      // =================================================
+
+      const troopResult =
+        await client.query(
+          `
+            SELECT
+              *
+
+            FROM slaughterhouse_troops
+
+            WHERE
+              id = $1
+              AND company_id = $2
+              AND purchase_lot_id = $3
+              AND status <> 'cancelled'
+
+            FOR UPDATE
+          `,
+          [
+            troopId,
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+
+      if (
+        troopResult.rows.length ===
+        0
+      ) {
+
+        reject(
+          404,
+          'La tropa no existe o no pertenece a este lote'
+        );
+
+      }
+
+
+      const troop =
+        troopResult.rows[0];
+
+
+      if (
+        troop.field_capture_status ===
+        'certified'
+      ) {
+
+        reject(
+          409,
+          'La carga de esta tropa ya fue certificada'
+        );
+
+      }
+
+
+      if (
+        [
+          'dispatched',
+          'in_transit',
+          'received',
+          'in_slaughter',
+          'completed',
+        ].includes(
+          troop.status
+        )
+      ) {
+
+        reject(
+          409,
+          `La tropa ya se encuentra en estado ${troop.status}`
+        );
+
+      }
+
+
+      if (
+        troop.truck_id === null ||
+        troop.truck_id === undefined
+      ) {
+
+        reject(
+          409,
+          'La tropa todavía no tiene un camión asignado'
+        );
+
+      }
+
+
+      // =================================================
+      // CATEGORÍAS CONTRATADAS DEL LOTE
+      // =================================================
+
+      const contractedResult =
+        await client.query(
+          `
+            SELECT
+              plc.id,
+              plc.line_number,
+              plc.classification_id,
+              plc.expected_quantity,
+              plc.pricing_basis,
+              plc.weight_source,
+              plc.price_per_unit,
+              plc.currency,
+              plc.shrink_percent,
+
+              sac.generated_code
+                AS classification_code,
+
+              sac.display_name
+                AS classification_name
+
+            FROM slaughterhouse_purchase_lot_categories plc
+
+            JOIN slaughterhouse_animal_classifications sac
+              ON sac.id =
+                plc.classification_id
+              AND sac.company_id =
+                plc.company_id
+
+            WHERE
+              plc.company_id = $1
+              AND plc.purchase_lot_id = $2
+
+            ORDER BY
+              plc.line_number ASC,
+              plc.id ASC
+          `,
+          [
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+
+      if (
+        contractedResult.rows.length ===
+        0
+      ) {
+
+        reject(
+          409,
+          'El lote no tiene categorías comerciales contratadas'
+        );
+
+      }
+
+
+      const contractedById =
+        new Map();
+
+      const contractedByClassification =
+        new Map();
+
+
+      for (
+        const row
+        of contractedResult.rows
+      ) {
+
+        contractedById.set(
+          Number(row.id),
+          row
+        );
+
+
+        contractedByClassification.set(
+          Number(
+            row.classification_id
+          ),
+          row
+        );
+
+      }
+
+
+      // =================================================
+      // VALIDAR CLASIFICACIONES REALES
+      // =================================================
+
+      const requestedClassificationIds =
+        [
+          ...new Set(
+            rawCategories.map(
+              (item) =>
+                Number(
+                  item
+                    ?.actual_classification_id
+                )
+            ),
+          ),
+        ];
+
+
+      if (
+        requestedClassificationIds.some(
+          (id) =>
+            !Number.isInteger(id) ||
+            id <= 0
+        )
+      ) {
+
+        reject(
+          400,
+          'Existe una clasificación real inválida'
+        );
+
+      }
+
+
+      const actualClassificationsResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              generated_code,
+              display_name,
+              is_active
+
+            FROM slaughterhouse_animal_classifications
+
+            WHERE
+              company_id = $1
+              AND id =
+                ANY($2::int[])
+          `,
+          [
+            companyId,
+            requestedClassificationIds,
+          ],
+        );
+
+
+      const classificationById =
+        new Map(
+          actualClassificationsResult.rows.map(
+            (row) => [
+              Number(row.id),
+              row,
+            ],
+          ),
+        );
+
+
+      if (
+        classificationById.size !==
+        requestedClassificationIds.length
+      ) {
+
+        reject(
+          400,
+          'Una o más clasificaciones no existen en el sistema'
+        );
+
+      }
+
+
+      // =================================================
+      // NORMALIZAR LÍNEAS DE LA CARGA
+      // =================================================
+
+      const allowedPricingBasis =
+        new Set([
+          'live_kg',
+          'hook_kg',
+          'per_head',
+        ]);
+
+
+      const allowedWeightSources =
+        new Set([
+          'origin',
+          'plant',
+          'not_applicable',
+        ]);
+
+
+      const normalizedCategories =
+        [];
+
+
+      for (
+        let index = 0;
+        index <
+          rawCategories.length;
+        index++
+      ) {
+
+        const raw =
+          rawCategories[index] ||
+          {};
+
+
+        const actualClassificationId =
+          Number(
+            raw.actual_classification_id
+          );
+
+
+        const actualClassification =
+          classificationById.get(
+            actualClassificationId
+          );
+
+
+        const quantity =
+          Number(
+            raw.quantity
+          );
+
+
+        if (
+          !Number.isInteger(quantity) ||
+          quantity <= 0
+        ) {
+
+          reject(
+            400,
+            `Cantidad inválida en la categoría ${index + 1}`
+          );
+
+        }
+
+
+        const rawOriginalId =
+          raw
+            .original_purchase_lot_category_id;
+
+
+        const originalCategoryId =
+          rawOriginalId === null ||
+          rawOriginalId === undefined ||
+          rawOriginalId === ''
+            ? null
+            : Number(
+                rawOriginalId
+              );
+
+
+        let originalCategory =
+          null;
+
+
+        if (
+          originalCategoryId !==
+          null
+        ) {
+
+          if (
+            !Number.isInteger(
+              originalCategoryId
+            ) ||
+            originalCategoryId <= 0
+          ) {
+
+            reject(
+              400,
+              `Categoría original inválida en la línea ${index + 1}`
+            );
+
+          }
+
+
+          originalCategory =
+            contractedById.get(
+              originalCategoryId
+            ) ||
+            null;
+
+
+          if (
+            originalCategory ===
+            null
+          ) {
+
+            reject(
+              400,
+              `La categoría original de la línea ${index + 1} no pertenece a este lote`
+            );
+
+          }
+
+        }
+
+
+        const contractedCategory =
+          contractedByClassification.get(
+            actualClassificationId
+          ) ||
+          null;
+
+
+        // Si no estaba contratada,
+        // debe seguir activa en el maestro.
+        if (
+          contractedCategory ===
+            null &&
+          actualClassification
+            .is_active !== true
+        ) {
+
+          reject(
+            400,
+            `La clasificación ${actualClassification.display_name} no está activa`
+          );
+
+        }
+
+
+        const observation =
+          raw.observation
+            ?.toString()
+            .trim() ||
+          null;
+
+
+        const reclassified =
+          originalCategory !== null &&
+          Number(
+            originalCategory
+              .classification_id
+          ) !==
+            actualClassificationId;
+
+
+        if (
+          (
+            contractedCategory ===
+              null ||
+            reclassified
+          ) &&
+          !observation
+        ) {
+
+          reject(
+            400,
+            `Debe registrar una observación para la reclasificación de ${actualClassification.display_name}`
+          );
+
+        }
+
+
+        let commercialStatus;
+        let pricingBasis;
+        let weightSource;
+        let pricePerUnit;
+        let currency;
+        let shrinkPercent;
+
+
+        if (
+          contractedCategory !==
+          null
+        ) {
+
+          commercialStatus =
+            'confirmed';
+
+          pricingBasis =
+            contractedCategory
+              .pricing_basis;
+
+          weightSource =
+            contractedCategory
+              .weight_source;
+
+          pricePerUnit =
+            contractedCategory
+              .price_per_unit !==
+              null
+              ? Number(
+                  contractedCategory
+                    .price_per_unit
+                )
+              : null;
+
+          currency =
+            contractedCategory
+              .currency ||
+            lot.currency ||
+            'BOB';
+
+          shrinkPercent =
+            Number(
+              contractedCategory
+                .shrink_percent ||
+              0
+            );
+
+        } else {
+
+          commercialStatus =
+            'pending_price';
+
+
+          pricingBasis =
+            raw
+              .proposed_pricing_basis
+              ?.toString()
+              .trim() ||
+            null;
+
+
+          weightSource =
+            raw
+              .proposed_weight_source
+              ?.toString()
+              .trim() ||
+            null;
+
+
+          const proposedPriceRaw =
+            raw
+              .proposed_price_per_unit;
+
+
+          pricePerUnit =
+            proposedPriceRaw ===
+              null ||
+            proposedPriceRaw ===
+              undefined ||
+            proposedPriceRaw ===
+              ''
+              ? null
+              : Number(
+                  proposedPriceRaw
+                );
+
+
+          currency =
+            raw
+              .proposed_currency
+              ?.toString()
+              .trim() ||
+            lot.currency ||
+            'BOB';
+
+
+          const proposedShrinkRaw =
+            raw
+              .proposed_shrink_percent;
+
+
+          shrinkPercent =
+            proposedShrinkRaw ===
+              null ||
+            proposedShrinkRaw ===
+              undefined ||
+            proposedShrinkRaw ===
+              ''
+              ? 0
+              : Number(
+                  proposedShrinkRaw
+                );
+
+
+          if (
+            pricingBasis !== null &&
+            !allowedPricingBasis.has(
+              pricingBasis
+            )
+          ) {
+
+            reject(
+              400,
+              `Modalidad propuesta inválida en la línea ${index + 1}`
+            );
+
+          }
+
+
+          if (
+            weightSource !== null &&
+            !allowedWeightSources.has(
+              weightSource
+            )
+          ) {
+
+            reject(
+              400,
+              `Fuente de peso propuesta inválida en la línea ${index + 1}`
+            );
+
+          }
+
+
+          if (
+            pricePerUnit !== null &&
+            (
+              !Number.isFinite(
+                pricePerUnit
+              ) ||
+              pricePerUnit <= 0
+            )
+          ) {
+
+            reject(
+              400,
+              `Precio propuesto inválido en la línea ${index + 1}`
+            );
+
+          }
+
+
+          if (
+            pricePerUnit !== null &&
+            pricingBasis === null
+          ) {
+
+            reject(
+              400,
+              `Debe indicar la modalidad del precio propuesto en la línea ${index + 1}`
+            );
+
+          }
+
+
+          if (
+            pricingBasis ===
+              'live_kg' &&
+            ![
+              'origin',
+              'plant',
+            ].includes(
+              weightSource
+            )
+          ) {
+
+            reject(
+              400,
+              `La modalidad kg vivo requiere origen o planta en la línea ${index + 1}`
+            );
+
+          }
+
+
+          if (
+            !Number.isFinite(
+              shrinkPercent
+            ) ||
+            shrinkPercent < 0 ||
+            shrinkPercent > 100
+          ) {
+
+            reject(
+              400,
+              `Destare propuesto inválido en la línea ${index + 1}`
+            );
+
+          }
+
+        }
+
+
+        // =================================================
+        // PESAJE POR CATEGORÍA
+        //
+        // Solo live_kg + origin exige peso de campo.
+        // hook_kg queda pendiente del peso gancho.
+        // =================================================
+
+        const requiresOriginWeight =
+          pricingBasis ===
+            'live_kg' &&
+          weightSource ===
+            'origin';
+
+
+        const rawWeights =
+          Array.isArray(
+            raw.weights
+          )
+            ? raw.weights
+            : [];
+
+
+        const normalizedWeights =
+          rawWeights.map(
+            (item) => {
+
+              const value =
+                typeof item ===
+                  'number'
+                  ? Number(item)
+                  : Number(
+                      item?.weight_kg
+                    );
+
+
+              if (
+                !Number.isFinite(
+                  value
+                ) ||
+                value <= 0
+              ) {
+
+                reject(
+                  400,
+                  `Peso inválido en la línea ${index + 1}`
+                );
+
+              }
+
+
+              return value;
+
+            },
+          );
+
+
+        let weightMode =
+          raw.weight_mode
+            ?.toString()
+            .trim() ||
+          null;
+
+
+        const rawGrossWeight =
+          raw.gross_weight_kg;
+
+
+        let grossWeightKg =
+          rawGrossWeight ===
+            null ||
+          rawGrossWeight ===
+            undefined ||
+          rawGrossWeight ===
+            ''
+            ? null
+            : Number(
+                rawGrossWeight
+              );
+
+
+        if (
+          requiresOriginWeight
+        ) {
+
+          if (
+            weightMode ===
+              null
+          ) {
+
+            if (
+              normalizedWeights.length >
+              0
+            ) {
+
+              weightMode =
+                'individual';
+
+            } else if (
+              grossWeightKg !==
+              null
+            ) {
+
+              weightMode =
+                'category_total';
+
+            }
+
+          }
+
+
+          if (
+            ![
+              'individual',
+              'category_total',
+            ].includes(
+              weightMode
+            )
+          ) {
+
+            reject(
+              400,
+              `Debe indicar el pesaje de origen para ${actualClassification.display_name}`
+            );
+
+          }
+
+
+          if (
+            weightMode ===
+            'individual'
+          ) {
+
+            if (
+              normalizedWeights.length !==
+              quantity
+            ) {
+
+              reject(
+                400,
+                `La cantidad de pesos de ${actualClassification.display_name} no coincide con sus animales`
+              );
+
+            }
+
+
+            grossWeightKg =
+              Number(
+                normalizedWeights
+                  .reduce(
+                    (
+                      total,
+                      value,
+                    ) =>
+                      total +
+                      value,
+                    0,
+                  )
+                  .toFixed(3)
+              );
+
+          } else {
+
+            if (
+              grossWeightKg ===
+                null ||
+              !Number.isFinite(
+                grossWeightKg
+              ) ||
+              grossWeightKg <= 0
+            ) {
+
+              reject(
+                400,
+                `Peso total inválido para ${actualClassification.display_name}`
+              );
+
+            }
+
+          }
+
+        } else {
+
+          weightMode =
+            'not_required';
+
+          grossWeightKg =
+            null;
+
+          normalizedWeights.length =
+            0;
+
+        }
+
+
+        normalizedCategories.push({
+          line_number:
+            index + 1,
+
+          original_purchase_lot_category_id:
+            originalCategoryId !==
+              null
+              ? originalCategoryId
+              : contractedCategory !==
+                null
+                ? Number(
+                    contractedCategory.id
+                  )
+                : null,
+
+          contracted_category_id:
+            contractedCategory !==
+              null
+              ? Number(
+                  contractedCategory.id
+                )
+              : null,
+
+          actual_classification_id:
+            actualClassificationId,
+
+          actual_classification_code:
+            actualClassification
+              .generated_code,
+
+          actual_classification_name:
+            actualClassification
+              .display_name,
+
+          quantity,
+
+          commercial_status:
+            commercialStatus,
+
+          pricing_basis:
+            pricingBasis,
+
+          weight_source:
+            weightSource,
+
+          price_per_unit:
+            pricePerUnit,
+
+          currency,
+
+          shrink_percent:
+            shrinkPercent,
+
+          observation,
+
+          weight_mode:
+            weightMode,
+
+          gross_weight_kg:
+            grossWeightKg,
+
+          weights:
+            normalizedWeights,
+        });
+
+      }
+
+
+      const totalQuantity =
+        normalizedCategories.reduce(
+          (
+            total,
+            category
+          ) =>
+            total +
+            category.quantity,
+          0
+        );
+
+
+      const measuredCategories =
+        normalizedCategories.filter(
+          (category) =>
+            category
+              .gross_weight_kg !==
+            null
+        );
+
+
+      const grossWeightKg =
+        measuredCategories.length >
+          0
+          ? Number(
+              measuredCategories
+                .reduce(
+                  (
+                    total,
+                    category
+                  ) =>
+                    total +
+                    Number(
+                      category
+                        .gross_weight_kg
+                    ),
+                  0,
+                )
+                .toFixed(3)
+            )
+          : null;
+
+
+      // =================================================
+      // IDENTIDAD DE CARGA PARCIAL
+      // =================================================
+
+      const troopBaseCode =
+        troop.troop_number
+          ?.toString()
+          .trim() ||
+        `T${troop.id}`;
+
+
+      const partialCode =
+        `${troopBaseCode}-${String(
+          partialNumber
+        ).padStart(
+          2,
+          '0'
+        )}`;
+
+
+      // =================================================
+      // IDEMPOTENCIA POR field_sync_id
+      // =================================================
+
+      const existingSyncResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM slaughterhouse_field_partial_loads
+
+            WHERE
+              company_id = $1
+              AND field_sync_id = $2
+
+            FOR UPDATE
+          `,
+          [
+            companyId,
+            fieldSyncId,
+          ],
+        );
+
+
+      let existingPartial =
+        existingSyncResult.rows[0] ||
+        null;
+
+
+      if (
+        existingPartial !==
+        null &&
+        (
+          Number(
+            existingPartial
+              .purchase_lot_id
+          ) !==
+            purchaseLotId ||
+          Number(
+            existingPartial
+              .troop_id
+          ) !==
+            troopId
+        )
+      ) {
+
+        reject(
+          409,
+          'field_sync_id ya pertenece a otra carga'
+        );
+
+      }
+
+
+      if (
+        existingPartial !==
+          null &&
+        existingPartial.status ===
+          'certified'
+      ) {
+
+        reject(
+          409,
+          'Esta carga parcial ya fue certificada'
+        );
+
+      }
+
+
+      const numberConflictResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              field_sync_id
+
+            FROM slaughterhouse_field_partial_loads
+
+            WHERE
+              company_id = $1
+              AND troop_id = $2
+              AND partial_number = $3
+
+            FOR UPDATE
+          `,
+          [
+            companyId,
+            troopId,
+            partialNumber,
+          ],
+        );
+
+
+      if (
+        numberConflictResult.rows
+          .length > 0 &&
+        numberConflictResult.rows[0]
+          .field_sync_id !==
+          fieldSyncId
+      ) {
+
+        reject(
+          409,
+          `La carga parcial ${partialCode} ya existe con otra identidad`
+        );
+
+      }
+
+
+      let partialLoadResult;
+
+
+      if (
+        existingPartial ===
+        null
+      ) {
+
+        partialLoadResult =
+          await client.query(
+            `
+              INSERT INTO slaughterhouse_field_partial_loads (
+                company_id,
+                purchase_lot_id,
+                troop_id,
+                capture_sheet_id,
+                partial_number,
+                partial_code,
+                field_sync_id,
+                captador_person_id,
+                captador_assignment_version,
+                estate_id,
+                pickup_reference,
+                notes,
+                event_lat,
+                event_lng,
+                event_local_time,
+                status,
+                total_quantity,
+                gross_weight_kg,
+                created_by
+              )
+              VALUES (
+                $1,
+                $2,
+                $3,
+                $4,
+                $5,
+                $6,
+                $7,
+                $8,
+                $9,
+                $10,
+                $11,
+                $12,
+                $13,
+                $14,
+                $15,
+                'captured',
+                $16,
+                $17,
+                $18
+              )
+              RETURNING *
+            `,
+            [
+              companyId,
+              purchaseLotId,
+              troopId,
+              captureSheetId,
+              partialNumber,
+              partialCode,
+              fieldSyncId,
+              captador.id,
+              captadorAssignmentVersion,
+              lot.estate_id,
+              pickupReference,
+              notes,
+              eventLat,
+              eventLng,
+              eventLocalTime,
+              totalQuantity,
+              grossWeightKg,
+              userId,
+            ],
+          );
+
+      } else {
+
+        partialLoadResult =
+          await client.query(
+            `
+              UPDATE slaughterhouse_field_partial_loads
+
+              SET
+                captador_person_id = $1,
+                captador_assignment_version = $2,
+                estate_id = $3,
+                pickup_reference = $4,
+                notes = $5,
+                event_lat = $6,
+                event_lng = $7,
+                event_local_time = $8,
+                status = 'captured',
+                total_quantity = $9,
+                gross_weight_kg = $10,
+                updated_at = NOW()
+
+              WHERE
+                id = $11
+
+              RETURNING *
+            `,
+            [
+              captador.id,
+              captadorAssignmentVersion,
+              lot.estate_id,
+              pickupReference,
+              notes,
+              eventLat,
+              eventLng,
+              eventLocalTime,
+              totalQuantity,
+              grossWeightKg,
+              existingPartial.id,
+            ],
+          );
+
+      }
+
+
+      const partialLoad =
+        partialLoadResult.rows[0];
+
+
+      // =================================================
+      // REEMPLAZAR DETALLE DE ESTA CARGA
+      //
+      // Los pesos caen por ON DELETE CASCADE.
+      // =================================================
+
+      await client.query(
+        `
+          DELETE FROM slaughterhouse_field_partial_load_categories
+
+          WHERE
+            partial_load_id = $1
+        `,
+        [
+          partialLoad.id,
+        ],
+      );
+
+
+      const insertedCategories =
+        [];
+
+
+      for (
+        const category
+        of normalizedCategories
+      ) {
+
+        const categoryResult =
+          await client.query(
+            `
+              INSERT INTO slaughterhouse_field_partial_load_categories (
+                company_id,
+                partial_load_id,
+                line_number,
+                original_purchase_lot_category_id,
+                contracted_category_id,
+                actual_classification_id,
+                quantity,
+                commercial_status,
+                pricing_basis,
+                weight_source,
+                price_per_unit,
+                currency,
+                shrink_percent,
+                observation,
+                weight_mode,
+                gross_weight_kg
+              )
+              VALUES (
+                $1,
+                $2,
+                $3,
+                $4,
+                $5,
+                $6,
+                $7,
+                $8,
+                $9,
+                $10,
+                $11,
+                $12,
+                $13,
+                $14,
+                $15,
+                $16
+              )
+              RETURNING *
+            `,
+            [
+              companyId,
+              partialLoad.id,
+              category.line_number,
+              category
+                .original_purchase_lot_category_id,
+              category
+                .contracted_category_id,
+              category
+                .actual_classification_id,
+              category.quantity,
+              category
+                .commercial_status,
+              category
+                .pricing_basis,
+              category
+                .weight_source,
+              category
+                .price_per_unit,
+              category.currency,
+              category
+                .shrink_percent,
+              category.observation,
+              category.weight_mode,
+              category
+                .gross_weight_kg,
+            ],
+          );
+
+
+        const insertedCategory =
+          categoryResult.rows[0];
+
+
+        for (
+          let weightIndex = 0;
+          weightIndex <
+            category.weights.length;
+          weightIndex++
+        ) {
+
+          await client.query(
+            `
+              INSERT INTO slaughterhouse_field_partial_load_weights (
+                company_id,
+                partial_load_category_id,
+                sequence_number,
+                weight_kg
+              )
+              VALUES (
+                $1,
+                $2,
+                $3,
+                $4
+              )
+            `,
+            [
+              companyId,
+              insertedCategory.id,
+              weightIndex + 1,
+              category
+                .weights[
+                  weightIndex
+                ],
+            ],
+          );
+
+        }
+
+
+        insertedCategories.push({
+          ...insertedCategory,
+
+          actual_classification_code:
+            category
+              .actual_classification_code,
+
+          actual_classification_name:
+            category
+              .actual_classification_name,
+
+          weights:
+            category.weights.map(
+              (
+                value,
+                weightIndex
+              ) => ({
+                sequence_number:
+                  weightIndex + 1,
+
+                weight_kg:
+                  value,
+              }),
+            ),
+        });
+
+      }
+
+
+      // =================================================
+      // ACUMULADO REAL DE LA TROPA
+      //
+      // Agregar una/corregir una carga vuelve la tropa
+      // a in_progress hasta pulsar FINALIZAR TROPA.
+      // =================================================
+
+      const accumulatedResult =
+        await client.query(
+          `
+            SELECT
+              COALESCE(
+                SUM(
+                  total_quantity
+                ),
+                0
+              )::int
+                AS total_quantity
+
+            FROM slaughterhouse_field_partial_loads
+
+            WHERE
+              company_id = $1
+              AND troop_id = $2
+              AND status IN (
+                'captured',
+                'certified'
+              )
+          `,
+          [
+            companyId,
+            troopId,
+          ],
+        );
+
+
+      const accumulatedQuantity =
+        Number(
+          accumulatedResult
+            .rows[0]
+            ?.total_quantity ||
+          0
+        );
+
+
+      const updatedTroopResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_troops
+
+            SET
+              field_capture_status =
+                'in_progress',
+
+              field_captured_quantity =
+                $1,
+
+              field_captured_at =
+                NULL,
+
+              updated_at =
+                NOW()
+
+            WHERE
+              id = $2
+              AND company_id = $3
+              AND purchase_lot_id = $4
+              AND COALESCE(
+                field_capture_status,
+                ''
+              ) <> 'certified'
+
+            RETURNING *
+          `,
+          [
+            accumulatedQuantity,
+            troopId,
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+
+      if (
+        updatedTroopResult.rows.length ===
+        0
+      ) {
+
+        reject(
+          409,
+          'La tropa ya no admite modificaciones de campo'
+        );
+
+      }
+
+
+      // =================================================
+      // AUDITORÍA
+      // =================================================
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+          VALUES (
+            $1,
+            $2,
+            'field_partial_load',
+            $3,
+            'sync_field_partial_load',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+          userId,
+          String(
+            partialLoad.id
+          ),
+          JSON.stringify(
+            existingPartial
+          ),
+          JSON.stringify({
+            partial_load:
+              partialLoad,
+
+            categories:
+              insertedCategories,
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+      transactionStarted =
+        false;
+
+
+      return res.json({
+        success: true,
+
+        partial_load: {
+          ...partialLoad,
+
+          categories:
+            insertedCategories,
+        },
+
+        troop:
+          updatedTroopResult
+            .rows[0],
+
+        accumulated_quantity:
+          accumulatedQuantity,
+
+        pending_commercial_count:
+          insertedCategories.filter(
+            (category) =>
+              category
+                .commercial_status ===
+              'pending_price'
+          ).length,
+      });
+
+
+    } catch (error) {
+
+      if (
+        transactionStarted
+      ) {
+
+        try {
+          await client.query(
+            'ROLLBACK'
+          );
+        } catch (_) {}
+
+      }
+
+
+      if (
+        error.appCode ===
+        'assignment_revoked'
+      ) {
+
+        return res.status(409).json({
+          error:
+            'assignment_revoked',
+
+          message:
+            error.message,
+        });
+
+      }
+
+
+      if (
+        error.code ===
+        '23505'
+      ) {
+
+        return res.status(409).json({
+          error:
+            'Ya existe una carga parcial con esa identidad o número',
+        });
+
+      }
+
+
+      if (
+        error.httpStatus
+      ) {
+
+        return res
+          .status(
+            error.httpStatus
+          )
+          .json({
+            error:
+              error.message,
+          });
+
+      }
+
+
+      console.error(
+        'SYNC FIELD PARTIAL LOAD ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error sincronizando carga parcial de campo',
+      });
+
+
+    } finally {
+
+      client.release();
+
+    }
+
+  };
+
+
+// =====================================================
+// ✅ FINALIZAR CAPTURA DE UNA TROPA
+//
+// POST
+// /slaughterhouse/field/
+// capture-sheets/:captureSheetId/
+// lots/:purchaseLotId/
+// troops/:troopId/finalize
+//
+// No certifica QR.
+// Solo indica que el captador terminó físicamente
+// las cargas parciales de este camión.
+//
+// Puede existir pending_price:
+// eso NO bloquea el transporte.
+// =====================================================
+
+exports.finalizeFieldTroopCapture =
+  async (req, res) => {
+
+    const client =
+      await pool.connect();
+
+    let transactionStarted =
+      false;
+
+
+    const reject = (
+      httpStatus,
+      message,
+      appCode = null,
+    ) => {
+
+      const error =
+        new Error(message);
+
+      error.httpStatus =
+        httpStatus;
+
+      error.appCode =
+        appCode;
+
+      throw error;
+
+    };
+
+
+    try {
+
+      const userId =
+        Number(
+          req.user?.user_id ??
+          req.user?.id
+        );
+
+
+      const companyId =
+        Number(
+          req.user?.company_id
+        );
+
+
+      const captureSheetId =
+        Number(
+          req.params.captureSheetId
+        );
+
+
+      const purchaseLotId =
+        Number(
+          req.params.purchaseLotId
+        );
+
+
+      const troopId =
+        Number(
+          req.params.troopId
+        );
+
+
+      const captadorAssignmentVersion =
+        Number(
+          req.body
+            ?.captador_assignment_version
+        );
+
+
+      if (
+        !Number.isInteger(userId) ||
+        userId <= 0 ||
+        !Number.isInteger(companyId) ||
+        companyId <= 0 ||
+        !Number.isInteger(
+          captureSheetId
+        ) ||
+        captureSheetId <= 0 ||
+        !Number.isInteger(
+          purchaseLotId
+        ) ||
+        purchaseLotId <= 0 ||
+        !Number.isInteger(
+          troopId
+        ) ||
+        troopId <= 0
+      ) {
+
+        reject(
+          400,
+          'Datos de operación inválidos'
+        );
+
+      }
+
+
+      if (
+        !Number.isInteger(
+          captadorAssignmentVersion
+        ) ||
+        captadorAssignmentVersion <= 0
+      ) {
+
+        reject(
+          400,
+          'captador_assignment_version inválido'
+        );
+
+      }
+
+
+      await client.query(
+        'BEGIN'
+      );
+
+      transactionStarted =
+        true;
+
+
+      const captadorResult =
+        await client.query(
+          `
+            SELECT
+              sp.id,
+              sp.full_name
+
+            FROM slaughterhouse_people sp
+
+            JOIN slaughterhouse_person_roles spr
+              ON spr.person_id =
+                sp.id
+              AND spr.role =
+                'captador'
+              AND spr.is_active =
+                true
+
+            WHERE
+              sp.company_id = $1
+              AND sp.user_id = $2
+              AND sp.is_active =
+                true
+
+            LIMIT 1
+
+            FOR UPDATE OF sp
+          `,
+          [
+            companyId,
+            userId,
+          ],
+        );
+
+
+      if (
+        captadorResult.rows.length ===
+        0
+      ) {
+
+        reject(
+          403,
+          'Usuario no habilitado como captador'
+        );
+
+      }
+
+
+      const captador =
+        captadorResult.rows[0];
+
+
+      const lotResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              lot_number,
+              captador_person_id,
+              captador_assignment_version,
+              status
+
+            FROM slaughterhouse_purchase_lots
+
+            WHERE
+              id = $1
+              AND company_id = $2
+              AND capture_sheet_id = $3
+
+            FOR UPDATE
+          `,
+          [
+            purchaseLotId,
+            companyId,
+            captureSheetId,
+          ],
+        );
+
+
+      if (
+        lotResult.rows.length ===
+        0
+      ) {
+
+        reject(
+          404,
+          'Lote no encontrado'
+        );
+
+      }
+
+
+      const lot =
+        lotResult.rows[0];
+
+
+      if (
+        Number(
+          lot.captador_person_id
+        ) !==
+          Number(
+            captador.id
+          ) ||
+        Number(
+          lot.captador_assignment_version
+        ) !==
+          captadorAssignmentVersion
+      ) {
+
+        reject(
+          409,
+          'La asignación del captador cambió',
+          'assignment_revoked'
+        );
+
+      }
+
+
+      const troopResult =
+        await client.query(
+          `
+            SELECT *
+
+            FROM slaughterhouse_troops
+
+            WHERE
+              id = $1
+              AND company_id = $2
+              AND purchase_lot_id = $3
+              AND status <> 'cancelled'
+
+            FOR UPDATE
+          `,
+          [
+            troopId,
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+
+      if (
+        troopResult.rows.length ===
+        0
+      ) {
+
+        reject(
+          404,
+          'Tropa no encontrada'
+        );
+
+      }
+
+
+      const troop =
+        troopResult.rows[0];
+
+
+      if (
+        troop.field_capture_status ===
+        'certified'
+      ) {
+
+        reject(
+          409,
+          'La tropa ya fue certificada'
+        );
+
+      }
+
+
+      if (
+        [
+          'dispatched',
+          'in_transit',
+          'received',
+          'in_slaughter',
+          'completed',
+        ].includes(
+          troop.status
+        )
+      ) {
+
+        reject(
+          409,
+          `La tropa ya se encuentra en estado ${troop.status}`
+        );
+
+      }
+
+
+      const loadSummaryResult =
+        await client.query(
+          `
+            SELECT
+              COUNT(*) FILTER (
+                WHERE status IN (
+                  'captured',
+                  'certified'
+                )
+              )::int
+                AS captured_load_count,
+
+              COUNT(*) FILTER (
+                WHERE status = 'draft'
+              )::int
+                AS draft_load_count,
+
+              COALESCE(
+                SUM(
+                  total_quantity
+                ) FILTER (
+                  WHERE status IN (
+                    'captured',
+                    'certified'
+                  )
+                ),
+                0
+              )::int
+                AS total_quantity
+
+            FROM slaughterhouse_field_partial_loads
+
+            WHERE
+              company_id = $1
+              AND purchase_lot_id = $2
+              AND troop_id = $3
+          `,
+          [
+            companyId,
+            purchaseLotId,
+            troopId,
+          ],
+        );
+
+
+      const summary =
+        loadSummaryResult.rows[0];
+
+
+      const capturedLoadCount =
+        Number(
+          summary
+            ?.captured_load_count ||
+          0
+        );
+
+
+      const draftLoadCount =
+        Number(
+          summary
+            ?.draft_load_count ||
+          0
+        );
+
+
+      const totalQuantity =
+        Number(
+          summary
+            ?.total_quantity ||
+          0
+        );
+
+
+      if (
+        capturedLoadCount <= 0 ||
+        totalQuantity <= 0
+      ) {
+
+        reject(
+          409,
+          'La tropa todavía no tiene cargas parciales finalizadas'
+        );
+
+      }
+
+
+      if (
+        draftLoadCount > 0
+      ) {
+
+        reject(
+          409,
+          'Existen cargas parciales todavía en borrador'
+        );
+
+      }
+
+
+      const pendingCommercialResult =
+        await client.query(
+          `
+            SELECT
+              COUNT(*)::int
+                AS total
+
+            FROM slaughterhouse_field_partial_load_categories category_line
+
+            JOIN slaughterhouse_field_partial_loads partial_load
+              ON partial_load.id =
+                category_line.partial_load_id
+
+            WHERE
+              partial_load.company_id = $1
+              AND partial_load.purchase_lot_id = $2
+              AND partial_load.troop_id = $3
+              AND partial_load.status IN (
+                'captured',
+                'certified'
+              )
+              AND category_line.commercial_status =
+                'pending_price'
+          `,
+          [
+            companyId,
+            purchaseLotId,
+            troopId,
+          ],
+        );
+
+
+      const pendingCommercialCount =
+        Number(
+          pendingCommercialResult
+            .rows[0]
+            ?.total ||
+          0
+        );
+
+
+      const updatedTroopResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_troops
+
+            SET
+              field_capture_status =
+                'captured',
+
+              field_captured_quantity =
+                $1,
+
+              field_captured_at =
+                COALESCE(
+                  field_captured_at,
+                  NOW()
+                ),
+
+              updated_at =
+                NOW()
+
+            WHERE
+              id = $2
+              AND company_id = $3
+              AND purchase_lot_id = $4
+              AND COALESCE(
+                field_capture_status,
+                ''
+              ) <> 'certified'
+
+            RETURNING *
+          `,
+          [
+            totalQuantity,
+            troopId,
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+
+      if (
+        updatedTroopResult.rows.length ===
+        0
+      ) {
+
+        reject(
+          409,
+          'La tropa ya no puede finalizarse'
+        );
+
+      }
+
+
+      await client.query(
+        `
+          INSERT INTO slaughterhouse_audit_log (
+            company_id,
+            user_id,
+            entity_type,
+            entity_id,
+            action,
+            old_data,
+            new_data
+          )
+          VALUES (
+            $1,
+            $2,
+            'troop',
+            $3,
+            'field_finalize_troop_capture',
+            $4::jsonb,
+            $5::jsonb
+          )
+        `,
+        [
+          companyId,
+          userId,
+          String(
+            troopId
+          ),
+          JSON.stringify(
+            troop
+          ),
+          JSON.stringify({
+            ...updatedTroopResult
+              .rows[0],
+
+            partial_load_count:
+              capturedLoadCount,
+
+            pending_commercial_count:
+              pendingCommercialCount,
+          }),
+        ],
+      );
+
+
+      await client.query(
+        'COMMIT'
+      );
+
+      transactionStarted =
+        false;
+
+
+      return res.json({
+        success: true,
+
+        troop:
+          updatedTroopResult
+            .rows[0],
+
+        partial_load_count:
+          capturedLoadCount,
+
+        captured_quantity:
+          totalQuantity,
+
+        pending_commercial_count:
+          pendingCommercialCount,
+
+        commercial_confirmation_required:
+          pendingCommercialCount >
+          0,
+      });
+
+
+    } catch (error) {
+
+      if (
+        transactionStarted
+      ) {
+
+        try {
+          await client.query(
+            'ROLLBACK'
+          );
+        } catch (_) {}
+
+      }
+
+
+      if (
+        error.appCode ===
+        'assignment_revoked'
+      ) {
+
+        return res.status(409).json({
+          error:
+            'assignment_revoked',
+
+          message:
+            error.message,
+        });
+
+      }
+
+
+      if (
+        error.httpStatus
+      ) {
+
+        return res
+          .status(
+            error.httpStatus
+          )
+          .json({
+            error:
+              error.message,
+          });
+
+      }
+
+
+      console.error(
+        'FINALIZE FIELD TROOP CAPTURE ERROR:',
+        error
+      );
+
+
+      return res.status(500).json({
+        error:
+          'Error finalizando la captura de la tropa',
       });
 
 

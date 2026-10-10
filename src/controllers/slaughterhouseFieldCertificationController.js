@@ -799,14 +799,267 @@ exports.certifyFieldLot =
       //
       // Debe producir EXACTAMENTE el mismo hash
       // que fue firmado al emitir el QR.
+      //
+      // V2:
+      // el acuerdo incluye TODAS las categorías
+      // comerciales contratadas.
+      // ===============================================
+
+
+      // ===============================================
+      // CATEGORÍAS CONTRATADAS ACTUALES
+      // ===============================================
+
+      const categoriesResult =
+        await client.query(
+          `
+            SELECT
+              plc.id
+                AS purchase_lot_category_id,
+
+              plc.line_number,
+
+              plc.classification_id,
+
+              classification.generated_code
+                AS classification_code,
+
+              classification.display_name
+                AS classification_name,
+
+              plc.expected_quantity,
+
+              plc.pricing_basis,
+
+              plc.weight_source,
+
+              plc.price_per_unit,
+
+              plc.currency,
+
+              plc.shrink_percent
+
+            FROM slaughterhouse_purchase_lot_categories plc
+
+            JOIN slaughterhouse_animal_classifications classification
+              ON classification.id =
+                plc.classification_id
+              AND classification.company_id =
+                plc.company_id
+
+            WHERE
+              plc.company_id = $1
+              AND plc.purchase_lot_id = $2
+
+            ORDER BY
+              plc.line_number ASC,
+              plc.id ASC
+          `,
+          [
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+
+      let currentCommercialCategories =
+        categoriesResult.rows.map(
+          (row) => ({
+            purchase_lot_category_id:
+              Number(
+                row.purchase_lot_category_id
+              ),
+
+            line_number:
+              Number(
+                row.line_number
+              ),
+
+            classification_id:
+              Number(
+                row.classification_id
+              ),
+
+            classification_code:
+              row.classification_code ||
+              null,
+
+            classification_name:
+              row.classification_name ||
+              null,
+
+            expected_quantity:
+              Number(
+                row.expected_quantity
+              ),
+
+            pricing_basis:
+              row.pricing_basis,
+
+            weight_source:
+              row.weight_source,
+
+            price_per_unit:
+              Number(
+                row.price_per_unit
+              ),
+
+            currency:
+              row.currency ||
+              lot.currency ||
+              'BOB',
+
+            shrink_percent:
+              Number(
+                row.shrink_percent ||
+                0
+              ),
+          }),
+        );
+
+
+      // ===============================================
+      // COMPATIBILIDAD LOTES LEGACY
+      // ===============================================
+
+      if (
+        currentCommercialCategories.length === 0 &&
+        lot.classification_id !== null
+      ) {
+
+        currentCommercialCategories = [
+          {
+            purchase_lot_category_id:
+              null,
+
+            line_number:
+              1,
+
+            classification_id:
+              Number(
+                lot.classification_id
+              ),
+
+            classification_code:
+              lot.classification_code ||
+              null,
+
+            classification_name:
+              lot.classification_name ||
+              null,
+
+            expected_quantity:
+              Number(
+                lot.expected_quantity ||
+                0
+              ),
+
+            pricing_basis:
+              lot.pricing_basis,
+
+            weight_source:
+              lot.weight_source,
+
+            price_per_unit:
+              lot.price_per_unit !== null
+                ? Number(
+                    lot.price_per_unit
+                  )
+                : null,
+
+            currency:
+              lot.currency ||
+              'BOB',
+
+            shrink_percent:
+              Number(
+                lot.shrink_percent ||
+                0
+              ),
+          },
+        ];
+
+      }
+
+
+      if (
+        currentCommercialCategories.length === 0
+      ) {
+
+        fail(
+          409,
+          'El lote no tiene categorías comerciales contratadas'
+        );
+
+      }
+
+
+      const currentContractedQuantity =
+        currentCommercialCategories.reduce(
+          (
+            total,
+            category
+          ) =>
+            total +
+            Number(
+              category.expected_quantity ||
+              0
+            ),
+          0
+        );
+
+
+      const parentExpectedQuantity =
+        Number(
+          lot.expected_quantity ||
+          0
+        );
+
+
+      if (
+        parentExpectedQuantity > 0 &&
+        currentContractedQuantity !==
+          parentExpectedQuantity
+      ) {
+
+        fail(
+          409,
+          'Las categorías comerciales no coinciden con la cantidad total contratada del lote'
+        );
+
+      }
+
+
+      // ===============================================
+      // PRIMERA LÍNEA
+      //
+      // Se conserva solo para compatibilidad
+      // con consumidores legacy.
+      // ===============================================
+
+      const primaryCategory =
+        currentCommercialCategories[0];
+
+
+      // ===============================================
+      // ACUERDO V2
+      //
+      // IMPORTANTE:
+      // Debe tener exactamente la misma estructura
+      // usada al emitir el QR.
       // ===============================================
 
       const currentCommercialAgreement = {
+
+        version:
+          2,
+
 
         seller_person_id:
           Number(
             lot.seller_person_id
           ),
+
 
         estate_id:
           lot.estate_id !== null
@@ -815,61 +1068,71 @@ exports.certifyFieldLot =
               )
             : null,
 
-        classification_id:
-          lot.classification_id !==
-            null
-            ? Number(
-                lot.classification_id
-              )
-            : null,
-
-        classification_code:
-          lot.classification_code ||
-          null,
 
         purchase_type:
           lot.purchase_type,
 
-        pricing_basis:
-          lot.pricing_basis,
-
-        weight_source:
-          lot.weight_source,
 
         expected_quantity:
-          lot.expected_quantity !==
-            null
-            ? Number(
-                lot.expected_quantity
-              )
-            : null,
+          currentContractedQuantity,
+
+
+        // =============================================
+        // LEGACY = PRIMERA LÍNEA
+        // =============================================
+
+        classification_id:
+          primaryCategory
+            .classification_id,
+
+        classification_code:
+          primaryCategory
+            .classification_code,
+
+        classification_name:
+          primaryCategory
+            .classification_name,
+
+        pricing_basis:
+          primaryCategory
+            .pricing_basis,
+
+        weight_source:
+          primaryCategory
+            .weight_source,
 
         price_per_unit:
-          lot.price_per_unit !==
-            null
-            ? Number(
-                lot.price_per_unit
-              )
-            : null,
+          primaryCategory
+            .price_per_unit,
 
         currency:
-          lot.currency,
+          primaryCategory
+            .currency,
 
         shrink_percent:
-          Number(
-            lot.shrink_percent ||
-            0
-          ),
+          primaryCategory
+            .shrink_percent,
+
+
+        // =============================================
+        // MODELO REAL MULTICATEGORÍA
+        // =============================================
+
+        categories:
+          currentCommercialCategories,
+
 
         purchase_date:
           commercialDateOnly(
             lot.purchase_date
           ),
 
+
         planned_date:
           commercialDateOnly(
             lot.planned_date
           ),
+
 
         seller_payment_method_id:
           lot
@@ -881,10 +1144,12 @@ exports.certifyFieldLot =
               )
             : null,
 
+
         planned_payment_date:
           commercialDateOnly(
             lot.planned_payment_date
           ),
+
 
         payment_terms:
           lot.payment_terms ||
@@ -892,12 +1157,14 @@ exports.certifyFieldLot =
 
       };
 
+
       const currentCommercialAgreementHash =
         sha256Hex(
           canonicalJson(
             currentCommercialAgreement
           )
         );
+
 
       if (
         currentCommercialAgreementHash !==

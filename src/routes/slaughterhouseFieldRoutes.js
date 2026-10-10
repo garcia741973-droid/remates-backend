@@ -17,6 +17,8 @@ const {
   getAssignedCaptureSheetById,
   syncFieldLotCapture,
   syncFieldLiveWeighing,
+  syncFieldPartialLoad,
+  finalizeFieldTroopCapture,
   updateFieldCaptadorNotes,
   getFieldApprovedTransportTrucks,
   assignFieldPurchaseLotTransport,
@@ -83,6 +85,25 @@ router.post(
 router.post(
   '/capture-sheets/:captureSheetId/lots/:purchaseLotId/sync-capture',
   syncFieldLotCapture,
+);
+
+// =====================================================
+// 🐂 CARGA PARCIAL MULTICATEGORÍA
+// =====================================================
+
+router.post(
+  '/capture-sheets/:captureSheetId/lots/:purchaseLotId/troops/:troopId/partial-loads/sync',
+  syncFieldPartialLoad,
+);
+
+
+// =====================================================
+// ✅ FINALIZAR TROPA EN CAMPO
+// =====================================================
+
+router.post(
+  '/capture-sheets/:captureSheetId/lots/:purchaseLotId/troops/:troopId/finalize',
+  finalizeFieldTroopCapture,
 );
 
 // =====================================================
