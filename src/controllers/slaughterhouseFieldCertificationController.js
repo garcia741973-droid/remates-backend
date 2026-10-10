@@ -1318,9 +1318,7 @@ exports.certifyFieldLot =
       if (
         !authorizationAgreementHash ||
         authorizationAgreementHash !==
-          signedCommercialAgreementHash ||
-        authorizationAgreementHash !==
-          currentCommercialAgreementHash
+          signedCommercialAgreementHash
       ) {
 
         fail(
@@ -1624,11 +1622,566 @@ exports.certifyFieldLot =
         );
       }
 
-      const quantity =
+      // ===============================================
+      // CAPTURA REAL: CARGAS PARCIALES
+      //
+      // La autoridad comercial es el snapshot del QR.
+      // La autoridad física es lo sincronizado en las
+      // tablas field_partial_load*.
+      // ===============================================
+
+      const authorizationSnapshot =
+        authorization.details_snapshot &&
+        typeof authorization.details_snapshot ===
+          'object' &&
+        !Array.isArray(
+          authorization.details_snapshot
+        )
+          ? authorization.details_snapshot
+          : {};
+
+      if (
         Number(
-          troop
-            .field_captured_quantity
+          authorizationSnapshot
+            .snapshot_version
+        ) !== 2
+      ) {
+        fail(
+          409,
+          'La autorización QR utiliza un snapshot comercial incompatible'
         );
+      }
+
+      const authorizedCategoriesRaw =
+        Array.isArray(
+          authorizationSnapshot
+            .categories
+        )
+          ? authorizationSnapshot
+              .categories
+          : [];
+
+      if (
+        authorizedCategoriesRaw.length ===
+        0
+      ) {
+        fail(
+          409,
+          'La autorización QR no contiene categorías comerciales'
+        );
+      }
+
+      const normalizeString = (
+        value
+      ) => {
+        if (
+          value === null ||
+          value === undefined
+        ) {
+          return null;
+        }
+
+        const normalized =
+          value
+            .toString()
+            .trim();
+
+        return normalized.length > 0
+          ? normalized
+          : null;
+      };
+
+      const sameNullableNumber = (
+        a,
+        b,
+        tolerance = 0.0005
+      ) => {
+        const aEmpty =
+          a === null ||
+          a === undefined ||
+          a === '';
+
+        const bEmpty =
+          b === null ||
+          b === undefined ||
+          b === '';
+
+        if (
+          aEmpty &&
+          bEmpty
+        ) {
+          return true;
+        }
+
+        if (
+          aEmpty ||
+          bEmpty
+        ) {
+          return false;
+        }
+
+        return sameNumber(
+          a,
+          b,
+          tolerance
+        );
+      };
+
+      const authorizedCategories =
+        authorizedCategoriesRaw.map(
+          (
+            raw,
+            index
+          ) => {
+            const categoryId =
+              Number(
+                raw
+                  .purchase_lot_category_id ??
+                raw.id
+              );
+
+            const classificationId =
+              Number(
+                raw
+                  .classification_id
+              );
+
+            const expectedQuantity =
+              Number(
+                raw
+                  .expected_quantity
+              );
+
+            const pricePerUnit =
+              Number(
+                raw
+                  .price_per_unit
+              );
+
+            const shrinkPercent =
+              Number(
+                raw
+                  .shrink_percent ||
+                0
+              );
+
+            if (
+              !Number.isInteger(
+                categoryId
+              ) ||
+              categoryId <= 0 ||
+              !Number.isInteger(
+                classificationId
+              ) ||
+              classificationId <= 0 ||
+              !Number.isInteger(
+                expectedQuantity
+              ) ||
+              expectedQuantity <= 0 ||
+              !Number.isFinite(
+                pricePerUnit
+              ) ||
+              pricePerUnit <= 0
+            ) {
+              fail(
+                409,
+                `Categoría inválida en el snapshot QR, línea ${index + 1}`
+              );
+            }
+
+            return {
+              purchase_lot_category_id:
+                categoryId,
+
+              line_number:
+                Number(
+                  raw.line_number ||
+                    index + 1
+                ),
+
+              classification_id:
+                classificationId,
+
+              classification_code:
+                normalizeString(
+                  raw
+                    .classification_code
+                ),
+
+              classification_name:
+                normalizeString(
+                  raw
+                    .classification_name
+                ),
+
+              expected_quantity:
+                expectedQuantity,
+
+              pricing_basis:
+                normalizeString(
+                  raw.pricing_basis
+                ),
+
+              weight_source:
+                normalizeString(
+                  raw.weight_source
+                ),
+
+              price_per_unit:
+                pricePerUnit,
+
+              currency:
+                normalizeString(
+                  raw.currency
+                ) ||
+                'BOB',
+
+              shrink_percent:
+                shrinkPercent,
+            };
+          }
+        );
+
+      const authorizedByCategoryId =
+        new Map(
+          authorizedCategories.map(
+            (item) => [
+              Number(
+                item
+                  .purchase_lot_category_id
+              ),
+              item,
+            ]
+          )
+        );
+
+      // ===============================================
+      // CARGAS PARCIALES DEL SERVIDOR
+      // ===============================================
+
+      const partialLoadsResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              company_id,
+              purchase_lot_id,
+              troop_id,
+              capture_sheet_id,
+              partial_number,
+              partial_code,
+              field_sync_id,
+              captador_person_id,
+              captador_assignment_version,
+              estate_id,
+              pickup_reference,
+              notes,
+              event_lat,
+              event_lng,
+              event_local_time,
+              status,
+              total_quantity,
+              gross_weight_kg,
+              created_at,
+              updated_at
+
+            FROM slaughterhouse_field_partial_loads
+
+            WHERE
+              company_id = $1
+              AND purchase_lot_id = $2
+              AND troop_id = $3
+              AND capture_sheet_id = $4
+              AND status <> 'cancelled'
+
+            ORDER BY
+              partial_number ASC,
+              id ASC
+
+            FOR UPDATE
+          `,
+          [
+            companyId,
+            purchaseLotId,
+            troop.id,
+            captureSheetId,
+          ],
+        );
+
+      const partialLoads =
+        partialLoadsResult.rows;
+
+      if (
+        partialLoads.length ===
+        0
+      ) {
+        fail(
+          409,
+          'La tropa no tiene cargas parciales sincronizadas'
+        );
+      }
+
+      const invalidPartial =
+        partialLoads.find(
+          (item) =>
+            item.status !==
+              'captured'
+        );
+
+      if (
+        invalidPartial
+      ) {
+        fail(
+          409,
+          `La carga parcial ${invalidPartial.partial_code} está en estado ${invalidPartial.status}`
+        );
+      }
+
+      const partialCategoriesResult =
+        await client.query(
+          `
+            SELECT
+              c.id,
+              c.company_id,
+              c.partial_load_id,
+              c.line_number,
+              c.original_purchase_lot_category_id,
+              c.contracted_category_id,
+              c.actual_classification_id,
+              c.quantity,
+              c.commercial_status,
+              c.pricing_basis,
+              c.weight_source,
+              c.price_per_unit,
+              c.currency,
+              c.shrink_percent,
+              c.observation,
+              c.price_confirmed_by,
+              c.price_confirmed_at,
+              c.weight_mode,
+              c.gross_weight_kg,
+              ac.generated_code
+                AS actual_classification_code,
+              ac.display_name
+                AS actual_classification_name
+
+            FROM slaughterhouse_field_partial_load_categories c
+
+            JOIN slaughterhouse_field_partial_loads pl
+              ON pl.id =
+                c.partial_load_id
+              AND pl.company_id =
+                c.company_id
+
+            JOIN slaughterhouse_animal_classifications ac
+              ON ac.id =
+                c.actual_classification_id
+
+            WHERE
+              c.company_id = $1
+              AND pl.purchase_lot_id = $2
+              AND pl.troop_id = $3
+              AND pl.capture_sheet_id = $4
+              AND pl.status = 'captured'
+
+            ORDER BY
+              pl.partial_number ASC,
+              c.line_number ASC,
+              c.id ASC
+
+            FOR UPDATE OF c
+          `,
+          [
+            companyId,
+            purchaseLotId,
+            troop.id,
+            captureSheetId,
+          ],
+        );
+
+      const partialCategories =
+        partialCategoriesResult.rows;
+
+      if (
+        partialCategories.length ===
+        0
+      ) {
+        fail(
+          409,
+          'Las cargas parciales no contienen categorías'
+        );
+      }
+
+      const partialWeightsResult =
+        await client.query(
+          `
+            SELECT
+              w.id,
+              w.partial_load_category_id,
+              w.sequence_number,
+              w.weight_kg,
+              w.notes
+
+            FROM slaughterhouse_field_partial_load_weights w
+
+            JOIN slaughterhouse_field_partial_load_categories c
+              ON c.id =
+                w.partial_load_category_id
+              AND c.company_id =
+                w.company_id
+
+            JOIN slaughterhouse_field_partial_loads pl
+              ON pl.id =
+                c.partial_load_id
+              AND pl.company_id =
+                c.company_id
+
+            WHERE
+              w.company_id = $1
+              AND pl.purchase_lot_id = $2
+              AND pl.troop_id = $3
+              AND pl.capture_sheet_id = $4
+              AND pl.status = 'captured'
+
+            ORDER BY
+              pl.partial_number ASC,
+              c.line_number ASC,
+              w.sequence_number ASC,
+              w.id ASC
+
+            FOR UPDATE OF w
+          `,
+          [
+            companyId,
+            purchaseLotId,
+            troop.id,
+            captureSheetId,
+          ],
+        );
+
+      const weightsByCategory =
+        new Map();
+
+        for (
+          const weight
+          of partialWeightsResult.rows
+        ) {
+        const categoryId =
+          Number(
+            weight
+              .partial_load_category_id
+          );
+
+        if (
+          !weightsByCategory.has(
+            categoryId
+          )
+        ) {
+          weightsByCategory.set(
+            categoryId,
+            []
+          );
+        }
+
+        weightsByCategory
+          .get(
+            categoryId
+          )
+          .push(
+            weight
+          );
+      }
+
+      const categoriesByPartial =
+        new Map();
+
+      for (
+        const category
+        of partialCategories
+      ) {
+        const partialLoadId =
+          Number(
+            category
+              .partial_load_id
+          );
+
+        if (
+          !categoriesByPartial.has(
+            partialLoadId
+          )
+        ) {
+          categoriesByPartial.set(
+            partialLoadId,
+            []
+          );
+        }
+
+        categoriesByPartial
+          .get(
+            partialLoadId
+          )
+          .push(
+            category
+          );
+      }
+
+      // ===============================================
+      // VALIDAR TOTALES FÍSICOS
+      // ===============================================
+
+      let quantity = 0;
+
+      for (
+        const partial
+        of partialLoads
+      ) {
+        const serverCategories =
+          categoriesByPartial.get(
+            Number(
+              partial.id
+            )
+          ) ||
+          [];
+
+        if (
+          serverCategories.length ===
+          0
+        ) {
+          fail(
+            409,
+            `La carga parcial ${partial.partial_code} no contiene categorías`
+          );
+        }
+
+        const partialQuantity =
+          serverCategories.reduce(
+            (
+              total,
+              item
+            ) =>
+              total +
+              Number(
+                item.quantity
+              ),
+            0
+          );
+
+        if (
+          partialQuantity !==
+          Number(
+            partial
+              .total_quantity
+          )
+        ) {
+          fail(
+            409,
+            `La cantidad de ${partial.partial_code} no coincide con sus categorías`
+          );
+        }
+
+        quantity +=
+          partialQuantity;
+      }
 
       if (
         !Number.isInteger(
@@ -1642,9 +2195,36 @@ exports.certifyFieldLot =
         );
       }
 
+      if (
+        Number(
+          troop
+            .field_captured_quantity
+        ) !== quantity
+      ) {
+        fail(
+          409,
+          'La cantidad finalizada de la tropa no coincide con sus cargas parciales'
+        );
+      }
+
       // ===============================================
-      // VALIDAR SNAPSHOT BÁSICO
+      // VALIDAR REVIEW SNAPSHOT V2
       // ===============================================
+
+      if (
+        Number(
+          reviewSnapshot
+            .version
+        ) !== 2 ||
+        reviewSnapshot
+          .type !==
+          'field_load_review'
+      ) {
+        fail(
+          409,
+          'La revisión utiliza un formato incompatible'
+        );
+      }
 
       if (
         Number(
@@ -1661,11 +2241,16 @@ exports.certifyFieldLot =
         ) !== purchaseLotId ||
         Number(
           reviewSnapshot
+            .troop_id
+        ) !== Number(
+          troop.id
+        ) ||
+        Number(
+          reviewSnapshot
             .seller_person_id
-        ) !==
-          Number(
-            lot.seller_person_id
-          )
+        ) !== Number(
+          lot.seller_person_id
+        )
       ) {
         fail(
           409,
@@ -1688,30 +2273,30 @@ exports.certifyFieldLot =
       }
 
       if (
-        reviewSnapshot
-          .pricing_basis !==
-          lot.pricing_basis ||
-        reviewSnapshot
-          .weight_source !==
-          lot.weight_source ||
-        reviewSnapshot
-          .purchase_type !==
-          lot.purchase_type
+        Number(
+          reviewSnapshot
+            .field_authorization_id
+        ) !== Number(
+          authorization.id
+        ) ||
+        Number(
+          reviewSnapshot
+            .commercial_snapshot_version
+        ) !== 2 ||
+        normalizeString(
+          reviewSnapshot
+            .commercial_agreement_hash
+        )
+          ?.toLowerCase() !==
+          authorizationAgreementHash
       ) {
         fail(
           409,
-          'La modalidad comercial revisada no coincide'
+          'La revisión no corresponde al contrato QR autorizado'
         );
       }
 
       if (
-        Number(
-          reviewSnapshot
-            .expected_quantity
-        ) !==
-          Number(
-            lot.expected_quantity
-          ) ||
         Number(
           reviewSnapshot
             .captured_quantity
@@ -1719,416 +2304,1086 @@ exports.certifyFieldLot =
       ) {
         fail(
           409,
-          'La cantidad revisada no coincide con la captura del servidor'
+          'La cantidad revisada no coincide con las cargas parciales del servidor'
         );
       }
 
-      if (
-        reviewSnapshot.currency !==
-          lot.currency
-      ) {
-        fail(
-          409,
-          'La moneda revisada no coincide'
-        );
-      }
-
-      if (
-        !sameNumber(
+      const reviewedAuthorized =
+        Array.isArray(
           reviewSnapshot
-            .price_per_unit,
-          lot.price_per_unit,
-          0.0001
+            .authorized_categories
         )
+          ? reviewSnapshot
+              .authorized_categories
+          : [];
+
+      if (
+        reviewedAuthorized.length !==
+        authorizedCategories.length
       ) {
         fail(
           409,
-          'El precio revisado no coincide con la negociación'
+          'Las categorías contratadas revisadas no coinciden con el QR'
         );
       }
 
-      if (
-        !sameNumber(
-          reviewSnapshot
-            .shrink_percent,
+      for (
+        const authorized
+        of authorizedCategories
+      ) {
+        const reviewed =
+          reviewedAuthorized.find(
+            (item) =>
+              Number(
+                item
+                  ?.purchase_lot_category_id
+              ) ===
+              Number(
+                authorized
+                  .purchase_lot_category_id
+              )
+          );
+
+        if (
+          !reviewed ||
           Number(
-            lot.shrink_percent ||
-              0
-          ),
-          0.0001
+            reviewed
+              .classification_id
+          ) !==
+            authorized
+              .classification_id ||
+          Number(
+            reviewed
+              .expected_quantity
+          ) !==
+            authorized
+              .expected_quantity ||
+          normalizeString(
+            reviewed
+              .pricing_basis
+          ) !==
+            authorized
+              .pricing_basis ||
+          normalizeString(
+            reviewed
+              .weight_source
+          ) !==
+            authorized
+              .weight_source ||
+          !sameNullableNumber(
+            reviewed
+              .price_per_unit,
+            authorized
+              .price_per_unit,
+            0.0001
+          ) ||
+          normalizeString(
+            reviewed.currency
+          ) !==
+            authorized.currency ||
+          !sameNullableNumber(
+            reviewed
+              .shrink_percent,
+            authorized
+              .shrink_percent,
+            0.0001
+          )
+        ) {
+          fail(
+            409,
+            `La categoría contratada ${authorized.line_number} revisada no coincide con el QR`
+          );
+        }
+      }
+
+      const reviewedPartials =
+        Array.isArray(
+          reviewSnapshot
+            .partial_loads
         )
-      ) {
-        fail(
-          409,
-          'El destare/merma revisado no coincide con la negociación'
-        );
-      }
+          ? reviewSnapshot
+              .partial_loads
+          : [];
 
       if (
-        !Number.isInteger(
-          Number(
-            reviewSnapshot
-              .backend_troop_id
-          )
-        ) ||
-        Number(
-          reviewSnapshot
-            .backend_troop_id
-        ) !==
-          Number(
-            troop.id
-          )
+        reviewedPartials.length !==
+        partialLoads.length
       ) {
-
         fail(
           409,
-          'La tropa revisada no coincide con el servidor'
+          'La cantidad de cargas revisadas no coincide con el servidor'
         );
-
       }
 
-      // ===============================================
-      // DATOS ECONÓMICOS / PESAJE
-      // ===============================================
+      let pendingCommercialCount =
+        0;
 
-      let weighing =
-        null;
+      let hasPendingPlantWeight =
+        false;
 
-      let items =
+      let hasPendingHookWeight =
+        false;
+
+      const knownAmountsByCurrency =
+        new Map();
+
+      const certifiedPartialLoads =
         [];
 
-      let grossWeightKg =
-        null;
-
-      let shrinkPercent =
-        Number(
-          lot.shrink_percent ||
-            0
-        );
-
-      let shrinkWeightKg =
-        null;
-
-      let netWeightKg =
-        null;
-
-      let totalAmount =
-        null;
-
-      if (
-        lot.weight_source ===
-          'origin'
+      for (
+        const partial
+        of partialLoads
       ) {
-        const weighingFieldSyncId =
-          `field:${companyId}:lot:${purchaseLotId}:troop:${troop.id}:weighing`;
-
-        const weighingResult =
-          await client.query(
-            `
-              SELECT *
-              FROM slaughterhouse_live_weighings
-              WHERE
-                company_id = $1
-                AND field_sync_id = $2
-              LIMIT 1
-              FOR UPDATE
-            `,
-            [
-              companyId,
-              weighingFieldSyncId,
-            ],
+        const reviewedPartial =
+          reviewedPartials.find(
+            (item) =>
+              Number(
+                item
+                  ?.partial_number
+              ) ===
+                Number(
+                  partial
+                    .partial_number
+                ) &&
+              normalizeString(
+                item
+                  ?.field_sync_id
+              ) ===
+                normalizeString(
+                  partial
+                    .field_sync_id
+                )
           );
 
         if (
-          weighingResult.rows
-            .length !== 1
+          !reviewedPartial
         ) {
           fail(
             409,
-            'El pesaje de campo todavía no está sincronizado'
-          );
-        }
-
-        weighing =
-          weighingResult.rows[0];
-
-        if (
-          weighing.status !==
-          'draft'
-        ) {
-          fail(
-            409,
-            `El pesaje está en estado ${weighing.status} y no puede certificarse`
+            `La carga ${partial.partial_code} no aparece en la revisión`
           );
         }
 
         if (
-          Number(
-            weighing.troop_id
+          normalizeString(
+            reviewedPartial
+              .partial_code
           ) !==
-          Number(troop.id)
-        ) {
-          fail(
-            409,
-            'El pesaje no corresponde a esta tropa'
-          );
-        }
-
-        if (
-          reviewSnapshot
-            .backend_weighing_id !==
-            null &&
-          reviewSnapshot
-            .backend_weighing_id !==
-            undefined &&
+            normalizeString(
+              partial.partial_code
+            ) ||
           Number(
-            reviewSnapshot
-              .backend_weighing_id
+            reviewedPartial
+              .total_quantity
           ) !==
             Number(
-              weighing.id
-            )
-        ) {
-          fail(
-            409,
-            'El pesaje revisado no coincide con el servidor'
-          );
-        }
-
-        const itemsResult =
-          await client.query(
-            `
-              SELECT
-                id,
-                sequence_number,
-                weight_kg,
-                notes
-              FROM slaughterhouse_live_weighing_items
-              WHERE weighing_id = $1
-              ORDER BY sequence_number ASC
-              FOR UPDATE
-            `,
-            [
-              weighing.id,
-            ],
-          );
-
-        items =
-          itemsResult.rows;
-
-        if (
-          items.length !==
-          quantity
-        ) {
-          fail(
-            409,
-            'La cantidad de pesos no coincide con la cantidad capturada'
-          );
-        }
-
-        const reviewedItems =
-          Array.isArray(
-            reviewSnapshot
-              .weighing_items
+              partial
+                .total_quantity
+            ) ||
+          normalizeString(
+            reviewedPartial
+              .status
+          ) !==
+            partial.status ||
+          normalizeString(
+            reviewedPartial
+              .pickup_reference
+          ) !==
+            normalizeString(
+              partial
+                .pickup_reference
+            ) ||
+          normalizeString(
+            reviewedPartial
+              .notes
+          ) !==
+            normalizeString(
+              partial.notes
+            ) ||
+          !sameNullableNumber(
+            reviewedPartial
+              .event_lat,
+            partial.event_lat,
+            0.0000005
+          ) ||
+          !sameNullableNumber(
+            reviewedPartial
+              .event_lng,
+            partial.event_lng,
+            0.0000005
+          ) ||
+          !sameNullableNumber(
+            reviewedPartial
+              .gross_weight_kg,
+            partial
+              .gross_weight_kg,
+            0.0005
           )
-            ? reviewSnapshot
-                .weighing_items
+        ) {
+          fail(
+            409,
+            `Los datos revisados de ${partial.partial_code} no coinciden con el servidor`
+          );
+        }
+
+        const serverCategories =
+          categoriesByPartial.get(
+            Number(
+              partial.id
+            )
+          ) ||
+          [];
+
+        const reviewedCategories =
+          Array.isArray(
+            reviewedPartial
+              .categories
+          )
+            ? reviewedPartial
+                .categories
             : [];
 
         if (
-          reviewedItems.length !==
-          items.length
+          reviewedCategories.length !==
+          serverCategories.length
         ) {
           fail(
             409,
-            'Los pesos revisados no coinciden con el servidor'
+            `Las categorías revisadas de ${partial.partial_code} no coinciden`
           );
         }
 
+        const documentCategories =
+          [];
+
         for (
-          let index = 0;
-          index < items.length;
-          index++
+          const category
+          of serverCategories
         ) {
+          const reviewedCategory =
+            reviewedCategories.find(
+              (item) =>
+                Number(
+                  item
+                    ?.line_number
+                ) ===
+                Number(
+                  category
+                    .line_number
+                )
+            );
+
+          if (
+            !reviewedCategory
+          ) {
+            fail(
+              409,
+              `Falta la línea ${category.line_number} de ${partial.partial_code} en la revisión`
+            );
+          }
+
           if (
             Number(
-              reviewedItems[index]
-                ?.sequence_number
+              reviewedCategory
+                .original_purchase_lot_category_id
             ) !==
               Number(
-                items[index]
-                  .sequence_number
+                category
+                  .original_purchase_lot_category_id
+              ) &&
+            !(
+              reviewedCategory
+                .original_purchase_lot_category_id ===
+                null &&
+              category
+                .original_purchase_lot_category_id ===
+                null
+            )
+          ) {
+            fail(
+              409,
+              `La categoría original de ${partial.partial_code} no coincide`
+            );
+          }
+
+          if (
+            Number(
+              reviewedCategory
+                .contracted_category_id
+            ) !==
+              Number(
+                category
+                  .contracted_category_id
+              ) &&
+            !(
+              reviewedCategory
+                .contracted_category_id ===
+                null &&
+              category
+                .contracted_category_id ===
+                null
+            )
+          ) {
+            fail(
+              409,
+              `La categoría contratada de ${partial.partial_code} no coincide`
+            );
+          }
+
+          if (
+            Number(
+              reviewedCategory
+                .actual_classification_id
+            ) !==
+              Number(
+                category
+                  .actual_classification_id
               ) ||
-            !sameNumber(
-              reviewedItems[index]
-                ?.weight_kg,
-              items[index]
-                .weight_kg,
+            Number(
+              reviewedCategory
+                .quantity
+            ) !==
+              Number(
+                category.quantity
+              ) ||
+            normalizeString(
+              reviewedCategory
+                .commercial_status
+            ) !==
+              category
+                .commercial_status ||
+            normalizeString(
+              reviewedCategory
+                .pricing_basis
+            ) !==
+              normalizeString(
+                category
+                  .pricing_basis
+              ) ||
+            normalizeString(
+              reviewedCategory
+                .weight_source
+            ) !==
+              normalizeString(
+                category
+                  .weight_source
+              ) ||
+            !sameNullableNumber(
+              reviewedCategory
+                .price_per_unit,
+              category
+                .price_per_unit,
+              0.0001
+            ) ||
+            normalizeString(
+              reviewedCategory
+                .currency
+            ) !==
+              normalizeString(
+                category.currency
+              ) ||
+            !sameNullableNumber(
+              reviewedCategory
+                .shrink_percent,
+              category
+                .shrink_percent,
+              0.0001
+            ) ||
+            normalizeString(
+              reviewedCategory
+                .observation
+            ) !==
+              normalizeString(
+                category
+                  .observation
+              ) ||
+            normalizeString(
+              reviewedCategory
+                .weight_mode
+            ) !==
+              normalizeString(
+                category
+                  .weight_mode
+              ) ||
+            !sameNullableNumber(
+              reviewedCategory
+                .gross_weight_kg,
+              category
+                .gross_weight_kg,
               0.0005
             )
           ) {
             fail(
               409,
-              `El peso revisado del animal ${index + 1} no coincide con el servidor`
+              `La línea ${category.line_number} de ${partial.partial_code} no coincide con el servidor`
             );
           }
-        }
 
-        grossWeightKg =
-          Number(
-            items
-              .reduce(
-                (
-                  total,
-                  item
-                ) =>
-                  total +
-                  Number(
-                    item.weight_kg
-                  ),
-                0
+          const serverWeights =
+            weightsByCategory.get(
+              Number(
+                category.id
               )
-              .toFixed(3)
-          );
+            ) ||
+            [];
 
-        shrinkWeightKg =
-          Number(
-            (
-              grossWeightKg *
-              shrinkPercent /
-              100
-            ).toFixed(3)
-          );
-
-        netWeightKg =
-          Number(
-            (
-              grossWeightKg -
-              shrinkWeightKg
-            ).toFixed(3)
-          );
+          const reviewedWeights =
+            Array.isArray(
+              reviewedCategory
+                .weights
+            )
+              ? reviewedCategory
+                  .weights
+              : [];
 
           if (
-            lot.pricing_basis ===
-            'live_kg'
+            reviewedWeights.length !==
+            serverWeights.length
           ) {
-            const pricePerKg =
-              lot.price_per_unit !==
-                null
-                ? Number(
-                    lot.price_per_unit
-                  )
-                : null;
-
-            totalAmount =
-              pricePerKg !== null
-                ? Number(
-                    (
-                      netWeightKg *
-                      pricePerKg
-                    ).toFixed(2)
-                  )
-                : null;
-          } else if (
-            lot.pricing_basis ===
-            'per_head'
-          ) {
-            const pricePerHead =
-              lot.price_per_unit !==
-                null
-                ? Number(
-                    lot.price_per_unit
-                  )
-                : null;
-
-            totalAmount =
-              pricePerHead !== null
-                ? Number(
-                    (
-                      pricePerHead *
-                      quantity
-                    ).toFixed(2)
-                  )
-                : null;
-          } else {
-            totalAmount =
-              null;
+            fail(
+              409,
+              `Los pesos revisados de la línea ${category.line_number} de ${partial.partial_code} no coinciden`
+            );
           }
 
-        if (
-          !sameNumber(
-            reviewSnapshot
-              .gross_weight_kg,
-            grossWeightKg
-          ) ||
-          !sameNumber(
-            reviewSnapshot
-              .shrink_weight_kg,
-            shrinkWeightKg
-          ) ||
-          !sameNumber(
-            reviewSnapshot
-              .net_weight_kg,
-            netWeightKg
-          ) ||
-          !sameNumber(
-            reviewSnapshot
-              .total_amount,
-            totalAmount,
-            0.005
-          )
-        ) {
-          fail(
-            409,
-            'Los totales revisados no coinciden con el pesaje del servidor'
-          );
-        }
-      } else if (
-        lot.pricing_basis ===
-        'per_head'
-      ) {
-        const price =
-          lot.price_per_unit !==
-            null
-            ? Number(
-                lot.price_per_unit
+          for (
+            let index = 0;
+            index < serverWeights.length;
+            index++
+          ) {
+            if (
+              Number(
+                reviewedWeights[index]
+                  ?.sequence_number
+              ) !==
+                Number(
+                  serverWeights[index]
+                    .sequence_number
+                ) ||
+              !sameNumber(
+                reviewedWeights[index]
+                  ?.weight_kg,
+                serverWeights[index]
+                  .weight_kg,
+                0.0005
               )
-            : null;
+            ) {
+              fail(
+                409,
+                `El peso ${index + 1} de la línea ${category.line_number} de ${partial.partial_code} no coincide`
+              );
+            }
+          }
 
-        totalAmount =
-          price !== null
-            ? Number(
-                (
-                  price *
-                  quantity
-                ).toFixed(2)
+          let fieldCalculation =
+            null;
+
+          if (
+            category
+              .commercial_status ===
+            'confirmed'
+          ) {
+            const contractedCategoryId =
+              Number(
+                category
+                  .contracted_category_id
+              );
+
+            const contractedCategory =
+              authorizedByCategoryId.get(
+                contractedCategoryId
+              ) ||
+              null;
+
+            if (
+              !contractedCategory
+            ) {
+              fail(
+                409,
+                `La línea ${category.line_number} de ${partial.partial_code} no está respaldada por el contrato QR`
+              );
+            }
+
+            if (
+              Number(
+                category
+                  .actual_classification_id
+              ) !==
+                Number(
+                  contractedCategory
+                    .classification_id
+                ) ||
+              normalizeString(
+                category.pricing_basis
+              ) !==
+                contractedCategory
+                  .pricing_basis ||
+              normalizeString(
+                category.weight_source
+              ) !==
+                contractedCategory
+                  .weight_source ||
+              !sameNumber(
+                category
+                  .price_per_unit,
+                contractedCategory
+                  .price_per_unit,
+                0.0001
+              ) ||
+              normalizeString(
+                category.currency
+              ) !==
+                contractedCategory
+                  .currency ||
+              !sameNumber(
+                category
+                  .shrink_percent,
+                contractedCategory
+                  .shrink_percent,
+                0.0001
               )
-            : null;
+            ) {
+              fail(
+                409,
+                `Las condiciones de la línea ${category.line_number} de ${partial.partial_code} no coinciden con el QR`
+              );
+            }
 
-        if (
-          !sameNumber(
-            reviewSnapshot
-              .total_amount,
-            totalAmount,
-            0.005
-          )
-        ) {
-          fail(
-            409,
-            'El total revisado no coincide con la cantidad y precio negociados'
-          );
+            const basis =
+              category
+                .pricing_basis;
+
+            const source =
+              category
+                .weight_source;
+
+            const price =
+              Number(
+                category
+                  .price_per_unit
+              );
+
+            const lineQuantity =
+              Number(
+                category.quantity
+              );
+
+            const currency =
+              category.currency;
+
+            if (
+              basis ===
+              'per_head'
+            ) {
+              const amount =
+                Number(
+                  (
+                    lineQuantity *
+                    price
+                  ).toFixed(2)
+                );
+
+              fieldCalculation = {
+                status:
+                  'calculated_in_field',
+                basis,
+                quantity:
+                  lineQuantity,
+                unit_price:
+                  price,
+                currency,
+                amount,
+              };
+
+              knownAmountsByCurrency.set(
+                currency,
+                Number(
+                  (
+                    (
+                      knownAmountsByCurrency.get(
+                        currency
+                      ) ||
+                      0
+                    ) +
+                    amount
+                  ).toFixed(2)
+                )
+              );
+            } else if (
+              basis ===
+                'live_kg' &&
+              source ===
+                'origin'
+            ) {
+              const weightMode =
+                category
+                  .weight_mode;
+
+              let grossWeightKg;
+
+              if (
+                weightMode ===
+                'individual'
+              ) {
+                if (
+                  serverWeights.length !==
+                  lineQuantity
+                ) {
+                  fail(
+                    409,
+                    `La línea ${category.line_number} de ${partial.partial_code} no tiene un peso por animal`
+                  );
+                }
+
+                grossWeightKg =
+                  Number(
+                    serverWeights
+                      .reduce(
+                        (
+                          total,
+                          item
+                        ) =>
+                          total +
+                          Number(
+                            item
+                              .weight_kg
+                          ),
+                        0
+                      )
+                      .toFixed(3)
+                  );
+
+                if (
+                  !sameNumber(
+                    category
+                      .gross_weight_kg,
+                    grossWeightKg,
+                    0.0005
+                  )
+                ) {
+                  fail(
+                    409,
+                    `El peso total de la línea ${category.line_number} de ${partial.partial_code} no coincide`
+                  );
+                }
+              } else if (
+                weightMode ===
+                'category_total'
+              ) {
+                grossWeightKg =
+                  Number(
+                    category
+                      .gross_weight_kg
+                  );
+
+                if (
+                  !Number.isFinite(
+                    grossWeightKg
+                  ) ||
+                  grossWeightKg <= 0
+                ) {
+                  fail(
+                    409,
+                    `La línea ${category.line_number} de ${partial.partial_code} no tiene peso total válido`
+                  );
+                }
+              } else {
+                fail(
+                  409,
+                  `La línea ${category.line_number} de ${partial.partial_code} requiere modalidad de pesaje`
+                );
+              }
+
+              const shrinkPercent =
+                Number(
+                  category
+                    .shrink_percent ||
+                  0
+                );
+
+              const shrinkWeightKg =
+                Number(
+                  (
+                    grossWeightKg *
+                    shrinkPercent /
+                    100
+                  ).toFixed(3)
+                );
+
+              const netWeightKg =
+                Number(
+                  (
+                    grossWeightKg -
+                    shrinkWeightKg
+                  ).toFixed(3)
+                );
+
+              const amount =
+                Number(
+                  (
+                    netWeightKg *
+                    price
+                  ).toFixed(2)
+                );
+
+              fieldCalculation = {
+                status:
+                  'calculated_in_field',
+                basis,
+                weight_source:
+                  source,
+                gross_weight_kg:
+                  grossWeightKg,
+                shrink_percent:
+                  shrinkPercent,
+                shrink_weight_kg:
+                  shrinkWeightKg,
+                net_weight_kg:
+                  netWeightKg,
+                unit_price:
+                  price,
+                currency,
+                amount,
+              };
+
+              knownAmountsByCurrency.set(
+                currency,
+                Number(
+                  (
+                    (
+                      knownAmountsByCurrency.get(
+                        currency
+                      ) ||
+                      0
+                    ) +
+                    amount
+                  ).toFixed(2)
+                )
+              );
+            } else if (
+              basis ===
+                'live_kg' &&
+              source ===
+                'plant'
+            ) {
+              hasPendingPlantWeight =
+                true;
+
+              fieldCalculation = {
+                status:
+                  'pending_plant_weight',
+                basis,
+                weight_source:
+                  source,
+                unit_price:
+                  price,
+                currency,
+              };
+            } else if (
+              basis ===
+              'hook_kg'
+            ) {
+              hasPendingHookWeight =
+                true;
+
+              fieldCalculation = {
+                status:
+                  'pending_hook_weight',
+                basis,
+                weight_source:
+                  source,
+                unit_price:
+                  price,
+                currency,
+              };
+            } else {
+              fail(
+                409,
+                `Modalidad comercial no soportada en la línea ${category.line_number} de ${partial.partial_code}`
+              );
+            }
+          } else if (
+            category
+              .commercial_status ===
+            'pending_price'
+          ) {
+            pendingCommercialCount++;
+
+            if (
+              !normalizeString(
+                category.observation
+              )
+            ) {
+              fail(
+                409,
+                `La línea ${category.line_number} de ${partial.partial_code} requiere observación por diferencia comercial`
+              );
+            }
+
+            fieldCalculation = {
+              status:
+                'pending_price',
+              amount:
+                null,
+            };
+          } else {
+            fail(
+              409,
+              `Estado comercial inválido en la línea ${category.line_number} de ${partial.partial_code}`
+            );
+          }
+
+          documentCategories.push({
+            line_number:
+              Number(
+                category
+                  .line_number
+              ),
+
+            original_purchase_lot_category_id:
+              category
+                .original_purchase_lot_category_id !==
+                null
+                ? Number(
+                    category
+                      .original_purchase_lot_category_id
+                  )
+                : null,
+
+            contracted_category_id:
+              category
+                .contracted_category_id !==
+                null
+                ? Number(
+                    category
+                      .contracted_category_id
+                  )
+                : null,
+
+            actual_classification_id:
+              Number(
+                category
+                  .actual_classification_id
+              ),
+
+            actual_classification_code:
+              category
+                .actual_classification_code,
+
+            actual_classification_name:
+              category
+                .actual_classification_name,
+
+            quantity:
+              Number(
+                category.quantity
+              ),
+
+            commercial_status:
+              category
+                .commercial_status,
+
+            commercial_terms:
+              category
+                .commercial_status ===
+                'confirmed'
+                ? {
+                    pricing_basis:
+                      category
+                        .pricing_basis,
+                    weight_source:
+                      category
+                        .weight_source,
+                    price_per_unit:
+                      Number(
+                        category
+                          .price_per_unit
+                      ),
+                    currency:
+                      category
+                        .currency,
+                    shrink_percent:
+                      Number(
+                        category
+                          .shrink_percent ||
+                        0
+                      ),
+                  }
+                : null,
+
+            observation:
+              category
+                .observation,
+
+            weight_mode:
+              category
+                .weight_mode,
+
+            gross_weight_kg:
+              category
+                .gross_weight_kg !==
+                null
+                ? Number(
+                    category
+                      .gross_weight_kg
+                  )
+                : null,
+
+            weights:
+              serverWeights.map(
+                (item) => ({
+                  sequence_number:
+                    Number(
+                      item
+                        .sequence_number
+                    ),
+                  weight_kg:
+                    Number(
+                      item.weight_kg
+                    ),
+                  notes:
+                    item.notes,
+                })
+              ),
+
+            field_calculation:
+              fieldCalculation,
+          });
         }
+
+        certifiedPartialLoads.push({
+          id:
+            Number(
+              partial.id
+            ),
+
+          field_sync_id:
+            partial
+              .field_sync_id,
+
+          partial_number:
+            Number(
+              partial
+                .partial_number
+            ),
+
+          partial_code:
+            partial
+              .partial_code,
+
+          estate_id:
+            partial
+              .estate_id !==
+              null
+              ? Number(
+                  partial
+                    .estate_id
+                )
+              : null,
+
+          pickup_reference:
+            partial
+              .pickup_reference,
+
+          notes:
+            partial.notes,
+
+          event_lat:
+            partial
+              .event_lat !==
+              null
+              ? Number(
+                  partial
+                    .event_lat
+                )
+              : null,
+
+          event_lng:
+            partial
+              .event_lng !==
+              null
+              ? Number(
+                  partial
+                    .event_lng
+                )
+              : null,
+
+          event_local_time:
+            partial
+              .event_local_time,
+
+          total_quantity:
+            Number(
+              partial
+                .total_quantity
+            ),
+
+          gross_weight_kg:
+            partial
+              .gross_weight_kg !==
+              null
+              ? Number(
+                  partial
+                    .gross_weight_kg
+                )
+              : null,
+
+          categories:
+            documentCategories,
+        });
       }
 
-      // ===============================================
-      // DOCUMENTO CERTIFICADO
-      // ===============================================
+      if (
+        Number(
+          reviewSnapshot
+            .pending_commercial_count
+        ) !==
+        pendingCommercialCount
+      ) {
+        fail(
+          409,
+          'La cantidad de categorías con precio pendiente no coincide'
+        );
+      }
+
+      const knownAmounts =
+        Array.from(
+          knownAmountsByCurrency
+            .entries()
+        ).map(
+          (
+            [
+              currency,
+              amount,
+            ]
+          ) => ({
+            currency,
+            amount,
+          })
+        );
+
+      const financialStatus =
+        pendingCommercialCount > 0
+          ? 'pending_price'
+          : hasPendingHookWeight
+          ? 'pending_slaughter_weight'
+          : hasPendingPlantWeight
+          ? 'pending_plant_weight'
+          : 'field_complete';
+
+      // Compatibilidad: ya no existe un pesaje único
+      // como autoridad de esta tropa.
+      let weighing =
+        null;
 
       const certificationDocument = {
         version: 2,
 
         type:
           'field_load_certification',
+
+        capture_model:
+          'partial_loads_v2',
 
         company_id:
           companyId,
@@ -2140,14 +3395,9 @@ exports.certifyFieldLot =
           purchaseLotId,
 
         troop_id:
-          Number(troop.id),
-
-        weighing_id:
-          weighing !== null
-            ? Number(
-                weighing.id
-              )
-            : null,
+          Number(
+            troop.id
+          ),
 
         seller_person_id:
           Number(
@@ -2179,47 +3429,30 @@ exports.certifyFieldLot =
         commercial_agreement:
           authorizationAgreement,
 
-        purchase_type:
-          lot.purchase_type,
-
-        pricing_basis:
-          lot.pricing_basis,
-
-        weight_source:
-          lot.weight_source,
-
-        expected_quantity:
-          Number(
-            lot.expected_quantity
-          ),
+        authorized_categories:
+          authorizedCategories,
 
         quantity,
 
-        currency:
-          lot.currency,
+        partial_loads:
+          certifiedPartialLoads,
 
-        price_per_unit:
-          lot.price_per_unit !==
-            null
-            ? Number(
-                lot.price_per_unit
-              )
-            : null,
+        financial_summary: {
+          status:
+            financialStatus,
 
-        shrink_percent:
-          shrinkPercent,
+          pending_price_count:
+            pendingCommercialCount,
 
-        gross_weight_kg:
-          grossWeightKg,
+          pending_plant_weight:
+            hasPendingPlantWeight,
 
-        shrink_weight_kg:
-          shrinkWeightKg,
+          pending_hook_weight:
+            hasPendingHookWeight,
 
-        net_weight_kg:
-          netWeightKg,
-
-        total_amount:
-          totalAmount,
+          known_field_amounts:
+            knownAmounts,
+        },
 
         review_snapshot_hash:
           serverSnapshotHash,
@@ -2232,22 +3465,6 @@ exports.certifyFieldLot =
 
         event_local_time:
           eventLocalTimeInput,
-
-        items:
-          items.map(
-            (item) => ({
-              sequence_number:
-                Number(
-                  item.sequence_number
-                ),
-              weight_kg:
-                Number(
-                  item.weight_kg
-                ),
-              notes:
-                item.notes,
-            })
-          ),
       };
 
       const documentHash =
@@ -2256,6 +3473,44 @@ exports.certifyFieldLot =
             certificationDocument
           )
         );
+
+      // ===============================================
+      // CERTIFICAR CARGAS PARCIALES
+      // ===============================================
+
+      const certifiedPartialsResult =
+        await client.query(
+          `
+            UPDATE slaughterhouse_field_partial_loads
+            SET
+              status = 'certified',
+              updated_at = NOW()
+            WHERE
+              company_id = $1
+              AND purchase_lot_id = $2
+              AND troop_id = $3
+              AND capture_sheet_id = $4
+              AND status = 'captured'
+            RETURNING id
+          `,
+          [
+            companyId,
+            purchaseLotId,
+            troop.id,
+            captureSheetId,
+          ],
+        );
+
+      if (
+        certifiedPartialsResult
+          .rows.length !==
+        partialLoads.length
+      ) {
+        fail(
+          409,
+          'Las cargas parciales cambiaron de estado durante la certificación'
+        );
+      }
 
       // ===============================================
       // CERTIFICAR TROPA
@@ -2279,6 +3534,7 @@ exports.certifyFieldLot =
             WHERE
               id = $8
               AND company_id = $9
+              AND purchase_lot_id = $10
               AND field_capture_status = 'captured'
             RETURNING *
           `,
@@ -2292,11 +3548,13 @@ exports.certifyFieldLot =
             eventLocalTime,
             troop.id,
             companyId,
+            purchaseLotId,
           ],
         );
 
       if (
-        certifiedTroopResult.rows.length ===
+        certifiedTroopResult
+          .rows.length ===
         0
       ) {
         fail(
@@ -2306,77 +3564,8 @@ exports.certifyFieldLot =
       }
 
       troop =
-        certifiedTroopResult.rows[0];
-
-      // ===============================================
-      // CERTIFICAR PESAJE SI EXISTE
-      // ===============================================
-
-      if (
-        weighing !== null
-      ) {
-        const certifiedWeighingResult =
-          await client.query(
-            `
-              UPDATE slaughterhouse_live_weighings
-              SET
-                authorization_id = $1,
-                quantity = $2,
-                gross_weight_kg = $3,
-                shrink_percent = $4,
-                shrink_weight_kg = $5,
-                net_weight_kg = $6,
-                price_per_kg = $7,
-                total_amount = $8,
-                document_hash = $9,
-                certified_offline = $10,
-                status = 'certified',
-                certified_by = $11,
-                certified_at = NOW(),
-                event_lat = $12,
-                event_lng = $13,
-                event_local_time = $14,
-                updated_at = NOW()
-              WHERE
-                id = $15
-                AND company_id = $16
-                AND status = 'draft'
-              RETURNING *
-            `,
-            [
-              authorization.id,
-              quantity,
-              grossWeightKg,
-              shrinkPercent,
-              shrinkWeightKg,
-              netWeightKg,
-              lot.price_per_unit,
-              totalAmount,
-              documentHash,
-              certifiedOffline,
-              userId,
-              eventLat,
-              eventLng,
-              eventLocalTime,
-              weighing.id,
-              companyId,
-            ],
-          );
-
-        if (
-          certifiedWeighingResult
-            .rows.length === 0
-        ) {
-          fail(
-            409,
-            'El pesaje cambió de estado durante la certificación'
-          );
-        }
-
-        weighing =
-          certifiedWeighingResult
-            .rows[0];
-      }
+        certifiedTroopResult
+          .rows[0];
 
       // ===============================================
       // CONSUMIR QR
