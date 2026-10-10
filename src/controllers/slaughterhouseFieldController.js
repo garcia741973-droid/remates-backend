@@ -717,7 +717,25 @@ exports.getAssignedCaptureSheetById =
                         st.field_captured_at,
 
                       'field_authorization_id',
-                        st.field_authorization_id
+                        st.field_authorization_id,
+
+                      'field_authorization_status',
+                        field_auth.status,
+
+                      'field_authorization_snapshot_version',
+                        field_auth.details_snapshot->>'snapshot_version',
+
+                      'authorized_categories',
+                        COALESCE(
+                          field_auth.details_snapshot->'categories',
+                          '[]'::jsonb
+                        ),
+
+                      'authorized_commercial_agreement',
+                        field_auth.details_snapshot->'commercial_agreement',
+
+                      'authorized_commercial_agreement_hash',
+                        field_auth.details_snapshot->>'commercial_agreement_hash'
                     )
                     ORDER BY st.id ASC
                   )
@@ -733,6 +751,14 @@ exports.getAssignedCaptureSheetById =
               LEFT JOIN transporter_trucks tt
                 ON tt.id =
                   st.truck_id
+
+              LEFT JOIN slaughterhouse_weighing_authorizations field_auth
+                ON field_auth.id =
+                  st.field_authorization_id
+                AND field_auth.company_id =
+                  st.company_id
+                AND field_auth.purpose =
+                  'field_load_close'
 
               WHERE
                 st.purchase_lot_id =
@@ -4194,64 +4220,341 @@ exports.syncFieldPartialLoad =
 
 
       // =================================================
-      // CATEGORÍAS CONTRATADAS DEL LOTE
+      // ACUERDO COMERCIAL AUTORIZADO PARA ESTA TROPA
+      //
+      // La autoridad NO es el lote actual.
+      //
+      // La autoridad es el snapshot inmutable que quedó
+      // firmado cuando se emitió el QR de esta tropa.
       // =================================================
 
-      const contractedResult =
+      const fieldAuthorizationId =
+        troop.field_authorization_id !==
+          null &&
+        troop.field_authorization_id !==
+          undefined
+          ? Number(
+              troop.field_authorization_id
+            )
+          : null;
+
+
+      if (
+        !Number.isInteger(
+          fieldAuthorizationId
+        ) ||
+        fieldAuthorizationId <= 0
+      ) {
+
+        reject(
+          409,
+          'La tropa no tiene una autorización QR de campo vigente'
+        );
+
+      }
+
+
+      const authorizationResult =
         await client.query(
           `
             SELECT
-              plc.id,
-              plc.line_number,
-              plc.classification_id,
-              plc.expected_quantity,
-              plc.pricing_basis,
-              plc.weight_source,
-              plc.price_per_unit,
-              plc.currency,
-              plc.shrink_percent,
+              id,
+              authorization_number,
+              purpose,
+              status,
+              details_snapshot,
+              expires_at
 
-              sac.generated_code
-                AS classification_code,
-
-              sac.display_name
-                AS classification_name
-
-            FROM slaughterhouse_purchase_lot_categories plc
-
-            JOIN slaughterhouse_animal_classifications sac
-              ON sac.id =
-                plc.classification_id
-              AND sac.company_id =
-                plc.company_id
+            FROM slaughterhouse_weighing_authorizations
 
             WHERE
-              plc.company_id = $1
-              AND plc.purchase_lot_id = $2
+              id = $1
+              AND company_id = $2
+              AND purpose = 'field_load_close'
 
-            ORDER BY
-              plc.line_number ASC,
-              plc.id ASC
+            FOR UPDATE
           `,
           [
+            fieldAuthorizationId,
             companyId,
-            purchaseLotId,
           ],
         );
 
 
       if (
-        contractedResult.rows.length ===
+        authorizationResult.rows.length ===
         0
       ) {
 
         reject(
           409,
-          'El lote no tiene categorías comerciales contratadas'
+          'La autorización QR de esta tropa no existe'
         );
 
       }
 
+
+      const fieldAuthorization =
+        authorizationResult.rows[0];
+
+
+      if (
+        fieldAuthorization.status !==
+        'pending'
+      ) {
+
+        reject(
+          409,
+          `La autorización QR se encuentra en estado ${fieldAuthorization.status}`
+        );
+
+      }
+
+
+      if (
+        fieldAuthorization.expires_at &&
+        new Date(
+          fieldAuthorization.expires_at
+        ).getTime() <=
+          Date.now()
+      ) {
+
+        reject(
+          409,
+          'La autorización QR de campo está vencida'
+        );
+
+      }
+
+
+      const authorizationSnapshot =
+        fieldAuthorization
+          .details_snapshot &&
+        typeof fieldAuthorization
+          .details_snapshot ===
+          'object'
+          ? fieldAuthorization
+              .details_snapshot
+          : {};
+
+
+      if (
+        Number(
+          authorizationSnapshot
+            .purchase_lot_id
+        ) !==
+          purchaseLotId ||
+        Number(
+          authorizationSnapshot
+            .troop_id
+        ) !==
+          troopId
+      ) {
+
+        reject(
+          409,
+          'La autorización QR no corresponde a esta tropa y lote'
+        );
+
+      }
+
+
+      const snapshotVersion =
+        Number(
+          authorizationSnapshot
+            .snapshot_version ||
+          0
+        );
+
+
+      if (
+        snapshotVersion !== 2
+      ) {
+
+        reject(
+          409,
+          'La autorización QR utiliza el modelo comercial anterior. Debe revocarse y emitirse nuevamente.'
+        );
+
+      }
+
+
+      const snapshotCategories =
+        Array.isArray(
+          authorizationSnapshot
+            .categories
+        )
+          ? authorizationSnapshot
+              .categories
+          : [];
+
+
+      if (
+        snapshotCategories.length ===
+        0
+      ) {
+
+        reject(
+          409,
+          'La autorización QR no contiene categorías comerciales'
+        );
+
+      }
+
+
+      // =================================================
+      // NORMALIZAR CATEGORÍAS DEL SNAPSHOT
+      // =================================================
+
+      const contractedCategories =
+        snapshotCategories.map(
+          (
+            category,
+            index
+          ) => {
+
+            const purchaseLotCategoryId =
+              category
+                .purchase_lot_category_id !==
+                null &&
+              category
+                .purchase_lot_category_id !==
+                undefined
+                ? Number(
+                    category
+                      .purchase_lot_category_id
+                  )
+                : null;
+
+
+            const classificationId =
+              Number(
+                category
+                  .classification_id
+              );
+
+
+            const expectedQuantity =
+              Number(
+                category
+                  .expected_quantity
+              );
+
+
+            const pricePerUnit =
+              Number(
+                category
+                  .price_per_unit
+              );
+
+
+            const shrinkPercent =
+              Number(
+                category
+                  .shrink_percent ||
+                0
+              );
+
+
+            if (
+              !Number.isInteger(
+                classificationId
+              ) ||
+              classificationId <= 0
+            ) {
+
+              reject(
+                409,
+                `Clasificación inválida en el contrato QR, línea ${index + 1}`
+              );
+
+            }
+
+
+            if (
+              !Number.isInteger(
+                expectedQuantity
+              ) ||
+              expectedQuantity <= 0
+            ) {
+
+              reject(
+                409,
+                `Cantidad inválida en el contrato QR, línea ${index + 1}`
+              );
+
+            }
+
+
+            if (
+              !Number.isFinite(
+                pricePerUnit
+              ) ||
+              pricePerUnit <= 0
+            ) {
+
+              reject(
+                409,
+                `Precio inválido en el contrato QR, línea ${index + 1}`
+              );
+
+            }
+
+
+            return {
+              id:
+                purchaseLotCategoryId,
+
+              line_number:
+                Number(
+                  category
+                    .line_number ||
+                  index + 1
+                ),
+
+              classification_id:
+                classificationId,
+
+              classification_code:
+                category
+                  .classification_code ||
+                null,
+
+              classification_name:
+                category
+                  .classification_name ||
+                null,
+
+              expected_quantity:
+                expectedQuantity,
+
+              pricing_basis:
+                category
+                  .pricing_basis,
+
+              weight_source:
+                category
+                  .weight_source,
+
+              price_per_unit:
+                pricePerUnit,
+
+              currency:
+                category.currency ||
+                lot.currency ||
+                'BOB',
+
+              shrink_percent:
+                shrinkPercent,
+            };
+
+          },
+        );
+
+
+      // =================================================
+      // ÍNDICES DEL CONTRATO CONGELADO
+      // =================================================
 
       const contractedById =
         new Map();
@@ -4262,13 +4565,24 @@ exports.syncFieldPartialLoad =
 
       for (
         const row
-        of contractedResult.rows
+        of contractedCategories
       ) {
 
-        contractedById.set(
-          Number(row.id),
-          row
-        );
+        if (
+          Number.isInteger(
+            row.id
+          ) &&
+          row.id > 0
+        ) {
+
+          contractedById.set(
+            Number(
+              row.id
+            ),
+            row
+          );
+
+        }
 
 
         contractedByClassification.set(
