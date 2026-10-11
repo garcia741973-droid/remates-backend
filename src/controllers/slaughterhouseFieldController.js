@@ -4910,168 +4910,43 @@ exports.syncFieldPartialLoad =
 
         } else {
 
+          // =================================================
+          // CLASIFICACIÓN REAL NO CONTRATADA
+          //
+          // El Captador solamente registra:
+          // - clasificación observada;
+          // - cantidad;
+          // - observación.
+          //
+          // NO propone ni fija:
+          // - modalidad comercial;
+          // - fuente de peso;
+          // - precio;
+          // - merma.
+          //
+          // Esos datos quedan pendientes para Compras/Admin.
+          // =================================================
+
           commercialStatus =
             'pending_price';
 
-
           pricingBasis =
-            raw
-              .proposed_pricing_basis
-              ?.toString()
-              .trim() ||
             null;
-
 
           weightSource =
-            raw
-              .proposed_weight_source
-              ?.toString()
-              .trim() ||
             null;
 
-
-          const proposedPriceRaw =
-            raw
-              .proposed_price_per_unit;
-
-
           pricePerUnit =
-            proposedPriceRaw ===
-              null ||
-            proposedPriceRaw ===
-              undefined ||
-            proposedPriceRaw ===
-              ''
-              ? null
-              : Number(
-                  proposedPriceRaw
-                );
-
+            null;
 
           currency =
-            raw
-              .proposed_currency
-              ?.toString()
-              .trim() ||
             lot.currency ||
             'BOB';
 
-
-          const proposedShrinkRaw =
-            raw
-              .proposed_shrink_percent;
-
-
           shrinkPercent =
-            proposedShrinkRaw ===
-              null ||
-            proposedShrinkRaw ===
-              undefined ||
-            proposedShrinkRaw ===
-              ''
-              ? 0
-              : Number(
-                  proposedShrinkRaw
-                );
-
-
-          if (
-            pricingBasis !== null &&
-            !allowedPricingBasis.has(
-              pricingBasis
-            )
-          ) {
-
-            reject(
-              400,
-              `Modalidad propuesta inválida en la línea ${index + 1}`
-            );
-
-          }
-
-
-          if (
-            weightSource !== null &&
-            !allowedWeightSources.has(
-              weightSource
-            )
-          ) {
-
-            reject(
-              400,
-              `Fuente de peso propuesta inválida en la línea ${index + 1}`
-            );
-
-          }
-
-
-          if (
-            pricePerUnit !== null &&
-            (
-              !Number.isFinite(
-                pricePerUnit
-              ) ||
-              pricePerUnit <= 0
-            )
-          ) {
-
-            reject(
-              400,
-              `Precio propuesto inválido en la línea ${index + 1}`
-            );
-
-          }
-
-
-          if (
-            pricePerUnit !== null &&
-            pricingBasis === null
-          ) {
-
-            reject(
-              400,
-              `Debe indicar la modalidad del precio propuesto en la línea ${index + 1}`
-            );
-
-          }
-
-
-          if (
-            pricingBasis ===
-              'live_kg' &&
-            ![
-              'origin',
-              'plant',
-            ].includes(
-              weightSource
-            )
-          ) {
-
-            reject(
-              400,
-              `La modalidad kg vivo requiere origen o planta en la línea ${index + 1}`
-            );
-
-          }
-
-
-          if (
-            !Number.isFinite(
-              shrinkPercent
-            ) ||
-            shrinkPercent < 0 ||
-            shrinkPercent > 100
-          ) {
-
-            reject(
-              400,
-              `Destare propuesto inválido en la línea ${index + 1}`
-            );
-
-          }
+            0;
 
         }
-
 
         // =================================================
         // PESAJE POR CATEGORÍA
