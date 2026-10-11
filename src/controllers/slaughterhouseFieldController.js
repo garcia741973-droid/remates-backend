@@ -4961,75 +4961,100 @@ exports.syncFieldPartialLoad =
             'origin';
 
 
-        const rawWeights =
-          Array.isArray(
-            raw.weights
-          )
-            ? raw.weights
-            : [];
-
+        // =================================================
+        // NORMALIZACIÓN DE PESAJE
+        //
+        // Los pesos solamente tienen autoridad cuando
+        // el contrato QR V2 exige:
+        //
+        // live_kg + origin
+        //
+        // Para cualquier otra modalidad —incluido
+        // pending_price— ignoramos completamente cualquier
+        // peso residual enviado por una versión anterior
+        // de la app.
+        // =================================================
 
         const normalizedWeights =
-          rawWeights.map(
-            (item) => {
-
-              const value =
-                typeof item ===
-                  'number'
-                  ? Number(item)
-                  : Number(
-                      item?.weight_kg
-                    );
-
-
-              if (
-                !Number.isFinite(
-                  value
-                ) ||
-                value <= 0
-              ) {
-
-                reject(
-                  400,
-                  `Peso inválido en la línea ${index + 1}`
-                );
-
-              }
-
-
-              return value;
-
-            },
-          );
-
+          [];
 
         let weightMode =
-          raw.weight_mode
-            ?.toString()
-            .trim() ||
           null;
 
-
-        const rawGrossWeight =
-          raw.gross_weight_kg;
-
-
         let grossWeightKg =
-          rawGrossWeight ===
-            null ||
-          rawGrossWeight ===
-            undefined ||
-          rawGrossWeight ===
-            ''
-            ? null
-            : Number(
-                rawGrossWeight
-              );
+          null;
 
 
         if (
           requiresOriginWeight
         ) {
+
+          const rawWeights =
+            Array.isArray(
+              raw.weights
+            )
+              ? raw.weights
+              : [];
+
+
+          for (
+            const item of rawWeights
+          ) {
+
+            const value =
+              typeof item ===
+                'number'
+                ? Number(item)
+                : Number(
+                    item?.weight_kg
+                  );
+
+
+            if (
+              !Number.isFinite(
+                value
+              ) ||
+              value <= 0
+            ) {
+
+              reject(
+                400,
+                `Peso inválido en la línea ${index + 1}`
+              );
+
+            }
+
+
+            normalizedWeights.push(
+              value
+            );
+
+          }
+
+
+          weightMode =
+            raw.weight_mode
+              ?.toString()
+              .trim() ||
+            null;
+
+
+          const rawGrossWeight =
+            raw.gross_weight_kg;
+
+
+          grossWeightKg =
+            rawGrossWeight ===
+              null ||
+            rawGrossWeight ===
+              undefined ||
+            rawGrossWeight ===
+              ''
+              ? null
+              : Number(
+                  rawGrossWeight
+                );
+
 
           if (
             weightMode ===
@@ -5129,14 +5154,22 @@ exports.syncFieldPartialLoad =
 
         } else {
 
+          // No corresponde pesaje de campo.
+          //
+          // Incluye:
+          // - per_head;
+          // - live_kg + plant;
+          // - hook_kg;
+          // - pending_price.
+          //
+          // No leemos ni validamos pesos residuales
+          // enviados por clientes antiguos.
+
           weightMode =
             'not_required';
 
           grossWeightKg =
             null;
-
-          normalizedWeights.length =
-            0;
 
         }
 
