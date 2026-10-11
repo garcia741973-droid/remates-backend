@@ -1873,6 +1873,7 @@ exports.certifyFieldLot =
               field_sync_id,
               captador_person_id,
               captador_assignment_version,
+              field_authorization_id,
               estate_id,
               pickup_reference,
               notes,
@@ -1918,6 +1919,39 @@ exports.certifyFieldLot =
         fail(
           409,
           'La tropa no tiene cargas parciales sincronizadas'
+        );
+      }
+
+      // ===============================================
+      // TODAS LAS PARCIALES DEBEN PERTENECER
+      // AL MISMO QR QUE SE ESTÁ CERTIFICANDO
+      // ===============================================
+
+      const invalidAuthorizationPartial =
+        partialLoads.find(
+          (item) =>
+            item
+              .field_authorization_id ===
+              null ||
+            item
+              .field_authorization_id ===
+              undefined ||
+            Number(
+              item
+                .field_authorization_id
+            ) !==
+              Number(
+                authorization.id
+              )
+        );
+
+
+      if (
+        invalidAuthorizationPartial
+      ) {
+        fail(
+          409,
+          `La carga parcial ${invalidAuthorizationPartial.partial_code} no pertenece a esta autorización QR`
         );
       }
 
@@ -3490,6 +3524,7 @@ exports.certifyFieldLot =
               AND purchase_lot_id = $2
               AND troop_id = $3
               AND capture_sheet_id = $4
+              AND field_authorization_id = $5
               AND status = 'captured'
             RETURNING id
           `,
@@ -3498,6 +3533,7 @@ exports.certifyFieldLot =
             purchaseLotId,
             troop.id,
             captureSheetId,
+            authorization.id,
           ],
         );
 

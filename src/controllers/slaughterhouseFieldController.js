@@ -5302,9 +5302,25 @@ exports.syncFieldPartialLoad =
         null;
 
 
+      // =================================================
+      // IDEMPOTENCIA + AUTORIZACIÓN QR
+      //
+      // Una carga parcial pertenece para siempre a:
+      // - una tropa;
+      // - un lote;
+      // - una autorización QR V2.
+      //
+      // Un reintento con el mismo field_sync_id no puede
+      // cambiar de autorización.
+      //
+      // Para filas históricas con autorización NULL
+      // permitimos completar el vínculo con la autorización
+      // vigente de la misma tropa.
+      // =================================================
+
       if (
         existingPartial !==
-        null &&
+          null &&
         (
           Number(
             existingPartial
@@ -5330,6 +5346,30 @@ exports.syncFieldPartialLoad =
       if (
         existingPartial !==
           null &&
+        existingPartial
+          .field_authorization_id !==
+          null &&
+        existingPartial
+          .field_authorization_id !==
+          undefined &&
+        Number(
+          existingPartial
+            .field_authorization_id
+        ) !==
+          fieldAuthorizationId
+      ) {
+
+        reject(
+          409,
+          'Esta carga parcial pertenece a otra autorización QR'
+        );
+
+      }
+
+
+      if (
+        existingPartial !==
+          null &&
         existingPartial.status ===
           'certified'
       ) {
@@ -5347,7 +5387,8 @@ exports.syncFieldPartialLoad =
           `
             SELECT
               id,
-              field_sync_id
+              field_sync_id,
+              field_authorization_id
 
             FROM slaughterhouse_field_partial_loads
 
@@ -5382,6 +5423,30 @@ exports.syncFieldPartialLoad =
       }
 
 
+      if (
+        numberConflictResult.rows
+          .length > 0 &&
+        numberConflictResult.rows[0]
+          .field_sync_id ===
+          fieldSyncId &&
+        numberConflictResult.rows[0]
+          .field_authorization_id !==
+          null &&
+        Number(
+          numberConflictResult.rows[0]
+            .field_authorization_id
+        ) !==
+          fieldAuthorizationId
+      ) {
+
+        reject(
+          409,
+          `La carga parcial ${partialCode} pertenece a otra autorización QR`
+        );
+
+      }
+
+
       let partialLoadResult;
 
 
@@ -5403,6 +5468,7 @@ exports.syncFieldPartialLoad =
                 field_sync_id,
                 captador_person_id,
                 captador_assignment_version,
+                field_authorization_id,
                 estate_id,
                 pickup_reference,
                 notes,
@@ -5430,10 +5496,11 @@ exports.syncFieldPartialLoad =
                 $13,
                 $14,
                 $15,
-                'captured',
                 $16,
+                'captured',
                 $17,
-                $18
+                $18,
+                $19
               )
               RETURNING *
             `,
@@ -5447,6 +5514,7 @@ exports.syncFieldPartialLoad =
               fieldSyncId,
               captador.id,
               captadorAssignmentVersion,
+              fieldAuthorizationId,
               lot.estate_id,
               pickupReference,
               notes,
@@ -5469,25 +5537,27 @@ exports.syncFieldPartialLoad =
               SET
                 captador_person_id = $1,
                 captador_assignment_version = $2,
-                estate_id = $3,
-                pickup_reference = $4,
-                notes = $5,
-                event_lat = $6,
-                event_lng = $7,
-                event_local_time = $8,
+                field_authorization_id = $3,
+                estate_id = $4,
+                pickup_reference = $5,
+                notes = $6,
+                event_lat = $7,
+                event_lng = $8,
+                event_local_time = $9,
                 status = 'captured',
-                total_quantity = $9,
-                gross_weight_kg = $10,
+                total_quantity = $10,
+                gross_weight_kg = $11,
                 updated_at = NOW()
 
               WHERE
-                id = $11
+                id = $12
 
               RETURNING *
             `,
             [
               captador.id,
               captadorAssignmentVersion,
+              fieldAuthorizationId,
               lot.estate_id,
               pickupReference,
               notes,
@@ -5501,8 +5571,7 @@ exports.syncFieldPartialLoad =
           );
 
       }
-
-
+      
       const partialLoad =
         partialLoadResult.rows[0];
 
