@@ -4940,7 +4940,6 @@ exports.syncFieldPartialLoad =
             null;
 
           currency =
-            lot.currency ||
             'BOB';
 
           shrinkPercent =
