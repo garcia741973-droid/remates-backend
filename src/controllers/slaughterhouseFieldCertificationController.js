@@ -451,6 +451,13 @@ exports.certifyFieldLot =
         }
       }
 
+      const normalizedEventLocalTime =
+        eventLocalTime !==
+          null
+          ? eventLocalTime
+              .toISOString()
+          : null;
+
       // ===============================================
       // VERIFICAR FIRMA ED25519
       // ===============================================
@@ -2498,6 +2505,29 @@ exports.certifyFieldLot =
           );
         }
 
+        // ===============================================
+        // AUTORIZACIÓN QR DE LA CARGA REVISADA
+        //
+        // Cada carga incluida en el snapshot firmado por
+        // el vendedor debe pertenecer exactamente a la
+        // autorización QR que estamos certificando.
+        // ===============================================
+
+        if (
+          Number(
+            reviewedPartial
+              .field_authorization_id
+          ) !==
+          Number(
+            authorization.id
+          )
+        ) {
+          fail(
+            409,
+            `La carga ${partial.partial_code} revisada no pertenece a esta autorización QR`
+          );
+        }
+
         if (
           normalizeString(
             reviewedPartial
@@ -2664,6 +2694,13 @@ exports.certifyFieldLot =
             );
           }
 
+          // ===============================================
+          // DATOS REVISADOS DE LA CATEGORÍA
+          //
+          // Estos datos físicos / operativos siempre deben
+          // coincidir, sea confirmed o pending_price.
+          // ===============================================
+
           if (
             Number(
               reviewedCategory
@@ -2688,70 +2725,96 @@ exports.certifyFieldLot =
                 .commercial_status ||
             normalizeString(
               reviewedCategory
-                .pricing_basis
-            ) !==
-              normalizeString(
-                category
-                  .pricing_basis
-              ) ||
-            normalizeString(
-              reviewedCategory
-                .weight_source
-            ) !==
-              normalizeString(
-                category
-                  .weight_source
-              ) ||
-            !sameNullableNumber(
-              reviewedCategory
-                .price_per_unit,
-              category
-                .price_per_unit,
-              0.0001
-            ) ||
-            normalizeString(
-              reviewedCategory
-                .currency
-            ) !==
-              normalizeString(
-                category.currency
-              ) ||
-            !sameNullableNumber(
-              reviewedCategory
-                .shrink_percent,
-              category
-                .shrink_percent,
-              0.0001
-            ) ||
-            normalizeString(
-              reviewedCategory
                 .observation
             ) !==
               normalizeString(
                 category
                   .observation
-              ) ||
-            normalizeString(
-              reviewedCategory
-                .weight_mode
-            ) !==
-              normalizeString(
-                category
-                  .weight_mode
-              ) ||
-            !sameNullableNumber(
-              reviewedCategory
-                .gross_weight_kg,
-              category
-                .gross_weight_kg,
-              0.0005
-            )
+              )
           ) {
             fail(
               409,
               `La línea ${category.line_number} de ${partial.partial_code} no coincide con el servidor`
             );
           }
+
+
+          // ===============================================
+          // CONDICIONES COMERCIALES
+          //
+          // Solamente tienen autoridad si la categoría está
+          // CONFIRMADA por el contrato QR.
+          //
+          // Para pending_price se ignoran posibles valores
+          // residuales del review_snapshot offline.
+          // ===============================================
+
+          if (
+            category
+              .commercial_status ===
+            'confirmed'
+          ) {
+            if (
+              normalizeString(
+                reviewedCategory
+                  .pricing_basis
+              ) !==
+                normalizeString(
+                  category
+                    .pricing_basis
+                ) ||
+              normalizeString(
+                reviewedCategory
+                  .weight_source
+              ) !==
+                normalizeString(
+                  category
+                    .weight_source
+                ) ||
+              !sameNullableNumber(
+                reviewedCategory
+                  .price_per_unit,
+                category
+                  .price_per_unit,
+                0.0001
+              ) ||
+              normalizeString(
+                reviewedCategory
+                  .currency
+              ) !==
+                normalizeString(
+                  category.currency
+                ) ||
+              !sameNullableNumber(
+                reviewedCategory
+                  .shrink_percent,
+                category
+                  .shrink_percent,
+                0.0001
+              ) ||
+              normalizeString(
+                reviewedCategory
+                  .weight_mode
+              ) !==
+                normalizeString(
+                  category
+                    .weight_mode
+                ) ||
+              !sameNullableNumber(
+                reviewedCategory
+                  .gross_weight_kg,
+                category
+                  .gross_weight_kg,
+                0.0005
+              )
+            ) {
+              fail(
+                409,
+                `Las condiciones revisadas de la línea ${category.line_number} de ${partial.partial_code} no coinciden con el servidor`
+              );
+            }
+          }
+
 
           const serverWeights =
             weightsByCategory.get(
@@ -2760,6 +2823,7 @@ exports.certifyFieldLot =
               )
             ) ||
             [];
+
 
           const reviewedWeights =
             Array.isArray(
@@ -2770,42 +2834,58 @@ exports.certifyFieldLot =
                   .weights
               : [];
 
-          if (
-            reviewedWeights.length !==
-            serverWeights.length
-          ) {
-            fail(
-              409,
-              `Los pesos revisados de la línea ${category.line_number} de ${partial.partial_code} no coinciden`
-            );
-          }
 
-          for (
-            let index = 0;
-            index < serverWeights.length;
-            index++
+          // ===============================================
+          // PESOS REVISADOS
+          //
+          // Solo se comparan para categorías confirmadas.
+          // pending_price no tiene autoridad de pesaje de
+          // campo y cualquier dato residual se ignora.
+          // ===============================================
+
+          if (
+            category
+              .commercial_status ===
+            'confirmed'
           ) {
             if (
-              Number(
-                reviewedWeights[index]
-                  ?.sequence_number
-              ) !==
-                Number(
-                  serverWeights[index]
-                    .sequence_number
-                ) ||
-              !sameNumber(
-                reviewedWeights[index]
-                  ?.weight_kg,
-                serverWeights[index]
-                  .weight_kg,
-                0.0005
-              )
+              reviewedWeights.length !==
+              serverWeights.length
             ) {
               fail(
                 409,
-                `El peso ${index + 1} de la línea ${category.line_number} de ${partial.partial_code} no coincide`
+                `Los pesos revisados de la línea ${category.line_number} de ${partial.partial_code} no coinciden`
               );
+            }
+
+
+            for (
+              let index = 0;
+              index < serverWeights.length;
+              index++
+            ) {
+              if (
+                Number(
+                  reviewedWeights[index]
+                    ?.sequence_number
+                ) !==
+                  Number(
+                    serverWeights[index]
+                      .sequence_number
+                  ) ||
+                !sameNumber(
+                  reviewedWeights[index]
+                    ?.weight_kg,
+                  serverWeights[index]
+                    .weight_kg,
+                  0.0005
+                )
+              ) {
+                fail(
+                  409,
+                  `El peso ${index + 1} de la línea ${category.line_number} de ${partial.partial_code} no coincide`
+                );
+              }
             }
           }
 
@@ -3295,6 +3375,12 @@ exports.certifyFieldLot =
             partial
               .field_sync_id,
 
+          field_authorization_id:
+            Number(
+              partial
+                .field_authorization_id
+            ),
+
           partial_number:
             Number(
               partial
@@ -3498,7 +3584,7 @@ exports.certifyFieldLot =
           eventLng,
 
         event_local_time:
-          eventLocalTimeInput,
+          normalizedEventLocalTime,
       };
 
       const documentHash =
@@ -3581,7 +3667,7 @@ exports.certifyFieldLot =
             userId,
             eventLat,
             eventLng,
-            eventLocalTime,
+            normalizedEventLocalTime,
             troop.id,
             companyId,
             purchaseLotId,
