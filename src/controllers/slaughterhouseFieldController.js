@@ -722,6 +722,24 @@ exports.getAssignedCaptureSheetById =
                       'field_authorization_status',
                         field_auth.status,
 
+                      'field_authorization_number',
+                        field_auth.authorization_number,
+
+                      'field_authorization_public_code',
+                        field_auth.public_code,
+
+                      'field_authorization_key_id',
+                        field_auth.key_id,
+
+                      'field_authorization_issued_by',
+                        field_auth.issued_by,
+
+                      'field_authorization_issued_at',
+                        field_auth.issued_at,
+
+                      'field_authorization_expires_at',
+                        field_auth.expires_at,
+
                       'field_authorization_snapshot_version',
                         field_auth.details_snapshot->>'snapshot_version',
 
