@@ -877,9 +877,263 @@ exports.createAdminUser =
           roles.includes('captador'),
       });
 
-      // -----------------------------------------------
+      // =================================================
+      // QR DE CAMPO REVOCADO
+      //
+      // Una autorización field_load_close pertenece
+      // a una tropa concreta.
+      //
+      // Al revocarla:
+      // - NO borramos cargas anteriores;
+      // - cargas draft/captured pasan a cancelled;
+      // - cargas certified impiden la revocación;
+      // - reiniciamos el estado operativo de campo
+      //   únicamente si la tropa todavía apunta
+      //   a esta autorización.
+      //
+      // Esto permite emitir posteriormente un QR nuevo
+      // sin reinterpretar evidencia del QR anterior.
+      // =================================================
+
+      if (
+        previous.purpose ===
+        'field_load_close'
+      ) {
+        const detailsSnapshot =
+          previous.details_snapshot &&
+          typeof previous.details_snapshot ===
+            'object'
+            ? previous.details_snapshot
+            : null;
+
+
+        const troopId =
+          Number(
+            detailsSnapshot?.troop_id
+          );
+
+
+        if (
+          !Number.isInteger(
+            troopId
+          ) ||
+          troopId <= 0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+
+          return res.status(409).json({
+            error:
+              'La autorización QR de campo no contiene una tropa válida',
+          });
+        }
+
+
+        // ===============================================
+        // BLOQUEAR CARGAS YA CERTIFICADAS
+        // ===============================================
+
+        const certifiedPartialResult =
+          await client.query(
+            `
+              SELECT
+                id,
+                field_sync_id
+
+              FROM slaughterhouse_field_partial_loads
+
+              WHERE
+                company_id = $1
+                AND purchase_lot_id = $2
+                AND troop_id = $3
+                AND field_authorization_id = $4
+                AND status = 'certified'
+
+              LIMIT 1
+
+              FOR UPDATE
+            `,
+            [
+              companyId,
+              previous.purchase_lot_id,
+              troopId,
+              authorizationId,
+            ],
+          );
+
+
+        if (
+          certifiedPartialResult.rows.length >
+          0
+        ) {
+          await client.query(
+            'ROLLBACK'
+          );
+
+
+          return res.status(409).json({
+            error:
+              'Esta autorización ya tiene cargas certificadas y no puede revocarse',
+          });
+        }
+
+
+        // ===============================================
+        // CANCELAR CARGAS OPERATIVAS DEL QR ANTERIOR
+        //
+        // No se elimina evidencia.
+        // Mantienen:
+        // - field_authorization_id
+        // - field_sync_id
+        // - categorías
+        // - pesos
+        // - fechas
+        // - captador
+        // ===============================================
+
+        const cancelledPartialsResult =
+          await client.query(
+            `
+              UPDATE slaughterhouse_field_partial_loads
+
+              SET
+                status = 'cancelled',
+                updated_at = NOW()
+
+              WHERE
+                company_id = $1
+                AND purchase_lot_id = $2
+                AND troop_id = $3
+                AND field_authorization_id = $4
+                AND status IN (
+                  'draft',
+                  'captured'
+                )
+
+              RETURNING
+                id,
+                field_sync_id,
+                partial_number
+            `,
+            [
+              companyId,
+              previous.purchase_lot_id,
+              troopId,
+              authorizationId,
+            ],
+          );
+
+
+        // ===============================================
+        // REINICIAR CICLO OPERATIVO DE CAMPO
+        //
+        // IMPORTANTE:
+        // solo si la tropa sigue apuntando exactamente
+        // al QR que acabamos de revocar.
+        //
+        // No tocamos una tropa certificada.
+        // ===============================================
+
+        const resetTroopResult =
+          await client.query(
+            `
+              UPDATE slaughterhouse_troops
+
+              SET
+                field_authorization_id = NULL,
+                field_capture_status = NULL,
+                field_captured_quantity = NULL,
+                field_captured_at = NULL,
+                field_sync_id = NULL,
+                updated_at = NOW()
+
+              WHERE
+                id = $1
+                AND company_id = $2
+                AND purchase_lot_id = $3
+                AND field_authorization_id = $4
+                AND COALESCE(
+                  field_capture_status,
+                  ''
+                ) <> 'certified'
+
+              RETURNING id
+            `,
+            [
+              troopId,
+              companyId,
+              previous.purchase_lot_id,
+              authorizationId,
+            ],
+          );
+
+
+        // ===============================================
+        // AUDITORÍA DEL CIERRE OPERATIVO DEL QR
+        // ===============================================
+
+        await client.query(
+          `
+            INSERT INTO slaughterhouse_audit_log (
+              company_id,
+              user_id,
+              entity_type,
+              entity_id,
+              action,
+              new_data
+            )
+
+            VALUES (
+              $1,
+              $2,
+              'troop',
+              $3,
+              'field_qr_revoked_cleanup',
+              $4::jsonb
+            )
+          `,
+          [
+            companyId,
+            userId,
+            String(
+              troopId
+            ),
+            JSON.stringify({
+              field_authorization_id:
+                authorizationId,
+
+              reason,
+
+              cancelled_partial_load_ids:
+                cancelledPartialsResult
+                  .rows
+                  .map(
+                    (item) =>
+                      Number(item.id)
+                  ),
+
+              cancelled_partial_count:
+                cancelledPartialsResult
+                  .rows
+                  .length,
+
+              troop_reset:
+                resetTroopResult
+                  .rows
+                  .length >
+                0,
+            }),
+          ],
+        );
+      }
+
+
+      // =================================================
       // AUDITORÍA
       // -----------------------------------------------
+ 
 
       await client.query(
         `

@@ -3747,6 +3747,27 @@ exports.syncFieldPartialLoad =
             ?.captador_assignment_version
         );
 
+      const requestedFieldAuthorizationId =
+        Number(
+          req.body
+            ?.field_authorization_id
+        );
+
+
+      const requestedCommercialSnapshotVersion =
+        Number(
+          req.body
+            ?.commercial_snapshot_version
+        );
+
+
+      const requestedCommercialAgreementHash =
+        req.body
+          ?.commercial_agreement_hash
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        null;
 
       const fieldSyncId =
         req.body
@@ -3872,6 +3893,48 @@ exports.syncFieldPartialLoad =
           400,
           'captador_assignment_version inválido'
         );
+      }
+
+      if (
+        !Number.isInteger(
+          requestedFieldAuthorizationId
+        ) ||
+        requestedFieldAuthorizationId <= 0
+      ) {
+
+        reject(
+          400,
+          'field_authorization_id inválido'
+        );
+
+      }
+
+
+      if (
+        requestedCommercialSnapshotVersion !==
+        2
+      ) {
+
+        reject(
+          400,
+          'commercial_snapshot_version inválido'
+        );
+
+      }
+
+
+      if (
+        !requestedCommercialAgreementHash ||
+        !/^[a-f0-9]{64}$/.test(
+          requestedCommercialAgreementHash
+        )
+      ) {
+
+        reject(
+          400,
+          'commercial_agreement_hash inválido'
+        );
+
       }
 
 
@@ -4228,7 +4291,7 @@ exports.syncFieldPartialLoad =
       // firmado cuando se emitió el QR de esta tropa.
       // =================================================
 
-      const fieldAuthorizationId =
+        const fieldAuthorizationId =
         troop.field_authorization_id !==
           null &&
         troop.field_authorization_id !==
@@ -4248,7 +4311,22 @@ exports.syncFieldPartialLoad =
 
         reject(
           409,
-          'La tropa no tiene una autorización QR de campo vigente'
+          'La tropa no tiene una autorización QR de campo vigente',
+          'field_authorization_changed'
+        );
+
+      }
+
+
+      if (
+        fieldAuthorizationId !==
+        requestedFieldAuthorizationId
+      ) {
+
+        reject(
+          409,
+          'La autorización QR de la tropa cambió desde que se capturó esta carga parcial',
+          'field_authorization_changed'
         );
 
       }
@@ -4262,6 +4340,7 @@ exports.syncFieldPartialLoad =
               authorization_number,
               purpose,
               status,
+              purchase_lot_id,
               details_snapshot,
               expires_at
 
@@ -4270,13 +4349,15 @@ exports.syncFieldPartialLoad =
             WHERE
               id = $1
               AND company_id = $2
+              AND purchase_lot_id = $3
               AND purpose = 'field_load_close'
 
             FOR UPDATE
           `,
           [
-            fieldAuthorizationId,
+            requestedFieldAuthorizationId,
             companyId,
+            purchaseLotId,
           ],
         );
 
@@ -4288,7 +4369,8 @@ exports.syncFieldPartialLoad =
 
         reject(
           409,
-          'La autorización QR de esta tropa no existe'
+          'La autorización QR utilizada por esta carga ya no existe o fue reemplazada',
+          'field_authorization_changed'
         );
 
       }
@@ -4305,7 +4387,8 @@ exports.syncFieldPartialLoad =
 
         reject(
           409,
-          `La autorización QR se encuentra en estado ${fieldAuthorization.status}`
+          `La autorización QR se encuentra en estado ${fieldAuthorization.status}`,
+          'field_authorization_changed'
         );
 
       }
@@ -4321,7 +4404,8 @@ exports.syncFieldPartialLoad =
 
         reject(
           409,
-          'La autorización QR de campo está vencida'
+          'La autorización QR de campo está vencida',
+          'field_authorization_changed'
         );
 
       }
@@ -4332,7 +4416,11 @@ exports.syncFieldPartialLoad =
           .details_snapshot &&
         typeof fieldAuthorization
           .details_snapshot ===
-          'object'
+          'object' &&
+        !Array.isArray(
+          fieldAuthorization
+            .details_snapshot
+        )
           ? fieldAuthorization
               .details_snapshot
           : {};
@@ -4353,7 +4441,8 @@ exports.syncFieldPartialLoad =
 
         reject(
           409,
-          'La autorización QR no corresponde a esta tropa y lote'
+          'La autorización QR no corresponde a esta tropa y lote',
+          'field_authorization_changed'
         );
 
       }
@@ -4368,16 +4457,45 @@ exports.syncFieldPartialLoad =
 
 
       if (
-        snapshotVersion !== 2
+        snapshotVersion !== 2 ||
+        snapshotVersion !==
+          requestedCommercialSnapshotVersion
       ) {
 
         reject(
           409,
-          'La autorización QR utiliza el modelo comercial anterior. Debe revocarse y emitirse nuevamente.'
+          'La versión comercial de la autorización QR no coincide con la carga capturada',
+          'field_authorization_changed'
         );
 
       }
 
+
+      const authorizationAgreementHash =
+        authorizationSnapshot
+          .commercial_agreement_hash
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        null;
+
+
+      if (
+        !authorizationAgreementHash ||
+        !/^[a-f0-9]{64}$/.test(
+          authorizationAgreementHash
+        ) ||
+        authorizationAgreementHash !==
+          requestedCommercialAgreementHash
+      ) {
+
+        reject(
+          409,
+          'El acuerdo comercial de la autorización QR no coincide con la carga capturada',
+          'field_authorization_changed'
+        );
+
+      }
 
       const snapshotCategories =
         Array.isArray(
@@ -5975,6 +6093,22 @@ exports.syncFieldPartialLoad =
         return res.status(409).json({
           error:
             'assignment_revoked',
+
+          message:
+            error.message,
+        });
+
+      }
+
+
+      if (
+        error.appCode ===
+        'field_authorization_changed'
+      ) {
+
+        return res.status(409).json({
+          error:
+            'field_authorization_changed',
 
           message:
             error.message,
