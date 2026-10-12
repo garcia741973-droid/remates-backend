@@ -4287,26 +4287,6 @@ exports.syncFieldPartialLoad =
 
 
       if (
-        [
-          'dispatched',
-          'in_transit',
-          'received',
-          'in_slaughter',
-          'completed',
-        ].includes(
-          troop.status
-        )
-      ) {
-
-        reject(
-          409,
-          `La tropa ya se encuentra en estado ${troop.status}`
-        );
-
-      }
-
-
-      if (
         troop.truck_id === null ||
         troop.truck_id === undefined
       ) {
@@ -6568,26 +6548,6 @@ exports.finalizeFieldTroopCapture =
         reject(
           409,
           'La tropa ya fue certificada'
-        );
-
-      }
-
-
-      if (
-        [
-          'dispatched',
-          'in_transit',
-          'received',
-          'in_slaughter',
-          'completed',
-        ].includes(
-          troop.status
-        )
-      ) {
-
-        reject(
-          409,
-          `La tropa ya se encuentra en estado ${troop.status}`
         );
 
       }
