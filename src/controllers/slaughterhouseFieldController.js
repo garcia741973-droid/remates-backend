@@ -6119,6 +6119,27 @@ exports.finalizeFieldTroopCapture =
             ?.captador_assignment_version
         );
 
+      const requestedFieldAuthorizationId =
+        Number(
+          req.body
+            ?.field_authorization_id
+        );
+
+
+      const requestedCommercialSnapshotVersion =
+        Number(
+          req.body
+            ?.commercial_snapshot_version
+        );
+
+
+      const requestedCommercialAgreementHash =
+        req.body
+          ?.commercial_agreement_hash
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        null;
 
       if (
         !Number.isInteger(userId) ||
@@ -6161,6 +6182,47 @@ exports.finalizeFieldTroopCapture =
 
       }
 
+      if (
+        !Number.isInteger(
+          requestedFieldAuthorizationId
+        ) ||
+        requestedFieldAuthorizationId <= 0
+      ) {
+
+        reject(
+          400,
+          'field_authorization_id inválido'
+        );
+
+      }
+
+
+      if (
+        requestedCommercialSnapshotVersion !==
+        2
+      ) {
+
+        reject(
+          400,
+          'commercial_snapshot_version inválido'
+        );
+
+      }
+
+
+      if (
+        !requestedCommercialAgreementHash ||
+        !/^[a-f0-9]{64}$/.test(
+          requestedCommercialAgreementHash
+        )
+      ) {
+
+        reject(
+          400,
+          'commercial_agreement_hash inválido'
+        );
+
+      }
 
       await client.query(
         'BEGIN'
@@ -6359,32 +6421,263 @@ exports.finalizeFieldTroopCapture =
 
       }
 
+      // =====================================================
+      // AUTORIZACIÓN QR INMUTABLE DE LA FINALIZACIÓN
+      //
+      // La finalización solamente puede sincronizarse bajo
+      // la misma autorización QR V2 con la que fue realizada.
+      // =====================================================
+
+      const currentFieldAuthorizationId =
+        troop.field_authorization_id !==
+          null &&
+        troop.field_authorization_id !==
+          undefined
+          ? Number(
+              troop.field_authorization_id
+            )
+          : null;
+
+
+      if (
+        !Number.isInteger(
+          currentFieldAuthorizationId
+        ) ||
+        currentFieldAuthorizationId <= 0
+      ) {
+
+        reject(
+          409,
+          'La tropa no tiene una autorización QR de campo vigente',
+          'field_authorization_changed'
+        );
+
+      }
+
+
+      if (
+        currentFieldAuthorizationId !==
+        requestedFieldAuthorizationId
+      ) {
+
+        reject(
+          409,
+          'La autorización QR de la tropa cambió desde la finalización offline',
+          'field_authorization_changed'
+        );
+
+      }
+
+
+      const authorizationResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              authorization_number,
+              purpose,
+              status,
+              purchase_lot_id,
+              details_snapshot,
+              expires_at
+
+            FROM slaughterhouse_weighing_authorizations
+
+            WHERE
+              id = $1
+              AND company_id = $2
+              AND purchase_lot_id = $3
+              AND purpose = 'field_load_close'
+
+            FOR UPDATE
+          `,
+          [
+            requestedFieldAuthorizationId,
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+
+      if (
+        authorizationResult.rows.length ===
+        0
+      ) {
+
+        reject(
+          409,
+          'La autorización QR de esta tropa ya no existe o fue reemplazada',
+          'field_authorization_changed'
+        );
+
+      }
+
+
+      const fieldAuthorization =
+        authorizationResult.rows[0];
+
+
+      if (
+        fieldAuthorization.status !==
+        'pending'
+      ) {
+
+        reject(
+          409,
+          `La autorización QR se encuentra en estado ${fieldAuthorization.status}`,
+          'field_authorization_changed'
+        );
+
+      }
+
+
+      if (
+        fieldAuthorization.expires_at &&
+        new Date(
+          fieldAuthorization.expires_at
+        ).getTime() <=
+          Date.now()
+      ) {
+
+        reject(
+          409,
+          'La autorización QR de campo está vencida',
+          'field_authorization_changed'
+        );
+
+      }
+
+
+      const authorizationSnapshot =
+        fieldAuthorization
+          .details_snapshot &&
+        typeof fieldAuthorization
+          .details_snapshot ===
+          'object' &&
+        !Array.isArray(
+          fieldAuthorization
+            .details_snapshot
+        )
+          ? fieldAuthorization
+              .details_snapshot
+          : {};
+
+
+      if (
+        Number(
+          authorizationSnapshot
+            .purchase_lot_id
+        ) !==
+          purchaseLotId ||
+        Number(
+          authorizationSnapshot
+            .troop_id
+        ) !==
+          troopId
+      ) {
+
+        reject(
+          409,
+          'La autorización QR ya no corresponde a esta tropa y lote',
+          'field_authorization_changed'
+        );
+
+      }
+
+
+      const authorizationSnapshotVersion =
+        Number(
+          authorizationSnapshot
+            .snapshot_version ||
+          0
+        );
+
+
+      if (
+        authorizationSnapshotVersion !==
+          2 ||
+        authorizationSnapshotVersion !==
+          requestedCommercialSnapshotVersion
+      ) {
+
+        reject(
+          409,
+          'La versión comercial de la autorización QR cambió',
+          'field_authorization_changed'
+        );
+
+      }
+
+
+      const authorizationAgreementHash =
+        authorizationSnapshot
+          .commercial_agreement_hash
+          ?.toString()
+          .trim()
+          .toLowerCase() ||
+        null;
+
+
+      if (
+        !authorizationAgreementHash ||
+        authorizationAgreementHash !==
+          requestedCommercialAgreementHash
+      ) {
+
+        reject(
+          409,
+          'El acuerdo comercial de la autorización QR no coincide con la finalización offline',
+          'field_authorization_changed'
+        );
+
+      }
 
       const loadSummaryResult =
         await client.query(
           `
             SELECT
               COUNT(*) FILTER (
-                WHERE status IN (
-                  'captured',
-                  'certified'
-                )
+                WHERE
+                  status IN (
+                    'captured',
+                    'certified'
+                  )
+                  AND field_authorization_id =
+                    $4
               )::int
                 AS captured_load_count,
 
               COUNT(*) FILTER (
-                WHERE status = 'draft'
+                WHERE
+                  status = 'draft'
+                  AND field_authorization_id =
+                    $4
               )::int
                 AS draft_load_count,
+
+              COUNT(*) FILTER (
+                WHERE
+                  status <> 'cancelled'
+                  AND (
+                    field_authorization_id
+                      IS NULL
+                    OR field_authorization_id <>
+                      $4
+                  )
+              )::int
+                AS foreign_authorization_load_count,
 
               COALESCE(
                 SUM(
                   total_quantity
                 ) FILTER (
-                  WHERE status IN (
-                    'captured',
-                    'certified'
-                  )
+                  WHERE
+                    status IN (
+                      'captured',
+                      'certified'
+                    )
+                    AND field_authorization_id =
+                      $4
                 ),
                 0
               )::int
@@ -6401,6 +6694,7 @@ exports.finalizeFieldTroopCapture =
             companyId,
             purchaseLotId,
             troopId,
+            currentFieldAuthorizationId,
           ],
         );
 
@@ -6424,6 +6718,25 @@ exports.finalizeFieldTroopCapture =
           0
         );
 
+      const foreignAuthorizationLoadCount =
+        Number(
+          summary
+            ?.foreign_authorization_load_count ||
+          0
+        );
+
+
+      if (
+        foreignAuthorizationLoadCount > 0
+      ) {
+
+        reject(
+          409,
+          'Existen cargas parciales asociadas a otra autorización QR',
+          'field_authorization_changed'
+        );
+
+      }
 
       const totalQuantity =
         Number(
@@ -6528,6 +6841,8 @@ exports.finalizeFieldTroopCapture =
                 field_capture_status,
                 ''
               ) <> 'certified'
+              AND field_authorization_id =
+                $5
 
             RETURNING *
           `,
@@ -6536,6 +6851,7 @@ exports.finalizeFieldTroopCapture =
             troopId,
             companyId,
             purchaseLotId,
+            currentFieldAuthorizationId,
           ],
         );
 
@@ -6657,6 +6973,20 @@ exports.finalizeFieldTroopCapture =
 
       }
 
+      if (
+        error.appCode ===
+        'field_authorization_changed'
+      ) {
+
+        return res.status(409).json({
+          error:
+            'field_authorization_changed',
+
+          message:
+            error.message,
+        });
+
+      }
 
       if (
         error.httpStatus
