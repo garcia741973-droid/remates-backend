@@ -909,6 +909,17 @@ exports.getAssignedCaptureSheetById =
                   spl.field_sync_id,
                   spl.captador_person_id,
                   spl.captador_assignment_version,
+
+                  spl.field_authorization_id,
+
+                  partial_auth.details_snapshot
+                    ->>'snapshot_version'
+                    AS commercial_snapshot_version,
+
+                  partial_auth.details_snapshot
+                    ->>'commercial_agreement_hash'
+                    AS commercial_agreement_hash,
+
                   spl.estate_id,
                   spl.pickup_reference,
                   spl.notes,
@@ -1035,6 +1046,14 @@ exports.getAssignedCaptureSheetById =
                     AS categories
 
                 FROM slaughterhouse_field_partial_loads spl
+
+                LEFT JOIN slaughterhouse_weighing_authorizations partial_auth
+                  ON partial_auth.id =
+                    spl.field_authorization_id
+                  AND partial_auth.company_id =
+                    spl.company_id
+                  AND partial_auth.purpose =
+                    'field_load_close'
 
                 WHERE
                   spl.company_id = $1
