@@ -392,6 +392,47 @@ exports.getSlaughterhouseReceptionCandidates =
             st.field_captured_quantity
               AS troop_field_captured_quantity,
 
+            COALESCE(
+              (
+                SELECT
+                  jsonb_agg(
+                    jsonb_build_object(
+                      'partial_load_id', fpl.id,
+                      'partial_code', fpl.partial_code,
+                      'partial_number', fpl.partial_number,
+                      'category_line_id', fc.id,
+                      'classification_id', fc.actual_classification_id,
+                      'classification_code', cls.generated_code,
+                      'classification_name', cls.display_name,
+                      'quantity', fc.quantity,
+                      'weight_mode', fc.weight_mode,
+                      'gross_weight_kg', fc.gross_weight_kg
+                    )
+                    ORDER BY
+                      fpl.partial_number,
+                      fc.line_number,
+                      fc.id
+                  )
+
+                FROM slaughterhouse_field_partial_loads fpl
+
+                JOIN slaughterhouse_field_partial_load_categories fc
+                  ON fc.partial_load_id = fpl.id
+                  AND fc.company_id = fpl.company_id
+
+                JOIN slaughterhouse_animal_classifications cls
+                  ON cls.id = fc.actual_classification_id
+                  AND cls.company_id = fc.company_id
+
+                WHERE
+                  fpl.company_id = st.company_id
+                  AND fpl.purchase_lot_id = st.purchase_lot_id
+                  AND fpl.troop_id = st.id
+                  AND fpl.status = 'certified'
+              ),
+              '[]'::jsonb
+            ) AS field_certified_categories,
+
             spl.lot_number
               AS purchase_lot_number,
 
