@@ -5083,31 +5083,49 @@ exports.syncFieldPartialLoad =
         }
 
         // =================================================
-        // PESAJE POR CATEGORÍA
+        // PESAJE FÍSICO EN ORIGEN
         //
-        // Solo live_kg + origin exige peso de campo.
-        // hook_kg queda pendiente del peso gancho.
+        // El pesaje de campo depende de weight_source,
+        // no de la modalidad comercial.
+        //
+        // Si la clasificación real cambió y queda
+        // pending_price, el peso físico NO se pierde:
+        // la categoría ORIGINAL del QR sigue indicando
+        // si ese animal debía pesarse en origen.
+        //
+        // Ejemplos:
+        // - live_kg + origin  → pesa.
+        // - hook_kg + origin  → pesa.
+        // - per_head + origin → pesa.
+        // - reclasificado desde una categoría origin
+        //   → conserva el peso aunque quede pending_price.
         // =================================================
 
+        const originalWeightSource =
+          originalCategory?.weight_source ||
+          null;
+
         const requiresOriginWeight =
-          pricingBasis ===
-            'live_kg' &&
-          weightSource ===
-            'origin';
+          weightSource === 'origin' ||
+          originalWeightSource === 'origin';
 
 
         // =================================================
         // NORMALIZACIÓN DE PESAJE
         //
-        // Los pesos solamente tienen autoridad cuando
-        // el contrato QR V2 exige:
+        // El peso es evidencia física de campo.
         //
-        // live_kg + origin
+        // Si el QR original exige weight_source = origin,
+        // el peso debe conservarse independientemente de:
         //
-        // Para cualquier otra modalidad —incluido
-        // pending_price— ignoramos completamente cualquier
-        // peso residual enviado por una versión anterior
-        // de la app.
+        // - live_kg;
+        // - hook_kg;
+        // - per_head;
+        // - reclasificación;
+        // - pending_price.
+        //
+        // El estado comercial puede quedar pendiente,
+        // pero nunca elimina el peso físico capturado.
         // =================================================
 
         const normalizedWeights =
@@ -5289,16 +5307,13 @@ exports.syncFieldPartialLoad =
 
         } else {
 
-          // No corresponde pesaje de campo.
-          //
-          // Incluye:
-          // - per_head;
-          // - live_kg + plant;
-          // - hook_kg;
-          // - pending_price.
-          //
-          // No leemos ni validamos pesos residuales
-          // enviados por clientes antiguos.
+        // No corresponde pesaje físico en origen.
+        //
+        // Llegamos aquí solamente cuando ni la categoría
+        // real contratada ni la categoría original del QR
+        // requieren weight_source = origin.
+        //
+        // En ese caso no aceptamos peso de origen.
 
           weightMode =
             'not_required';
