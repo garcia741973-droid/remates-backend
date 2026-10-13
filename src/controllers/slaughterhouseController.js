@@ -3108,6 +3108,44 @@ exports.startSlaughterhouseSlaughter =
       }
 
       // =================================================
+      // PROTECCIÓN: TROPAS CON GRUPOS DE BALANZA
+      //
+      // El inicio tradicional no debe procesar una tropa
+      // agrupada porque perdería la trazabilidad por grupo.
+      // =================================================
+
+      const scaleGroupsCheck = await client.query(
+        `
+        SELECT sg.id
+        FROM slaughterhouse_scale_groups sg
+        WHERE sg.company_id = $1
+          AND sg.reception_id = $2
+          AND sg.status <> 'cancelled'
+          AND (
+            $3::integer IS NULL
+            OR sg.troop_id = $3
+          )
+        LIMIT 1
+        `,
+        [
+          companyId,
+          receptionId,
+          troopId,
+        ],
+      );
+
+      if (scaleGroupsCheck.rows.length > 0) {
+        await client.query('ROLLBACK');
+
+        return res.status(409).json({
+          code: 'scale_group_slaughter_required',
+          error:
+            'Esta tropa tiene grupos de Balanza. ' +
+            'Debe iniciar Faena desde un grupo confirmado.',
+        });
+      }
+
+      // =================================================
       // PESO VIVO EN PLANTA OBLIGATORIO
       //
       // REGLA FRIGORIFICO:
@@ -4766,6 +4804,40 @@ exports.createSlaughterhouseCarcass =
         });
       }
 
+      // =================================================
+      // PROTECCIÓN: FAENA POR GRUPOS
+      // =================================================
+
+      const groupsCheck = await client.query(
+        `
+        SELECT 1
+        FROM slaughterhouse_scale_groups
+        WHERE company_id = $1
+          AND reception_id = $2
+          AND status <> 'cancelled'
+          AND (
+            $3::integer IS NULL
+            OR troop_id = $3
+          )
+        LIMIT 1
+        `,
+        [
+          companyId,
+          receptionId,
+          troopId,
+        ],
+      );
+
+      if (groupsCheck.rows.length > 0) {
+        await client.query('ROLLBACK');
+
+        return res.status(409).json({
+          code: 'scale_group_carcass_required',
+          error:
+            'Esta operación requiere registrar ' +
+            'las medias desde el grupo de Balanza.',
+        });
+      }
 
       // =================================================
       // TOTAL RECEPCIONADO
@@ -7445,6 +7517,61 @@ exports.finishSlaughterhouseSlaughter =
         });
       }
 
+      // =================================================
+      // PROTECCIÓN: CIERRE DE FAENA POR GRUPOS
+      //
+      // Una tropa con grupos operativos de Balanza
+      // debe cerrarse grupo por grupo.
+      //
+      // El cierre tradicional sigue permitido
+      // para tropas sin grupos.
+      // =================================================
+
+      const scaleGroupsClosingCheck =
+        await client.query(
+          `
+          SELECT
+            sg.id,
+            sg.troop_id,
+            sg.group_number,
+            sg.status
+
+          FROM slaughterhouse_scale_groups sg
+
+          WHERE
+            sg.company_id = $1
+            AND sg.reception_id = $2
+            AND sg.status <> 'cancelled'
+            AND (
+              $3::integer IS NULL
+              OR sg.troop_id = $3
+            )
+
+          LIMIT 1
+          `,
+          [
+            companyId,
+            receptionId,
+            troopId,
+          ],
+        );
+
+      if (
+        scaleGroupsClosingCheck.rows.length > 0
+      ) {
+        await client.query('ROLLBACK');
+
+        return res.status(409).json({
+          code: 'scale_group_slaughter_closing_required',
+
+          error:
+            'Esta operación tiene grupos de Balanza. ' +
+            'Debe finalizar Faena desde cada grupo.',
+
+          group:
+            scaleGroupsClosingCheck.rows[0],
+        });
+      }
 
       // =================================================
       // ALCANCE DE LA FINALIZACIÓN

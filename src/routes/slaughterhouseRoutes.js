@@ -55,6 +55,23 @@ const {
   '../controllers/slaughterhouseScaleGroupsController'
 );
 
+const {
+  startSlaughterhouseScaleGroup,
+} = require(
+  '../controllers/slaughterhouseGroupSlaughterController'
+);
+
+const {
+  createSlaughterhouseScaleGroupCarcass,
+} = require(
+  '../controllers/slaughterhouseGroupCarcassController'
+);
+
+const {
+  finishSlaughterhouseScaleGroup,
+} = require(
+  '../controllers/slaughterhouseGroupFinishController'
+);
 
 // =====================================================
 // 🔐 TODAS LAS RUTAS DE ESTE MÓDULO
@@ -183,9 +200,11 @@ router.get(
 router.get(
   '/scale/troops/:troopId/groups',
 
-  requireSlaughterhousePermission(
-    'plant_weight.manage'
-  ),
+  requireAnySlaughterhousePermission([
+    'plant_weight.manage',
+    'slaughter.view',
+    'slaughter.manage',
+  ]),
 
   getSlaughterhouseScaleGroups,
 );
@@ -227,6 +246,47 @@ router.post(
   startSlaughterhouseSlaughter,
 );
 
+// =====================================================
+// FAENA — INICIO INDEPENDIENTE POR GRUPO
+// =====================================================
+
+router.post(
+  '/scale/troops/:troopId/groups/:groupId/start-slaughter',
+
+  requireSlaughterhousePermission(
+    'slaughter.manage'
+  ),
+
+  startSlaughterhouseScaleGroup,
+);
+
+// =====================================================
+// FAENA — REGISTRAR MEDIA CARCASA POR GRUPO
+// =====================================================
+
+router.post(
+  '/scale/troops/:troopId/groups/:groupId/carcasses',
+
+  requireSlaughterhousePermission(
+    'slaughter.manage'
+  ),
+
+  createSlaughterhouseScaleGroupCarcass,
+);
+
+// =====================================================
+// FAENA — CIERRE INDEPENDIENTE POR GRUPO
+// =====================================================
+
+router.post(
+  '/scale/troops/:troopId/groups/:groupId/finish-slaughter',
+
+  requireSlaughterhousePermission(
+    'slaughter.manage'
+  ),
+
+  finishSlaughterhouseScaleGroup,
+);
 
 // =====================================================
 // 🏭 RECEPCIONES PARA FAENA
