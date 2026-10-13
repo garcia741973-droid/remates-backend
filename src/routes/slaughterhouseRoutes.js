@@ -50,6 +50,7 @@ const {
 const {
   getSlaughterhouseScaleGroups,
   saveSlaughterhouseScaleGroups,
+  registerSlaughterhouseScaleGroupPlantWeight,
 } = require(
   '../controllers/slaughterhouseScaleGroupsController'
 );
@@ -198,6 +199,20 @@ router.put(
   ),
 
   saveSlaughterhouseScaleGroups,
+);
+
+// =====================================================
+// ⚖️ BALANZA — PESO VIVO POR GRUPO
+// =====================================================
+
+router.patch(
+  '/scale/troops/:troopId/groups/:groupId/plant-weight',
+
+  requireSlaughterhousePermission(
+    'plant_weight.manage'
+  ),
+
+  registerSlaughterhouseScaleGroupPlantWeight,
 );
 
 // =====================================================

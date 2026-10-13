@@ -36,7 +36,16 @@ const getGroupRows = async (db, companyId, troopId) => {
         g.id, g.company_id, g.reception_id, g.troop_id,
         g.group_number, g.group_label, g.status,
         g.created_by, g.confirmed_by, g.confirmed_at,
+        g.plant_live_weight_kg, g.plant_weighed_at,
+        g.plant_weighed_by, g.plant_weight_observation,
         g.created_at, g.updated_at,
+        COALESCE(ref.group_quantity, 0)::int AS group_quantity,
+        COALESCE(ref.field_known_kg, 0)::numeric AS field_reference_known_kg,
+        CASE
+          WHEN COALESCE(ref.known_line_count, 0) = 0 THEN 'none'
+          WHEN ref.known_line_count = ref.line_count THEN 'complete'
+          ELSE 'partial'
+        END AS field_reference_status,
         COALESCE(
           (
             SELECT jsonb_agg(
@@ -53,6 +62,31 @@ const getGroupRows = async (db, companyId, troopId) => {
           '[]'::jsonb
         ) AS lines
       FROM slaughterhouse_scale_groups g
+      LEFT JOIN LATERAL (
+        SELECT
+          COALESCE(SUM(gl.quantity), 0)::int AS group_quantity,
+          COUNT(*)::int AS line_count,
+          COUNT(*) FILTER (
+            WHERE gl.quantity = c.quantity
+              AND c.gross_weight_kg > 0
+              AND c.weight_mode IN ('individual', 'category_total')
+          )::int AS known_line_count,
+          COALESCE(SUM(
+            CASE
+              WHEN gl.quantity = c.quantity
+                AND c.gross_weight_kg > 0
+                AND c.weight_mode IN ('individual', 'category_total')
+              THEN c.gross_weight_kg
+              ELSE 0
+            END
+          ), 0)::numeric AS field_known_kg
+        FROM slaughterhouse_scale_group_lines gl
+        JOIN slaughterhouse_field_partial_load_categories c
+          ON c.id = gl.field_category_id
+         AND c.company_id = gl.company_id
+        WHERE gl.group_id = g.id
+          AND gl.company_id = g.company_id
+      ) ref ON TRUE
       WHERE g.company_id = $1 AND g.troop_id = $2
       ORDER BY g.group_number, g.id
     `,
@@ -254,13 +288,14 @@ exports.saveSlaughterhouseScaleGroups = async (req, res) => {
       reject(409, 'La tropa ya tiene carcasas registradas; no se pueden reemplazar grupos');
     }
     const previousResult = await client.query(
-      `SELECT id, status FROM slaughterhouse_scale_groups
+      `SELECT id, status, plant_live_weight_kg FROM slaughterhouse_scale_groups
        WHERE company_id = $1 AND troop_id = $2
        FOR UPDATE`,
       [companyId, troopId],
     );
-    if (previousResult.rows.some((row) => row.status !== 'draft')) {
-      reject(409, 'Hay grupos confirmados o en Faena; ya no se pueden reorganizar');
+    if (previousResult.rows.some((row) =>
+      row.status !== 'draft' || row.plant_live_weight_kg != null)) {
+      reject(409, 'Hay grupos pesados, confirmados o en Faena; ya no se pueden reorganizar');
     }
     const oldGroups = await getGroupRows(client, companyId, troopId);
 
@@ -329,6 +364,232 @@ exports.saveSlaughterhouseScaleGroups = async (req, res) => {
     }
     console.error('SAVE SCALE GROUPS ERROR:', error);
     return res.status(500).json({ error: 'Error guardando grupos de Balanza' });
+  } finally {
+    if (client) client.release();
+  }
+};
+
+// =========================================================
+// PATCH /slaughterhouse/scale/troops/:troopId/groups/:groupId/plant-weight
+// Registra UNA pesada viva TOTAL por grupo operativo.
+// No modifica el peso global del camión ni los pesos de Campo.
+// Primera pesada: bloquea reorganización; correcciones requieren
+// flujo específico auditado (no sobrescribir silenciosamente).
+// =========================================================
+exports.registerSlaughterhouseScaleGroupPlantWeight = async (req, res) => {
+  let client;
+  let inTransaction = false;
+  try {
+    const { companyId, userId, troopId } = readContext(req);
+    const rawGroupId = String(req.params.groupId ?? '');
+    if (!/^\d+$/.test(rawGroupId) || BigInt(rawGroupId) <= 0n ||
+        BigInt(rawGroupId) > 9223372036854775807n) {
+      reject(400, 'ID de grupo inválido');
+    }
+    const groupId = BigInt(rawGroupId).toString();
+
+    // NUMERIC(12,3) PostgreSQL. No aceptar exponentes ni más
+    // de tres decimales: evita redondeos silenciosos.
+    const rawWeight = req.body?.plant_live_weight_kg;
+    const weightText = String(rawWeight ?? '').trim();
+    const weight = Number(weightText);
+    if (!/^\d+(?:\.\d{1,3})?$/.test(weightText) ||
+        !Number.isFinite(weight) || weight <= 0 || weight >= 1000000000) {
+      reject(400, 'Peso vivo del grupo inválido (kg, hasta 3 decimales)');
+    }
+
+    const rawObservation = req.body?.plant_weight_observation;
+    if (rawObservation != null && typeof rawObservation !== 'string') {
+      reject(400, 'Observación inválida');
+    }
+    const observation = rawObservation?.trim() || null;
+    if (observation && observation.length > 2000) {
+      reject(400, 'Observación demasiado extensa');
+    }
+
+    client = await pool.connect();
+    await client.query('BEGIN');
+    inTransaction = true;
+
+    // Siempre bloquear primero la tropa: el guardado de
+    // composición utiliza el mismo orden de bloqueo.
+    const troopResult = await client.query(
+      `SELECT st.id, st.reception_id, st.status,
+              st.field_capture_status, st.received_quantity,
+              sr.status AS reception_status
+       FROM slaughterhouse_troops st
+       JOIN slaughterhouse_receptions sr
+         ON sr.id = st.reception_id
+        AND sr.company_id = st.company_id
+       WHERE st.id = $1 AND st.company_id = $2
+       FOR UPDATE OF st`,
+      [troopId, companyId],
+    );
+    if (!troopResult.rows.length) {
+      reject(404, 'Tropa no encontrada o sin recepción válida');
+    }
+    const troop = troopResult.rows[0];
+    if (troop.status !== 'received' ||
+        !['open', 'in_slaughter'].includes(troop.reception_status)) {
+      reject(409, 'La tropa ya no está disponible para pesar grupos');
+    }
+    if (troop.field_capture_status !== 'certified') {
+      reject(409, 'La captura de Campo no está certificada');
+    }
+    const received = Number(troop.received_quantity);
+    if (!Number.isSafeInteger(received) || received <= 0) {
+      reject(409, 'La tropa no tiene animales recibidos');
+    }
+
+    const groupResult = await client.query(
+      `SELECT g.id, g.status, g.reception_id,
+              g.group_number, g.plant_live_weight_kg,
+              g.plant_weighed_at, g.plant_weighed_by
+       FROM slaughterhouse_scale_groups g
+       WHERE g.id = $1 AND g.company_id = $2
+         AND g.troop_id = $3 AND g.reception_id = $4
+       FOR UPDATE`,
+      [groupId, companyId, troopId, troop.reception_id],
+    );
+    if (!groupResult.rows.length) {
+      reject(404, 'Grupo no encontrado en esta tropa y recepción');
+    }
+    const groupBefore = groupResult.rows[0];
+    if (!['draft', 'confirmed'].includes(groupBefore.status)) {
+      reject(409, 'El grupo ya está en Faena o cerrado');
+    }
+    if (groupBefore.plant_live_weight_kg != null) {
+      reject(409, 'El grupo ya fue pesado. La corrección requiere una operación auditada');
+    }
+
+    // No aceptar grupos vacíos ni distribuciones incompletas.
+    const allocationResult = await client.query(
+      `SELECT g.id,
+              COALESCE(SUM(gl.quantity), 0)::int AS quantity
+       FROM slaughterhouse_scale_groups g
+       LEFT JOIN slaughterhouse_scale_group_lines gl
+         ON gl.group_id = g.id AND gl.company_id = g.company_id
+       WHERE g.company_id = $1 AND g.troop_id = $2
+         AND g.reception_id = $3 AND g.status <> 'cancelled'
+       GROUP BY g.id`,
+      [companyId, troopId, troop.reception_id],
+    );
+    const quantities = allocationResult.rows;
+    if (!quantities.length ||
+        quantities.some((row) => Number(row.quantity) <= 0) ||
+        quantities.reduce((total, row) => total + Number(row.quantity), 0) !== received) {
+      reject(409, 'La distribución de grupos no coincide con los animales recibidos');
+    }
+
+    // Validar nuevamente la asignación línea por línea.
+    // El total de animales, por sí solo, no detecta que se
+    // haya sustituido una categoría por otra.
+    const certifiedResult = await client.query(
+      `SELECT c.id, c.quantity
+       FROM slaughterhouse_field_partial_load_categories c
+       JOIN slaughterhouse_field_partial_loads pl
+         ON pl.id = c.partial_load_id AND pl.company_id = c.company_id
+       JOIN slaughterhouse_troops st
+         ON st.id = pl.troop_id AND st.company_id = pl.company_id
+       WHERE pl.company_id = $1 AND pl.troop_id = $2
+         AND pl.purchase_lot_id = st.purchase_lot_id
+         AND pl.status = 'certified'`,
+      [companyId, troopId],
+    );
+    const assignedResult = await client.query(
+      `SELECT gl.field_category_id, SUM(gl.quantity)::int AS quantity
+       FROM slaughterhouse_scale_group_lines gl
+       JOIN slaughterhouse_scale_groups g
+         ON g.id = gl.group_id AND g.company_id = gl.company_id
+       WHERE g.company_id = $1 AND g.troop_id = $2
+         AND g.reception_id = $3 AND g.status <> 'cancelled'
+       GROUP BY gl.field_category_id`,
+      [companyId, troopId, troop.reception_id],
+    );
+    const certifiedLines = new Map(
+      certifiedResult.rows.map((row) => [String(row.id), Number(row.quantity)]),
+    );
+    const assignedLines = new Map(
+      assignedResult.rows.map((row) => [String(row.field_category_id), Number(row.quantity)]),
+    );
+    if (!certifiedLines.size || assignedLines.size !== certifiedLines.size ||
+        [...certifiedLines].some(([id, quantity]) => assignedLines.get(id) !== quantity)) {
+      reject(409, 'Los grupos no conservan exactamente las líneas certificadas de Campo');
+    }
+
+    // Rechazar si Faena clásica ya registró medias de esta tropa.
+    const carcassResult = await client.query(
+      `SELECT 1 FROM slaughterhouse_carcasses
+       WHERE reception_id = $1 AND troop_id = $2 LIMIT 1`,
+      [troop.reception_id, troopId],
+    );
+    if (carcassResult.rows.length) {
+      reject(409, 'La tropa ya tiene medias carcasas; no puede iniciarse el pesaje por grupos');
+    }
+
+    const oldGroup = (await getGroupRows(client, companyId, troopId))
+      .find((row) => String(row.id) === groupId);
+
+    const updated = await client.query(
+      `UPDATE slaughterhouse_scale_groups
+       SET plant_live_weight_kg = $1::numeric,
+           plant_weighed_at = NOW(),
+           plant_weighed_by = $2,
+           plant_weight_observation = $3,
+           status = 'confirmed',
+           confirmed_by = COALESCE(confirmed_by, $2),
+           confirmed_at = COALESCE(confirmed_at, NOW()),
+           updated_at = NOW()
+       WHERE id = $4 AND company_id = $5 AND troop_id = $6
+         AND reception_id = $7 AND status IN ('draft', 'confirmed')
+         AND plant_live_weight_kg IS NULL
+       RETURNING id`,
+      [weightText, userId, observation, groupId,
+        companyId, troopId, troop.reception_id],
+    );
+    if (!updated.rows.length) {
+      reject(409, 'El grupo cambió durante el pesaje. Recarga Balanza');
+    }
+
+    const newGroup = (await getGroupRows(client, companyId, troopId))
+      .find((row) => String(row.id) === groupId);
+    await client.query(
+      `INSERT INTO slaughterhouse_audit_log
+         (company_id, user_id, entity_type, entity_id,
+          action, old_data, new_data)
+       VALUES ($1, $2, 'scale_group', $3,
+               'scale_group_plant_weight_save', $4::jsonb, $5::jsonb)`,
+      [companyId, userId, groupId,
+        JSON.stringify(oldGroup), JSON.stringify(newGroup)],
+    );
+
+    await client.query('COMMIT');
+    inTransaction = false;
+
+    const fieldKg = Number(newGroup.field_reference_known_kg);
+    const fullFieldReference = newGroup.field_reference_status === 'complete' &&
+      fieldKg > 0;
+    return res.json({
+      success: true,
+      troop_id: troopId,
+      group: newGroup,
+      difference_kg: fullFieldReference
+        ? Number((weight - fieldKg).toFixed(3)) : null,
+      difference_percent: fullFieldReference
+        ? Number(((weight - fieldKg) / fieldKg * 100).toFixed(2)) : null,
+    });
+  } catch (error) {
+    if (inTransaction && client) {
+      try { await client.query('ROLLBACK'); }
+      catch (rollbackError) {
+        console.error('ROLLBACK SCALE GROUP WEIGHT ERROR:', rollbackError);
+      }
+    }
+    if (error instanceof ScaleGroupsError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('REGISTER SCALE GROUP PLANT WEIGHT ERROR:', error);
+    return res.status(500).json({ error: 'Error registrando peso vivo del grupo' });
   } finally {
     if (client) client.release();
   }
