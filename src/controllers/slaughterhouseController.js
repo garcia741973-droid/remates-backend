@@ -13765,3 +13765,232 @@ exports.getSlaughterhouseReceptionHistory =
 
     }
   };
+
+// =====================================================
+// ⚖️ BALANZA — CATEGORÍAS CERTIFICADAS DE CAMPO
+//
+// SOLO LECTURA.
+// No modifica cargas, categorías ni pesos certificados.
+// =====================================================
+
+exports.getSlaughterhouseScaleFieldCategories =
+  async (req, res) => {
+
+    try {
+
+      const operator =
+        await getAuthenticatedSlaughterhouseOperator(
+          req,
+        );
+
+      if (!operator) {
+        return res.status(403).json({
+          error:
+            'No autorizado para operaciones de frigorífico',
+        });
+      }
+
+      const companyId =
+        Number(operator.company_id);
+
+      const troopId =
+        Number(req.params.troopId);
+
+      if (
+        !Number.isSafeInteger(troopId) ||
+        troopId <= 0
+      ) {
+        return res.status(400).json({
+          error: 'Tropa inválida',
+        });
+      }
+
+      // ===============================================
+      // VALIDAR TROPA Y EMPRESA
+      // ===============================================
+
+      const troopResult =
+        await pool.query(
+          `
+          SELECT
+            id,
+            purchase_lot_id,
+            field_capture_status
+
+          FROM slaughterhouse_troops
+
+          WHERE
+            id = $1
+            AND company_id = $2
+
+          LIMIT 1
+          `,
+          [
+            troopId,
+            companyId,
+          ],
+        );
+
+      if (troopResult.rows.length === 0) {
+        return res.status(404).json({
+          error: 'Tropa no encontrada',
+        });
+      }
+
+      const troop =
+        troopResult.rows[0];
+
+      if (
+        troop.field_capture_status !==
+        'certified'
+      ) {
+        return res.status(409).json({
+          error:
+            'La tropa no tiene captura de Campo certificada',
+        });
+      }
+
+      // ===============================================
+      // CARGAS PARCIALES Y CATEGORÍAS CERTIFICADAS
+      // ===============================================
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+            pl.id,
+            pl.partial_number,
+            pl.partial_code,
+            pl.status,
+            pl.total_quantity,
+            pl.gross_weight_kg,
+
+            COALESCE(
+              (
+                SELECT
+                  jsonb_agg(
+                    jsonb_build_object(
+                      'id', c.id,
+                      'partial_load_id', c.partial_load_id,
+                      'line_number', c.line_number,
+                      'original_purchase_lot_category_id',
+                        c.original_purchase_lot_category_id,
+                      'actual_classification_id',
+                        c.actual_classification_id,
+                      'actual_classification_code',
+                        ac.generated_code,
+                      'actual_classification_name',
+                        ac.display_name,
+                      'quantity', c.quantity,
+                      'commercial_status',
+                        c.commercial_status,
+                      'pricing_basis', c.pricing_basis,
+                      'weight_source', c.weight_source,
+                      'price_per_unit', c.price_per_unit,
+                      'currency', c.currency,
+                      'shrink_percent', c.shrink_percent,
+                      'weight_mode', c.weight_mode,
+                      'gross_weight_kg', c.gross_weight_kg,
+                      'observation', c.observation,
+
+                      'weights',
+                        COALESCE(
+                          (
+                            SELECT
+                              jsonb_agg(
+                                jsonb_build_object(
+                                  'id', w.id,
+                                  'sequence_number',
+                                    w.sequence_number,
+                                  'weight_kg', w.weight_kg,
+                                  'notes', w.notes
+                                )
+                                ORDER BY
+                                  w.sequence_number,
+                                  w.id
+                              )
+                            FROM slaughterhouse_field_partial_load_weights w
+                            WHERE
+                              w.company_id = c.company_id
+                              AND w.partial_load_category_id = c.id
+                          ),
+                          '[]'::jsonb
+                        )
+                    )
+                    ORDER BY
+                      c.line_number,
+                      c.id
+                  )
+
+                FROM slaughterhouse_field_partial_load_categories c
+
+                JOIN slaughterhouse_animal_classifications ac
+                  ON ac.id = c.actual_classification_id
+                  AND ac.company_id = c.company_id
+
+                WHERE
+                  c.company_id = pl.company_id
+                  AND c.partial_load_id = pl.id
+              ),
+              '[]'::jsonb
+            ) AS categories
+
+          FROM slaughterhouse_field_partial_loads pl
+
+          WHERE
+            pl.company_id = $1
+            AND pl.troop_id = $2
+            AND pl.purchase_lot_id = $3
+            AND pl.status = 'certified'
+
+          ORDER BY
+            pl.partial_number,
+            pl.id
+          `,
+          [
+            companyId,
+            troopId,
+            troop.purchase_lot_id,
+          ],
+        );
+
+      const partialLoads =
+        result.rows;
+
+      const totalQuantity =
+        partialLoads.reduce(
+          (sum, load) =>
+            sum + Number(load.total_quantity || 0),
+          0,
+        );
+
+      const totalGrossWeightKg =
+        partialLoads.reduce(
+          (sum, load) =>
+            sum + Number(load.gross_weight_kg || 0),
+          0,
+        );
+
+      return res.json({
+        troop_id: troopId,
+        purchase_lot_id: troop.purchase_lot_id,
+        field_capture_status:
+          troop.field_capture_status,
+        total_quantity: totalQuantity,
+        total_gross_weight_kg: totalGrossWeightKg,
+        partial_loads: partialLoads,
+      });
+
+    } catch (error) {
+
+      console.error(
+        'Error consultando categorías certificadas para Balanza:',
+        error,
+      );
+
+      return res.status(500).json({
+        error:
+          'No se pudieron consultar las categorías certificadas',
+      });
+    }
+  };

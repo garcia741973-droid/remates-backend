@@ -27,6 +27,7 @@ const {
   createSlaughterhouseGateArrival,
   createSlaughterhouseReception,
   updateSlaughterhouseReceptionTruckLiveWeight,
+  getSlaughterhouseScaleFieldCategories,
   startSlaughterhouseSlaughter,
   getSlaughterhouseSlaughterReceptions,
   createSlaughterhouseCarcass,
@@ -147,6 +148,23 @@ router.patch(
   ),
 
   updateSlaughterhouseReceptionTruckLiveWeight,
+);
+
+// =====================================================
+// ⚖️ BALANZA — CATEGORÍAS CERTIFICADAS DE CAMPO
+//
+// SOLO LECTURA.
+// Requiere permiso de pesaje en planta.
+// =====================================================
+
+router.get(
+  '/scale/troops/:troopId/field-categories',
+
+  requireSlaughterhousePermission(
+    'plant_weight.manage'
+  ),
+
+  getSlaughterhouseScaleFieldCategories,
 );
 
 // =====================================================
