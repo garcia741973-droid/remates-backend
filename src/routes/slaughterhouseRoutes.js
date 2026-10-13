@@ -47,6 +47,13 @@ const {
   '../controllers/slaughterhouseController'
 );
 
+const {
+  getSlaughterhouseScaleGroups,
+  saveSlaughterhouseScaleGroups,
+} = require(
+  '../controllers/slaughterhouseScaleGroupsController'
+);
+
 
 // =====================================================
 // 🔐 TODAS LAS RUTAS DE ESTE MÓDULO
@@ -165,6 +172,32 @@ router.get(
   ),
 
   getSlaughterhouseScaleFieldCategories,
+);
+
+// =====================================================
+// ⚖️ BALANZA — GRUPOS OPERATIVOS
+// =====================================================
+
+// Consultar grupos guardados
+router.get(
+  '/scale/troops/:troopId/groups',
+
+  requireSlaughterhousePermission(
+    'plant_weight.manage'
+  ),
+
+  getSlaughterhouseScaleGroups,
+);
+
+// Guardar o reorganizar grupos
+router.put(
+  '/scale/troops/:troopId/groups',
+
+  requireSlaughterhousePermission(
+    'plant_weight.manage'
+  ),
+
+  saveSlaughterhouseScaleGroups,
 );
 
 // =====================================================
