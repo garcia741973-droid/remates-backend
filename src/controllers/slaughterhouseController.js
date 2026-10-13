@@ -574,31 +574,21 @@ exports.getSlaughterhouseReceptionCandidates =
               AS guide_quantity,
 
               CASE
-                WHEN sga.id
-                  IS NULL
-                THEN false
-                WHEN tn.delivered_at
-                  IS NULL
-                THEN false
-                WHEN tg.id
-                  IS NULL
-                THEN false
+                WHEN sga.id IS NULL
+                  THEN false
+                WHEN tg.id IS NULL
+                  THEN false
                 ELSE true
               END
                 AS can_receive,
+
               CASE
-                WHEN sga.id
-                  IS NULL
-                THEN
-                  'El camión todavía no registra llegada en Portería'
-                WHEN tn.delivered_at
-                  IS NULL
-                THEN
-                  'El camionero todavía no finalizó la entrega'
-                WHEN tg.id
-                  IS NULL
-                THEN
-                  'El transporte no tiene guía registrada'
+                WHEN sga.id IS NULL
+                  THEN
+                    'El camión todavía no registra llegada en Portería'
+                WHEN tg.id IS NULL
+                  THEN
+                    'El transporte no tiene guía registrada'
                 ELSE NULL
               END
                 AS blocked_reason
@@ -1863,25 +1853,6 @@ exports.createSlaughterhouseReception =
             'No existe foto de licencia registrada en Portería',
         });
       }        
-
-      // =================================================
-      // EL CAMIÓN DEBE HABER FINALIZADO SU RUTA
-      // =================================================
-
-      if (
-        transport.delivered_at == null
-      ) {
-
-        await client.query(
-          'ROLLBACK',
-        );
-
-        return res.status(409).json({
-          error:
-            'El camión todavía no finalizó la ruta',
-        });
-      }
-
 
       // =================================================
       // DEBE EXISTIR GUÍA

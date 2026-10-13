@@ -37558,27 +37558,6 @@ exports.receiveTroop =
 
 
       // =================================================
-      // PLAZA TRANSPORTE DEBE HABER REGISTRADO LLEGADA
-      // =================================================
-
-      if (
-        transport.delivered_at === null
-      ) {
-
-        await client.query(
-          'ROLLBACK'
-        );
-
-
-        return res.status(409).json({
-          error:
-            'Plaza Transporte todavía no registra la llegada del camión',
-        });
-
-      }
-
-
-      // =================================================
       // DEBE EXISTIR GUÍA
       // =================================================
 
