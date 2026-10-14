@@ -39894,6 +39894,967 @@ exports.generatePreliquidationDraft =
 
       }
 
+      // =================================================
+      // IDENTIFICAR CARGAS PARCIALES COMERCIALES
+      //
+      // Las operaciones modernas utilizan condiciones
+      // comerciales individuales por línea.
+      //
+      // No deben calcularse con el precio general del lote.
+      // =================================================
+
+      const commercialLoadsResult =
+        await client.query(
+          `
+            SELECT
+              pl.id AS partial_load_id,
+              pl.troop_id,
+              pl.partial_number,
+              pl.status AS partial_status,
+
+              c.id AS field_category_id,
+              c.line_number,
+              c.quantity,
+              c.commercial_status,
+              c.pricing_basis,
+              c.weight_source,
+              c.price_per_unit,
+              c.currency,
+              c.shrink_percent,
+              c.weight_mode,
+              c.gross_weight_kg
+
+            FROM slaughterhouse_field_partial_loads pl
+
+            JOIN slaughterhouse_troops st
+              ON st.id = pl.troop_id
+              AND st.company_id = pl.company_id
+              AND st.purchase_lot_id = pl.purchase_lot_id
+
+            LEFT JOIN slaughterhouse_field_partial_load_categories c
+              ON c.partial_load_id = pl.id
+              AND c.company_id = pl.company_id
+
+            WHERE
+              pl.company_id = $1
+              AND pl.purchase_lot_id = $2
+              AND st.status <> 'cancelled'
+
+            ORDER BY
+              pl.troop_id,
+              pl.partial_number,
+              c.line_number,
+              c.id
+
+            FOR SHARE OF pl
+          `,
+          [
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+      const commercialLoadRows =
+        commercialLoadsResult.rows;
+
+      const hasCommercialLoads =
+        commercialLoadRows.length > 0;
+
+      // =================================================
+      // 2. VALIDAR QUE NO QUEDE FAENA PENDIENTE
+      //
+      // Si existen tropas, todas las tropas activas
+      // deben estar completadas.
+      //
+      // Lotes antiguos sin tropas siguen siendo compatibles.
+      // =================================================
+
+      const troopsResult =
+        await client.query(
+          `
+            SELECT
+
+              COUNT(*) FILTER (
+                WHERE
+                  status <> 'cancelled'
+              )::int
+                AS active_troops,
+
+              COUNT(*) FILTER (
+                WHERE
+                  status NOT IN (
+                    'completed',
+                    'cancelled'
+                  )
+              )::int
+                AS pending_troops
+
+            FROM slaughterhouse_troops
+            WHERE
+              company_id = $1
+              AND purchase_lot_id = $2
+          `,
+          [
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+
+      const activeTroops =
+        Number(
+          troopsResult.rows[0]
+            .active_troops || 0
+        );
+
+      const pendingTroops =
+        Number(
+          troopsResult.rows[0]
+            .pending_troops || 0
+        );
+
+
+      if (
+        activeTroops > 0 &&
+        pendingTroops > 0
+      ) {
+
+        await client.query(
+          'ROLLBACK'
+        );
+
+        return res.status(409).json({
+          error:
+            'La faena del lote todavía no está completada',
+          active_troops:
+            activeTroops,
+          pending_troops:
+            pendingTroops,
+        });
+
+      }
+
+
+      // =================================================
+      // 3. PRELIQUIDACIÓN ABIERTA
+      //
+      // draft:
+      //   se permite recalcular sobre la MISMA versión.
+      //
+      // reviewed:
+      //   ya fue cerrada para edición y no puede
+      //   recalcularse.
+      // =================================================
+
+      const openResult =
+        await client.query(
+          `
+            SELECT
+              id,
+              version,
+              status,
+              source_snapshot,
+              base_amount,
+              total_payable,
+              discounts_total,
+              additions_total,
+              unit_price,
+              price_per_kg,
+              price_override_reason,
+              price_overridden_by,
+              price_overridden_at
+            FROM slaughterhouse_preliquidations
+            WHERE
+              company_id = $1
+              AND purchase_lot_id = $2
+              AND status IN (
+                'draft',
+                'reviewed'
+              )
+            ORDER BY
+              version DESC
+            LIMIT 1
+            FOR UPDATE
+          `,
+          [
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+
+      let existingDraft =
+        null;
+
+
+      if (
+        openResult.rows.length > 0
+      ) {
+
+        const openPreliquidation =
+          openResult.rows[0];
+
+
+        if (
+          openPreliquidation.status ===
+          'reviewed'
+        ) {
+
+          await client.query(
+            'ROLLBACK'
+          );
+
+          return res.status(409).json({
+            error:
+              'La preliquidación ya fue revisada y no puede recalcularse',
+            preliquidation:
+              openPreliquidation,
+          });
+
+        }
+
+
+        if (
+          openPreliquidation.status ===
+          'draft'
+        ) {
+
+          existingDraft =
+            openPreliquidation;
+
+        }
+
+      }
+
+
+
+
+      // =================================================
+      // PROTECCIÓN TEMPORAL
+      //
+      // Hasta integrar el motor de cálculo por líneas,
+      // impedir utilizar el cálculo tradicional.
+      //
+      // Este bloque será reemplazado por la nueva rama
+      // de preliquidación comercial.
+      // =================================================
+
+      if (hasCommercialLoads) {
+
+        // ===============================================
+        // CALCULO COMERCIAL POR LINEA
+        //
+        // ETAPA DE VALIDACION:
+        // No genera ni modifica preliquidaciones.
+        // ===============================================
+
+        const hookResult = await client.query(
+          `
+            SELECT
+              sc.field_category_id,
+
+              COUNT(*)::int
+                AS halves_count,
+
+              COUNT(
+                DISTINCT sc.animal_sequence_number
+              )::int
+                AS animals_count,
+
+              COUNT(
+                DISTINCT (
+                  sc.animal_sequence_number,
+                  sc.half_number
+                )
+              )::int
+                AS unique_halves_count,
+
+              COUNT(*) FILTER (
+                WHERE sc.hook_weight_kg IS NULL
+              )::int
+                AS missing_weights,
+
+              COALESCE(
+                SUM(sc.hook_weight_kg),
+                0
+              )::numeric
+                AS hook_weight_kg
+
+            FROM slaughterhouse_carcasses sc
+
+            JOIN slaughterhouse_troops st
+              ON st.id = sc.troop_id
+
+            WHERE
+              st.company_id = $1
+              AND st.purchase_lot_id = $2
+              AND st.status <> 'cancelled'
+              AND sc.field_category_id IS NOT NULL
+
+            GROUP BY
+              sc.field_category_id
+          `,
+          [
+            companyId,
+            purchaseLotId,
+          ],
+        );
+
+        const hookByLine = new Map(
+          hookResult.rows.map(
+            (row) => [
+              String(row.field_category_id),
+              row,
+            ],
+          ),
+        );
+
+        const roundMoney = (value) =>
+          Math.round(
+            (value + Number.EPSILON) * 100
+          ) / 100;
+
+        const commercialLines = [];
+        const subtotalsByCurrency = {};
+
+        for (const row of commercialLoadRows) {
+
+          const quantity =
+            Number(row.quantity || 0);
+
+          const price =
+            row.price_per_unit == null
+              ? null
+              : Number(row.price_per_unit);
+
+          const grossWeight =
+            row.gross_weight_kg == null
+              ? null
+              : Number(row.gross_weight_kg);
+
+          const shrink =
+            Number(row.shrink_percent ?? 0);
+
+          const hook =
+            hookByLine.get(
+              String(row.field_category_id)
+            );
+
+          const hookWeight =
+            Number(hook?.hook_weight_kg || 0);
+
+          // =============================================
+          // CONCILIACION FISICA POR LINEA COMERCIAL
+          //
+          // Debe cumplirse para todas las modalidades:
+          // kilo vivo, kilo gancho y por cabeza.
+          // =============================================
+
+          const physicalLineComplete =
+            Number(hook?.halves_count || 0) ===
+              quantity * 2 &&
+            Number(hook?.unique_halves_count || 0) ===
+              quantity * 2 &&
+            Number(hook?.animals_count || 0) ===
+              quantity &&
+            Number(hook?.missing_weights || 0) ===
+              0 &&
+            Number.isFinite(hookWeight) &&
+            hookWeight > 0;
+
+          let amount = null;
+          let calculationStatus = 'ready';
+          let reason = null;
+
+          if (
+            row.field_category_id == null ||
+            row.partial_status !== 'certified'
+          ) {
+            calculationStatus = 'blocked';
+            reason = 'partial_not_certified';
+
+          } else if (
+            !physicalLineComplete
+          ) {
+            calculationStatus = 'blocked';
+            reason = 'physical_line_mismatch';
+
+          } else if (
+            row.commercial_status !== 'confirmed'
+          ) {
+            calculationStatus = 'pending_price';
+            reason = 'commercial_terms_pending';
+
+          } else if (
+            price === null ||
+            !Number.isFinite(price) ||
+            price < 0
+          ) {
+            calculationStatus = 'blocked';
+            reason = 'invalid_price';
+
+          } else if (
+            quantity <= 0 ||
+            !Number.isInteger(quantity)
+          ) {
+            calculationStatus = 'blocked';
+            reason = 'invalid_quantity';
+
+          } else if (
+            !row.currency
+          ) {
+            calculationStatus = 'blocked';
+            reason = 'missing_currency';
+
+          } else if (
+            row.pricing_basis === 'hook_kg'
+          ) {
+
+            const complete =
+              Number(hook?.halves_count || 0) ===
+                quantity * 2 &&
+              Number(hook?.unique_halves_count || 0) ===
+                quantity * 2 &&
+              Number(hook?.animals_count || 0) ===
+                quantity &&
+              Number(hook?.missing_weights || 0) === 0;
+
+            if (complete && hookWeight > 0) {
+              amount =
+                roundMoney(hookWeight * price);
+            } else {
+              calculationStatus = 'blocked';
+              reason = 'incomplete_hook_weights';
+            }
+
+          } else if (
+            row.pricing_basis === 'live_kg' &&
+            row.weight_source === 'origin'
+          ) {
+
+            if (
+              grossWeight !== null &&
+              grossWeight > 0 &&
+              shrink >= 0 &&
+              shrink <= 100
+            ) {
+              amount = roundMoney(
+                grossWeight *
+                (1 - shrink / 100) *
+                price
+              );
+            } else {
+              calculationStatus = 'blocked';
+              reason = 'invalid_origin_weight';
+            }
+
+          } else if (
+            row.pricing_basis === 'per_head'
+          ) {
+
+            amount =
+              roundMoney(quantity * price);
+
+          } else {
+            calculationStatus = 'blocked';
+            reason = 'unsupported_weight_basis';
+          }
+
+          if (
+            calculationStatus === 'ready' &&
+            amount !== null
+          ) {
+            const currency =
+              row.currency;
+
+            subtotalsByCurrency[currency] =
+              roundMoney(
+                (subtotalsByCurrency[currency] || 0) +
+                amount
+              );
+          }
+
+          commercialLines.push({
+            partial_load_id:
+              row.partial_load_id,
+
+            field_category_id:
+              row.field_category_id,
+
+            partial_number:
+              row.partial_number,
+
+            line_number:
+              row.line_number,
+
+            quantity,
+
+            commercial_status:
+              row.commercial_status,
+
+            pricing_basis:
+              row.pricing_basis,
+
+            weight_source:
+              row.weight_source,
+
+            unit_price:
+              price,
+
+            currency:
+              row.currency,
+
+            gross_weight_kg:
+              grossWeight,
+
+            shrink_percent:
+              shrink,
+
+            hook_weight_kg:
+              hookWeight,
+
+            amount,
+
+            calculation_status:
+              calculationStatus,
+
+            reason,
+          });
+        }
+
+        const pendingLines =
+          commercialLines.filter(
+            (line) =>
+              line.calculation_status ===
+              'pending_price'
+          );
+
+        const blockedLines =
+          commercialLines.filter(
+            (line) =>
+              line.calculation_status ===
+              'blocked'
+          );
+
+        // ===============================================
+        // GUARDAR BORRADOR COMERCIAL POR LINEAS
+        // ===============================================
+
+        const existingSnapshot =
+          existingDraft?.source_snapshot || null;
+
+        // Nunca convertir silenciosamente un borrador
+        // tradicional en una preliquidacion comercial.
+
+        if (
+          existingDraft &&
+          existingSnapshot?.source_type !==
+            'field_commercial_lines_v1'
+        ) {
+          await client.query('ROLLBACK');
+
+          return res.status(409).json({
+            error:
+              'Existe un borrador anterior con otro modelo comercial',
+            code:
+              'PRELIQUIDATION_MODEL_CONFLICT',
+          });
+        }
+
+        const currencies =
+          Object.keys(subtotalsByCurrency);
+
+        const calculationComplete =
+          commercialLines.length > 0 &&
+          pendingLines.length === 0 &&
+          blockedLines.length === 0 &&
+          currencies.length === 1;
+
+        const knownSubtotal =
+          currencies.length === 1
+            ? subtotalsByCurrency[currencies[0]]
+            : null;
+
+        const baseAmount =
+          calculationComplete
+            ? knownSubtotal
+            : null;
+
+        // ===============================================
+        // AJUSTES DEL GANADERO
+        // ===============================================
+
+        let discountsTotal = 0;
+        let additionsTotal = 0;
+
+        if (existingDraft) {
+          const adjustmentsResult =
+            await client.query(
+              `
+                SELECT
+                  COALESCE(
+                    SUM(amount) FILTER (
+                      WHERE adjustment_type = 'discount'
+                    ),
+                    0
+                  )::numeric AS discounts_total,
+
+                  COALESCE(
+                    SUM(amount) FILTER (
+                      WHERE adjustment_type = 'addition'
+                    ),
+                    0
+                  )::numeric AS additions_total
+
+                FROM slaughterhouse_preliquidation_adjustments
+                WHERE preliquidation_id = $1
+                  AND target_type = 'seller'
+              `,
+              [existingDraft.id],
+            );
+
+          discountsTotal =
+            Number(
+              adjustmentsResult.rows[0]
+                .discounts_total
+            );
+
+          additionsTotal =
+            Number(
+              adjustmentsResult.rows[0]
+                .additions_total
+            );
+        }
+
+        const calculatedTotal =
+          baseAmount === null
+            ? null
+            : roundMoney(
+                baseAmount -
+                discountsTotal +
+                additionsTotal
+              );
+
+        const totalPayable =
+          calculatedTotal !== null &&
+          Number.isFinite(calculatedTotal) &&
+          calculatedTotal >= 0
+            ? calculatedTotal
+            : null;
+
+        // ===============================================
+        // SNAPSHOT COMERCIAL
+        // ===============================================
+
+        const sourceSnapshot = {
+          source_type:
+            'field_commercial_lines_v1',
+
+          purchase_lot_id:
+            purchaseLotId,
+
+          commercial_lines:
+            commercialLines,
+
+          commercial_lines_count:
+            commercialLines.length,
+
+          pending_lines_count:
+            pendingLines.length,
+
+          pending_line_ids:
+            pendingLines.map(
+              line => line.field_category_id
+            ),
+
+          blocked_lines_count:
+            blockedLines.length,
+
+          blocked_line_ids:
+            blockedLines.map(
+              line => line.field_category_id
+            ),
+
+          known_subtotals_by_currency:
+            subtotalsByCurrency,
+
+          calculation_complete:
+            calculationComplete,
+
+          base_amount:
+            baseAmount,
+
+          total_payable:
+            totalPayable,
+        };
+
+        // ===============================================
+        // VISTA PREVIA COMERCIAL SIN GUARDAR
+        //
+        // Ejecuta las consultas y los calculos reales,
+        // pero finaliza la transaccion sin INSERT,
+        // UPDATE ni auditoria.
+        // ===============================================
+
+        if (req.query?.preview === '1') {
+
+          await client.query('ROLLBACK');
+
+          return res.status(200).json({
+            success: true,
+            preview: true,
+
+            purchase_lot_id:
+              purchaseLotId,
+
+            commercial_lines:
+              commercialLines,
+
+            commercial_lines_count:
+              commercialLines.length,
+
+            pending_lines_count:
+              pendingLines.length,
+
+            blocked_lines_count:
+              blockedLines.length,
+
+            known_subtotals_by_currency:
+              subtotalsByCurrency,
+
+            calculation_complete:
+              calculationComplete,
+
+            base_amount:
+              baseAmount,
+
+            total_payable:
+              totalPayable,
+
+            source_snapshot:
+              sourceSnapshot,
+          });
+        }
+
+        // ===============================================
+        // VERSION DE PRELIQUIDACION
+        // ===============================================
+
+        let version;
+
+        if (existingDraft) {
+          version =
+            Number(existingDraft.version);
+        } else {
+          const versionResult =
+            await client.query(
+              `
+                SELECT
+                  COALESCE(MAX(version), 0) + 1
+                    AS next_version
+                FROM slaughterhouse_preliquidations
+                WHERE purchase_lot_id = $1
+              `,
+              [purchaseLotId],
+            );
+
+          version =
+            Number(
+              versionResult.rows[0].next_version
+            );
+        }
+
+        // ===============================================
+        // INSERT / UPDATE
+        // ===============================================
+
+        let savedResult;
+
+        const totalQuantity =
+          commercialLines.reduce(
+            (total, line) =>
+              total + Number(line.quantity || 0),
+            0
+          );
+
+        if (existingDraft) {
+          savedResult =
+            await client.query(
+              `
+                UPDATE slaughterhouse_preliquidations
+
+                SET
+                  quantity = $1,
+                  base_amount = $2,
+                  discounts_total = $3,
+                  additions_total = $4,
+                  total_payable = $5,
+                  source_snapshot = $6::jsonb,
+
+                  pricing_basis = NULL,
+                  weight_source = NULL,
+                  unit_price = NULL,
+                  price_per_kg = NULL,
+
+                  updated_at = NOW()
+
+                WHERE
+                  id = $7
+                  AND company_id = $8
+                  AND status = 'draft'
+
+                RETURNING *
+              `,
+              [
+                totalQuantity,
+                baseAmount,
+                discountsTotal,
+                additionsTotal,
+                totalPayable,
+                JSON.stringify(sourceSnapshot),
+                existingDraft.id,
+                companyId,
+              ],
+            );
+        } else {
+          savedResult =
+            await client.query(
+              `
+                INSERT INTO slaughterhouse_preliquidations (
+                  company_id,
+                  purchase_lot_id,
+                  version,
+                  status,
+                  generated_by,
+                  generated_at,
+                  quantity,
+                  pricing_basis,
+                  weight_source,
+                  unit_price,
+                  price_per_kg,
+                  base_amount,
+                  discounts_total,
+                  additions_total,
+                  total_payable,
+                  source_snapshot
+                )
+                VALUES (
+                  $1,
+                  $2,
+                  $3,
+                  'draft',
+                  $4,
+                  NOW(),
+                  $5,
+                  NULL,
+                  NULL,
+                  NULL,
+                  NULL,
+                  $6,
+                  0,
+                  0,
+                  $6,
+                  $7::jsonb
+                )
+                RETURNING *
+              `,
+              [
+                companyId,
+                purchaseLotId,
+                version,
+                userId,
+                totalQuantity,
+                baseAmount,
+                JSON.stringify(sourceSnapshot),
+              ],
+            );
+        }
+
+        if (savedResult.rows.length !== 1) {
+          await client.query('ROLLBACK');
+
+          return res.status(409).json({
+            error:
+              'No se pudo guardar el borrador comercial',
+          });
+        }
+
+        const preliquidation =
+          savedResult.rows[0];
+
+        // ===============================================
+        // AUDITORIA
+        // ===============================================
+
+        await client.query(
+          `
+            INSERT INTO slaughterhouse_audit_log (
+              company_id,
+              user_id,
+              entity_type,
+              entity_id,
+              action,
+              new_data
+            )
+            VALUES (
+              $1,
+              $2,
+              'preliquidation',
+              $3,
+              $4,
+              $5::jsonb
+            )
+          `,
+          [
+            companyId,
+            userId,
+            String(preliquidation.id),
+            existingDraft
+              ? 'recalculate_draft'
+              : 'generate_draft',
+            JSON.stringify({
+              preliquidation,
+              source_snapshot:
+                sourceSnapshot,
+            }),
+          ],
+        );
+
+        await client.query('COMMIT');
+
+        return res.status(
+          existingDraft ? 200 : 201
+        ).json({
+          success: true,
+
+          operation:
+            existingDraft
+              ? 'recalculate_draft'
+              : 'generate_draft',
+
+          preliquidation,
+
+          commercial_summary: {
+            commercial_lines:
+              commercialLines,
+
+            pending_lines_count:
+              pendingLines.length,
+
+            blocked_lines_count:
+              blockedLines.length,
+
+            known_subtotals_by_currency:
+              subtotalsByCurrency,
+
+            calculation_complete:
+              calculationComplete,
+
+            ready_for_approval:
+              false,
+          },
+        });
+      }
 
       // =================================================
       // VALIDAR CONFIGURACIÓN COMERCIAL DEL LOTE
@@ -40033,168 +40994,6 @@ exports.generatePreliquidationDraft =
         });
 
       }
-
-      // =================================================
-      // 2. VALIDAR QUE NO QUEDE FAENA PENDIENTE
-      //
-      // Si existen tropas, todas las tropas activas
-      // deben estar completadas.
-      //
-      // Lotes antiguos sin tropas siguen siendo compatibles.
-      // =================================================
-
-      const troopsResult =
-        await client.query(
-          `
-            SELECT
-
-              COUNT(*) FILTER (
-                WHERE
-                  status <> 'cancelled'
-              )::int
-                AS active_troops,
-
-              COUNT(*) FILTER (
-                WHERE
-                  status NOT IN (
-                    'completed',
-                    'cancelled'
-                  )
-              )::int
-                AS pending_troops
-
-            FROM slaughterhouse_troops
-            WHERE
-              company_id = $1
-              AND purchase_lot_id = $2
-          `,
-          [
-            companyId,
-            purchaseLotId,
-          ],
-        );
-
-
-      const activeTroops =
-        Number(
-          troopsResult.rows[0]
-            .active_troops || 0
-        );
-
-      const pendingTroops =
-        Number(
-          troopsResult.rows[0]
-            .pending_troops || 0
-        );
-
-
-      if (
-        activeTroops > 0 &&
-        pendingTroops > 0
-      ) {
-
-        await client.query(
-          'ROLLBACK'
-        );
-
-        return res.status(409).json({
-          error:
-            'La faena del lote todavía no está completada',
-          active_troops:
-            activeTroops,
-          pending_troops:
-            pendingTroops,
-        });
-
-      }
-
-
-      // =================================================
-      // 3. PRELIQUIDACIÓN ABIERTA
-      //
-      // draft:
-      //   se permite recalcular sobre la MISMA versión.
-      //
-      // reviewed:
-      //   ya fue cerrada para edición y no puede
-      //   recalcularse.
-      // =================================================
-
-      const openResult =
-        await client.query(
-          `
-            SELECT
-              id,
-              version,
-              status,
-              unit_price,
-              price_per_kg,
-              price_override_reason,
-              price_overridden_by,
-              price_overridden_at
-            FROM slaughterhouse_preliquidations
-            WHERE
-              company_id = $1
-              AND purchase_lot_id = $2
-              AND status IN (
-                'draft',
-                'reviewed'
-              )
-            ORDER BY
-              version DESC
-            LIMIT 1
-            FOR UPDATE
-          `,
-          [
-            companyId,
-            purchaseLotId,
-          ],
-        );
-
-
-      let existingDraft =
-        null;
-
-
-      if (
-        openResult.rows.length > 0
-      ) {
-
-        const openPreliquidation =
-          openResult.rows[0];
-
-
-        if (
-          openPreliquidation.status ===
-          'reviewed'
-        ) {
-
-          await client.query(
-            'ROLLBACK'
-          );
-
-          return res.status(409).json({
-            error:
-              'La preliquidación ya fue revisada y no puede recalcularse',
-            preliquidation:
-              openPreliquidation,
-          });
-
-        }
-
-
-        if (
-          openPreliquidation.status ===
-          'draft'
-        ) {
-
-          existingDraft =
-            openPreliquidation;
-
-        }
-
-      }
-
 
       // =================================================
       // 4. OBTENER FUENTE SEGÚN MODALIDAD DE COMPRA
@@ -46035,6 +46834,59 @@ exports.updatePreliquidationUnitPrice =
         });
       }
 
+      // =================================================
+      // PROTEGER PRECIOS COMERCIALES POR LINEA
+      //
+      // Los lotes con cargas parciales comerciales
+      // no admiten modificacion global de precio.
+      //
+      // Cada linea debe modificarse individualmente
+      // mediante una operacion autorizada.
+      // =================================================
+
+      const commercialPriceGuardResult =
+        await client.query(
+          `
+            SELECT EXISTS (
+              SELECT 1
+
+              FROM slaughterhouse_field_partial_loads pl
+
+              JOIN slaughterhouse_troops st
+                ON st.id = pl.troop_id
+                AND st.company_id = pl.company_id
+                AND st.purchase_lot_id = pl.purchase_lot_id
+
+              WHERE
+                pl.company_id = $1
+                AND pl.purchase_lot_id = $2
+                AND st.status <> 'cancelled'
+            ) AS has_commercial_loads
+          `,
+          [
+            companyId,
+            preliquidation.purchase_lot_id,
+          ],
+        );
+
+      if (
+        commercialPriceGuardResult.rows[0]
+          ?.has_commercial_loads === true
+      ) {
+
+        await client.query('ROLLBACK');
+
+        return res.status(409).json({
+          error:
+            'Este lote utiliza precios individuales por linea comercial',
+
+          code:
+            'COMMERCIAL_LINE_PRICE_REQUIRED',
+
+          purchase_lot_id:
+            preliquidation.purchase_lot_id,
+        });
+      }
 
       // =================================================
       // 3. VALIDAR MODALIDAD
@@ -47128,6 +47980,37 @@ exports.addPreliquidationAdjustment =
           error:
             'Esta comisión tiene un importe definitivo autorizado. ' +
             'Debe restaurar el cálculo automático antes de agregar ajustes.',
+        });
+      }
+
+      // =================================================
+      // PROTEGER PRELIQUIDACIONES INCOMPLETAS
+      //
+      // No convertir NULL en cero.
+      //
+      // Mientras existan precios pendientes, no permitir
+      // ajustes que generen un total financiero aparente.
+      //
+      // Proteccion temporal hasta incorporar el manejo
+      // de ajustes sobre borradores comerciales mixtos.
+      // =================================================
+
+      if (
+        preliquidation.base_amount == null ||
+        preliquidation.total_payable == null
+      ) {
+
+        await client.query('ROLLBACK');
+
+        return res.status(409).json({
+          error:
+            'La preliquidacion tiene importes comerciales pendientes',
+
+          code:
+            'PRELIQUIDATION_AMOUNTS_INCOMPLETE',
+
+          purchase_lot_id:
+            preliquidation.purchase_lot_id,
         });
       }
 
@@ -49720,6 +50603,36 @@ exports.deletePreliquidationAdjustment =
       }
 
       // =================================================
+      // PROTEGER PRELIQUIDACIONES INCOMPLETAS
+      //
+      // No permitir eliminar ajustes ni recalcular
+      // importes cuando el monto base o total
+      // todavia no esta definido.
+      //
+      // Proteccion temporal para borradores con
+      // lineas comerciales pendientes de precio.
+      // =================================================
+
+      if (
+        preliquidation.base_amount == null ||
+        preliquidation.total_payable == null
+      ) {
+
+        await client.query('ROLLBACK');
+
+        return res.status(409).json({
+          error:
+            'No se pueden modificar ajustes mientras existan importes comerciales incompletos',
+
+          code:
+            'PRELIQUIDATION_AMOUNTS_INCOMPLETE',
+
+          purchase_lot_id:
+            preliquidation.purchase_lot_id,
+        });
+      }
+
+      // =================================================
       // IMPEDIR ELIMINAR AJUSTES DE UNA COMISIÓN FIJADA
       // =================================================
 
@@ -50110,10 +51023,80 @@ exports.reviewPreliquidation =
 
       }
 
+      // =================================================
+      // PROTECCION DE PRELIQUIDACION POR LINEAS
+      //
+      // Mientras el motor comercial por lineas no este
+      // habilitado, ninguna preliquidacion de un lote
+      // con cargas parciales puede pasar a reviewed.
+      //
+      // Evita aprobar importes calculados mediante
+      // la modalidad general del lote.
+      // =================================================
+
+      const commercialGuardResult =
+        await client.query(
+          `
+            SELECT EXISTS (
+              SELECT 1
+
+              FROM slaughterhouse_field_partial_loads pl
+
+              JOIN slaughterhouse_troops st
+                ON st.id = pl.troop_id
+                AND st.company_id = pl.company_id
+
+              WHERE
+                pl.company_id = $1
+                AND pl.purchase_lot_id = $2
+                AND st.purchase_lot_id = pl.purchase_lot_id
+                AND st.status <> 'cancelled'
+            ) AS has_commercial_loads
+          `,
+          [
+            companyId,
+            preliquidation.purchase_lot_id,
+          ],
+        );
+
+      if (
+        commercialGuardResult.rows[0]
+          ?.has_commercial_loads === true
+      ) {
+
+        await client.query('ROLLBACK');
+
+        return res.status(409).json({
+          error:
+            'Este lote requiere validacion financiera por lineas comerciales',
+
+          code:
+            'COMMERCIAL_LINES_REVIEW_REQUIRED',
+
+          purchase_lot_id:
+            preliquidation.purchase_lot_id,
+        });
+      }
 
       // =================================================
       // 3. VALIDAR IMPORTES
       // =================================================
+
+      if (
+        preliquidation.base_amount == null ||
+        preliquidation.total_payable == null
+      ) {
+
+        await client.query('ROLLBACK');
+
+        return res.status(409).json({
+          error:
+            'La preliquidacion tiene importes incompletos',
+
+          code:
+            'PRELIQUIDATION_AMOUNTS_INCOMPLETE',
+        });
+      }
 
       const baseAmount =
         Number(
@@ -50570,6 +51553,81 @@ exports.approvePreliquidation =
             preliquidation.status,
         });
 
+      }
+
+      // =================================================
+      // PROTECCION FINANCIERA DE LINEAS COMERCIALES
+      //
+      // TEMPORAL:
+      // Impide aprobar preliquidaciones de lotes
+      // con cargas parciales mientras no este
+      // implementada la revalidacion por linea.
+      // =================================================
+
+      const approvalCommercialGuardResult =
+        await client.query(
+          `
+            SELECT EXISTS (
+              SELECT 1
+
+              FROM slaughterhouse_field_partial_loads pl
+
+              JOIN slaughterhouse_troops st
+                ON st.id = pl.troop_id
+                AND st.company_id = pl.company_id
+                AND st.purchase_lot_id = pl.purchase_lot_id
+
+              WHERE
+                pl.company_id = $1
+                AND pl.purchase_lot_id = $2
+                AND st.status <> 'cancelled'
+            ) AS has_commercial_loads
+          `,
+          [
+            companyId,
+            preliquidation.purchase_lot_id,
+          ],
+        );
+
+      if (
+        approvalCommercialGuardResult.rows[0]
+          ?.has_commercial_loads === true
+      ) {
+
+        await client.query('ROLLBACK');
+
+        return res.status(409).json({
+          error:
+            'No se puede aprobar una preliquidacion sin validacion comercial por lineas',
+
+          code:
+            'COMMERCIAL_LINES_APPROVAL_REQUIRED',
+
+          purchase_lot_id:
+            preliquidation.purchase_lot_id,
+        });
+      }
+
+      // =================================================
+      // VALIDAR IMPORTES OBLIGATORIOS
+      //
+      // No interpretar NULL como cero.
+      // =================================================
+
+      if (
+        preliquidation.base_amount == null ||
+        preliquidation.total_payable == null
+      ) {
+
+        await client.query('ROLLBACK');
+
+        return res.status(409).json({
+          error:
+            'La preliquidacion tiene importes incompletos',
+
+          code:
+            'PRELIQUIDATION_AMOUNTS_INCOMPLETE',
+        });
       }
 
       // =================================================
@@ -56424,24 +57482,47 @@ exports.getFinalLotsReport =
 
 
               -- ==========================================
+              -- PESO VIVO DE BALANZA
+              -- ==========================================
+
+              scale_summary.scale_groups_count,
+
+              scale_summary.plant_live_weight_kg,
+
+              -- ==========================================
               -- RENDIMIENTO
               --
-              -- Solo existe cuando la preliquidación
-              -- dispone de peso vivo oficial.
+              -- Grupos nuevos: peso vivo de Balanza.
+              -- Historicos sin grupos: preliquidacion.
               -- ==========================================
 
               CASE
 
-                WHEN
-                  preliq.live_weight_kg
-                    IS NOT NULL
+                WHEN scale_summary.scale_groups_count > 0
+                THEN
 
-                  AND
-                  preliq.live_weight_kg >
-                    0
+                  CASE
 
-                  AND
-                  carcass_summary.hook_weight_kg
+                    WHEN scale_summary.plant_live_weight_kg > 0
+                      AND carcass_summary.hook_weight_kg
+                        IS NOT NULL
+
+                    THEN
+                      ROUND(
+                        (
+                          carcass_summary.hook_weight_kg
+                          /
+                          scale_summary.plant_live_weight_kg
+                        ) * 100,
+                        2
+                      )
+
+                    ELSE NULL
+
+                  END
+
+                WHEN preliq.live_weight_kg > 0
+                  AND carcass_summary.hook_weight_kg
                     IS NOT NULL
 
                 THEN
@@ -56454,8 +57535,7 @@ exports.getFinalLotsReport =
                     2
                   )
 
-                ELSE
-                  NULL
+                ELSE NULL
 
               END
                 AS carcass_yield_percent,
@@ -56964,6 +58044,52 @@ exports.getFinalLotsReport =
             ) carcass_summary
               ON true
 
+            -- ============================================
+            -- PESO VIVO DEFINITIVO DE BALANZA
+            -- ============================================
+
+            LEFT JOIN LATERAL (
+
+              SELECT
+
+                COUNT(*)::int
+                  AS scale_groups_count,
+
+                CASE
+
+                  WHEN COUNT(*) > 0
+                    AND COUNT(*) =
+                      COUNT(sg.plant_live_weight_kg)
+                    AND MIN(sg.plant_live_weight_kg) > 0
+
+                  THEN
+                    SUM(sg.plant_live_weight_kg)
+
+                  ELSE
+                    NULL
+
+                END
+                  AS plant_live_weight_kg
+
+              FROM
+                slaughterhouse_scale_groups sg
+
+              JOIN
+                slaughterhouse_troops stg
+
+                ON stg.id = sg.troop_id
+
+                AND stg.company_id = sg.company_id
+
+                AND stg.purchase_lot_id = spl.id
+
+                AND stg.status <> 'cancelled'
+
+              WHERE
+                sg.company_id = spl.company_id
+
+            ) scale_summary
+              ON true
 
             -- ============================================
             -- ÚLTIMA PRELIQUIDACIÓN DEL LOTE
@@ -58885,6 +60011,10 @@ exports.getFinalLotDetail =
 
                 sc.reception_id,
 
+                sc.scale_group_id,
+
+                sc.field_category_id,
+
                 sc.sequence_number,
 
                 sc.plant_carcass_number,
@@ -59021,6 +60151,120 @@ exports.getFinalLotDetail =
 
         ]);
 
+      // =================================================
+      // GRUPOS DE BALANZA Y LINEAS COMERCIALES
+      // =================================================
+
+      const [
+        scaleGroupsResult,
+        commercialLinesResult,
+      ] = await Promise.all([
+
+        // Grupos definitivos de Balanza
+        pool.query(
+          `
+          SELECT
+            sg.id AS group_id,
+            sg.troop_id,
+            sg.reception_id,
+            sg.group_number,
+            sg.status,
+            sg.plant_live_weight_kg,
+            sg.plant_weighed_at,
+            sg.slaughter_finished_at,
+            sg.slaughter_closing_notes
+
+          FROM slaughterhouse_scale_groups sg
+
+          JOIN slaughterhouse_troops st
+            ON st.id = sg.troop_id
+            AND st.company_id = sg.company_id
+
+          WHERE sg.company_id = $1
+            AND st.purchase_lot_id = $2
+            AND st.status <> 'cancelled'
+
+          ORDER BY
+            sg.troop_id,
+            sg.group_number,
+            sg.id
+          `,
+          [companyId, purchaseLotId]
+        ),
+
+        // Lineas originales certificadas en Campo
+        pool.query(
+          `
+          SELECT
+            pl.id AS partial_load_id,
+            pl.troop_id,
+            pl.partial_number,
+
+            c.id AS field_category_id,
+            c.line_number,
+            c.actual_classification_id,
+            c.quantity,
+            c.commercial_status,
+            c.pricing_basis,
+            c.weight_source,
+            c.price_per_unit,
+            c.currency,
+            c.shrink_percent,
+            c.weight_mode,
+            c.gross_weight_kg,
+            c.price_confirmed_by,
+            c.price_confirmed_at,
+
+            COALESCE(
+              (
+                SELECT jsonb_agg(
+                  jsonb_build_object(
+                    'group_id', g.id,
+                    'group_number', g.group_number,
+                    'quantity', gl.quantity
+                  )
+                  ORDER BY g.group_number
+                )
+
+                FROM slaughterhouse_scale_group_lines gl
+
+                JOIN slaughterhouse_scale_groups g
+                  ON g.id = gl.group_id
+                  AND g.company_id = gl.company_id
+                  AND g.troop_id = pl.troop_id
+
+                WHERE gl.company_id = c.company_id
+                  AND gl.field_category_id = c.id
+              ),
+              '[]'::jsonb
+            ) AS group_assignments
+
+          FROM slaughterhouse_field_partial_loads pl
+
+          JOIN slaughterhouse_troops st
+            ON st.id = pl.troop_id
+            AND st.company_id = pl.company_id
+            AND st.purchase_lot_id = pl.purchase_lot_id
+
+          JOIN slaughterhouse_field_partial_load_categories c
+            ON c.partial_load_id = pl.id
+            AND c.company_id = pl.company_id
+
+          WHERE pl.company_id = $1
+            AND pl.purchase_lot_id = $2
+            AND pl.status = 'certified'
+            AND st.status <> 'cancelled'
+
+          ORDER BY
+            pl.troop_id,
+            pl.partial_number,
+            c.line_number,
+            c.id
+          `,
+          [companyId, purchaseLotId]
+        ),
+
+      ]);
 
       // =================================================
       // RESUMEN DEL EXPEDIENTE
@@ -59167,6 +60411,123 @@ exports.getFinalLotDetail =
         legacyAnimals +
         completedModernAnimals;
 
+      // =================================================
+      // RESUMEN DE GRUPOS DE BALANZA
+      // =================================================
+
+      const scaleGroupSummaries =
+        scaleGroupsResult.rows.map((group) => {
+
+          const groupCarcasses =
+            carcassesResult.rows.filter(
+              (carcass) =>
+                carcass.scale_group_id != null &&
+                String(carcass.scale_group_id) ===
+                  String(group.group_id)
+            );
+
+          const groupHookWeightKg =
+            groupCarcasses.reduce(
+              (total, carcass) =>
+                total +
+                Number(carcass.hook_weight_kg || 0),
+              0
+            );
+
+          const groupLiveWeightKg =
+            group.plant_live_weight_kg == null
+              ? null
+              : Number(group.plant_live_weight_kg);
+
+          const animals = new Map();
+
+          for (const carcass of groupCarcasses) {
+            if (
+              carcass.animal_sequence_number == null ||
+              carcass.half_number == null
+            ) {
+              continue;
+            }
+
+            const animalKey =
+              `${carcass.troop_id}:` +
+              `${carcass.animal_sequence_number}`;
+
+            if (!animals.has(animalKey)) {
+              animals.set(animalKey, new Set());
+            }
+
+            animals.get(animalKey).add(
+              Number(carcass.half_number)
+            );
+          }
+
+          const completedAnimals =
+            [...animals.values()].filter(
+              (halves) =>
+                halves.has(1) && halves.has(2)
+            ).length;
+
+          return {
+            ...group,
+
+            half_carcasses_count:
+              groupCarcasses.length,
+
+            slaughtered_animals:
+              completedAnimals,
+
+            hook_weight_kg:
+              groupHookWeightKg,
+
+            yield_percent:
+              groupLiveWeightKg != null &&
+              groupLiveWeightKg > 0
+                ? Number(
+                    (
+                      groupHookWeightKg /
+                      groupLiveWeightKg *
+                      100
+                    ).toFixed(2)
+                  )
+                : null,
+          };
+        });
+
+
+      const totalPlantLiveWeightKg =
+        scaleGroupSummaries.reduce(
+          (total, group) =>
+            total +
+            Number(group.plant_live_weight_kg || 0),
+          0
+        );
+
+
+      const totalYieldPercent =
+        totalPlantLiveWeightKg > 0
+          ? Number(
+              (
+                hookWeightKg /
+                totalPlantLiveWeightKg *
+                100
+              ).toFixed(2)
+            )
+          : null;
+
+
+      // =================================================
+      // LINEAS COMERCIALES CON PRECIO PENDIENTE
+      // =================================================
+
+      const pendingCommercialLines =
+        commercialLinesResult.rows.filter(
+          (line) =>
+            line.commercial_status !== 'confirmed' ||
+            line.pricing_basis == null ||
+            line.price_per_unit == null
+        );
+
 
       return res.json({
 
@@ -59196,6 +60557,25 @@ exports.getFinalLotDetail =
           hook_weight_kg:
             hookWeightKg,
 
+          plant_live_weight_kg:
+            scaleGroupSummaries.length > 0
+              ? totalPlantLiveWeightKg
+              : null,
+
+          yield_percent:
+            totalYieldPercent,
+
+          commercial_lines_count:
+            commercialLinesResult.rows.length,
+
+          pending_price_lines_count:
+            pendingCommercialLines.length,
+
+          pending_price_line_ids:
+            pendingCommercialLines.map(
+              (line) => line.field_category_id
+            ),
+
         },
 
         field_weighings:
@@ -59203,6 +60583,12 @@ exports.getFinalLotDetail =
 
         troops:
           troopsResult.rows,
+
+        scale_groups:
+          scaleGroupSummaries,
+
+        commercial_lines:
+          commercialLinesResult.rows,
 
         carcasses:
           carcassesResult.rows,
