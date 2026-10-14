@@ -60199,10 +60199,18 @@ exports.getFinalLotDetail =
             pl.id AS partial_load_id,
             pl.troop_id,
             pl.partial_number,
+            pl.status AS partial_status,
+            pl.partial_code,
+            TO_CHAR(
+              pl.event_local_time,
+              'DD/MM/YYYY HH24:MI'
+            ) AS field_event_local_time,
 
             c.id AS field_category_id,
             c.line_number,
             c.actual_classification_id,
+            classification.generated_code AS classification_code,
+            classification.display_name AS classification_name,
             c.quantity,
             c.commercial_status,
             c.pricing_basis,
@@ -60249,6 +60257,10 @@ exports.getFinalLotDetail =
           JOIN slaughterhouse_field_partial_load_categories c
             ON c.partial_load_id = pl.id
             AND c.company_id = pl.company_id
+
+          LEFT JOIN slaughterhouse_animal_classifications classification
+            ON classification.id = c.actual_classification_id
+            AND classification.company_id = c.company_id
 
           WHERE pl.company_id = $1
             AND pl.purchase_lot_id = $2
