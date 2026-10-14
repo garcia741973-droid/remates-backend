@@ -97,6 +97,8 @@ function resolveCommissionWeights({
   slaughteredAnimals,
   incompleteAnimals,
   hookWeightKg,
+  certifiedFieldGrossWeightKg = null,
+  certifiedFieldWeightComplete = false,
 }) {
   const snapshot =
     typeof sourceSnapshot === 'string'
@@ -121,10 +123,19 @@ function resolveCommissionWeights({
         : null
     );
 
-  const initialKg =
-    initial?.net_weight_kg == null
-      ? null
-      : Number(initial.net_weight_kg);
+  // En el modelo por lineas de Campo, la comision por kg vivo
+  // inicial se calcula sobre el BRUTO certificado, sin destare.
+  // En el modelo historico conservamos el NETO anterior.
+  const fieldCommercialModel =
+    snapshot?.source_type === 'field_commercial_lines_v1';
+
+  const initialKg = fieldCommercialModel
+    ? (certifiedFieldGrossWeightKg == null
+        ? null
+        : Number(certifiedFieldGrossWeightKg))
+    : (initial?.net_weight_kg == null
+        ? null
+        : Number(initial.net_weight_kg));
 
   const weighedTroops =
     Number(initial?.origin_troops || 0) +
@@ -146,9 +157,12 @@ function resolveCommissionWeights({
     initial?.missing_weight_troops == null;
 
   const initialWeightComplete =
+    initialKg != null &&
     Number.isFinite(initialKg) &&
     initialKg > 0 &&
-    (modernWeightComplete || legacyWeightComplete);
+    (fieldCommercialModel
+      ? certifiedFieldWeightComplete === true
+      : modernWeightComplete || legacyWeightComplete);
 
   const hookKg =
     hookWeightKg == null

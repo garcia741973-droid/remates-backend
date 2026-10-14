@@ -44500,6 +44500,105 @@ exports.getPreliquidationById =
           settleSlaughterhouseCommission,
         } = require('../utils/slaughterhouseCommission');
 
+        // Comision por kg vivo inicial: modelo comercial de Campo.
+        // La base contractual es el peso BRUTO certificado,
+        // antes de aplicar cualquier destare. No tomar peso
+        // planta ni el neto usado en algunas lineas de compra.
+        // Exigir que las lineas actuales coincidan con el
+        // snapshot de la preliquidacion (sin mutar datos).
+        let certifiedFieldGrossWeightKg = null;
+        let certifiedFieldWeightComplete = false;
+
+        const fieldSnapshot =
+          preliquidation.source_snapshot;
+
+        if (
+          commissionType === 'per_kg_initial' &&
+          fieldSnapshot?.source_type ===
+            'field_commercial_lines_v1'
+        ) {
+          const certifiedLinesResult = await pool.query(
+            `
+              SELECT
+                c.id AS field_category_id,
+                c.quantity,
+                c.gross_weight_kg
+              FROM slaughterhouse_field_partial_loads pl
+              JOIN slaughterhouse_troops st
+                ON st.id = pl.troop_id
+               AND st.company_id = pl.company_id
+               AND st.purchase_lot_id = pl.purchase_lot_id
+              JOIN slaughterhouse_field_partial_load_categories c
+                ON c.partial_load_id = pl.id
+               AND c.company_id = pl.company_id
+              WHERE pl.company_id = $1
+                AND pl.purchase_lot_id = $2
+                AND pl.status = 'certified'
+                AND st.status <> 'cancelled'
+              ORDER BY c.id
+            `,
+            [companyId, preliquidation.purchase_lot_id]
+          );
+
+          const snapshotLines =
+            fieldSnapshot.commercial_lines;
+
+          const originalLines =
+            Array.isArray(snapshotLines)
+              ? snapshotLines
+              : [];
+
+          const snapshotById = new Map();
+          let snapshotValid = originalLines.length > 0;
+
+          for (const line of originalLines) {
+            const id = Number(line?.field_category_id);
+            if (!Number.isSafeInteger(id) || id <= 0 ||
+                snapshotById.has(id)) {
+              snapshotValid = false;
+              break;
+            }
+            snapshotById.set(id, line);
+          }
+
+          let quantity = 0;
+          let grossKg = 0;
+          let actualValid = snapshotValid &&
+            certifiedLinesResult.rows.length === originalLines.length;
+
+          for (const line of certifiedLinesResult.rows) {
+            const id = Number(line.field_category_id);
+            const kg = line.gross_weight_kg == null
+              ? NaN : Number(line.gross_weight_kg);
+            const animals = Number(line.quantity);
+            const expected = snapshotById.get(id);
+
+            if (!expected || !Number.isFinite(kg) || kg <= 0 ||
+                !Number.isSafeInteger(animals) || animals <= 0 ||
+                Number(expected.quantity) !== animals ||
+                (expected.gross_weight_kg != null &&
+                  (!Number.isFinite(Number(expected.gross_weight_kg)) ||
+                   Math.abs(Number(expected.gross_weight_kg) - kg) > 0.001))) {
+              actualValid = false;
+              break;
+            }
+
+            quantity += animals;
+            grossKg += kg;
+          }
+
+          const expectedQuantity = Number(preliquidation.quantity);
+          if (actualValid &&
+              Number.isSafeInteger(expectedQuantity) &&
+              expectedQuantity > 0 &&
+              quantity === expectedQuantity &&
+              quantity === receivedAnimals &&
+              Number.isFinite(grossKg) && grossKg > 0) {
+            certifiedFieldGrossWeightKg = grossKg;
+            certifiedFieldWeightComplete = true;
+          }
+        }
+
         const commissionWeights =
           resolveCommissionWeights({
             sourceSnapshot:
@@ -44516,6 +44615,9 @@ exports.getPreliquidationById =
 
             hookWeightKg:
               slaughter.hook_weight_kg,
+
+            certifiedFieldGrossWeightKg,
+            certifiedFieldWeightComplete,
           });
 
         const calculatedCommission =
