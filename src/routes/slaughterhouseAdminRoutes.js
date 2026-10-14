@@ -193,6 +193,7 @@ const {
   getSellerPreliquidationPdf,
 
   updatePreliquidationUnitPrice,
+  confirmCommercialLinePrice,
 
   setPreliquidationCommissionOverride,
 
@@ -1436,6 +1437,14 @@ router.patch(
 
   updatePreliquidationUnitPrice,
 
+);
+
+router.patch(
+  '/preliquidations/:id/commercial-lines/:fieldCategoryId/confirm',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission('preliquidation.manage'),
+  confirmCommercialLinePrice,
 );
 
 router.delete(

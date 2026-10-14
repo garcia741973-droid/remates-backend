@@ -46834,6 +46834,228 @@ exports.getSellerPreliquidationPdf =
 // - Recalcula base_amount y total_payable.
 // =====================================================
 
+// =====================================================
+// FINANZAS: CONFIRMAR PRECIO POR LINEA CERTIFICADA
+// PATCH /slaughterhouse/admin/preliquidations/:id/commercial-lines/:fieldCategoryId/confirm
+// Nunca modifica cantidad, clasificacion, pesos ni faena.
+// Requiere recalcular el borrador despues de cada cambio.
+// =====================================================
+exports.confirmCommercialLinePrice = async (req, res) => {
+  const companyId = Number(req.slaughterhouseAdmin?.company_id);
+  const userId = Number(req.slaughterhouseAdmin?.user_id);
+  const preliquidationId = Number(req.params.id);
+  const fieldCategoryId = Number(req.params.fieldCategoryId);
+
+  if (![companyId, userId, preliquidationId, fieldCategoryId].every(
+    (value) => Number.isSafeInteger(value) && value > 0
+  )) {
+    return res.status(400).json({ error: 'Identificadores invalidos' });
+  }
+
+  const reason = String(req.body?.reason ?? '').trim();
+  const priceText = String(req.body?.price_per_unit ?? '').trim();
+  const pricingBasis = String(req.body?.pricing_basis ?? '').trim();
+  const weightSource = String(req.body?.weight_source ?? '').trim();
+  const currency = String(req.body?.currency ?? '').trim().toUpperCase();
+
+  // Dinero ingresado como decimal, no una expresion ni notacion exponencial.
+  if (!/^\d{1,12}(\.\d{1,4})?$/.test(priceText) ||
+      !Number.isFinite(Number(priceText)) || Number(priceText) <= 0) {
+    return res.status(400).json({
+      error: 'Precio invalido: debe ser mayor a cero y tener hasta cuatro decimales',
+    });
+  }
+  if (!['live_kg', 'hook_kg', 'per_head'].includes(pricingBasis)) {
+    return res.status(400).json({ error: 'Modalidad comercial invalida' });
+  }
+  if (!['origin', 'plant', 'not_applicable'].includes(weightSource)) {
+    return res.status(400).json({ error: 'Origen del peso invalido' });
+  }
+  // El motor comercial actual solo puede liquidar kg vivo con peso de origen.
+  if (pricingBasis === 'live_kg' && weightSource !== 'origin') {
+    return res.status(400).json({
+      error: 'La compra por kilo vivo por linea requiere peso de origen',
+    });
+  }
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    return res.status(400).json({ error: 'Moneda invalida' });
+  }
+  if (reason.length < 5 || reason.length > 1000) {
+    return res.status(400).json({
+      error: 'Se requiere un motivo de 5 a 1000 caracteres',
+    });
+  }
+
+  const price = Number(priceText);
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    // La misma primera traba que usa generatePreliquidationDraft.
+    // Evita confirmar precios simultaneamente a un recálculo del lote.
+    const target = await client.query(`
+      SELECT sp.purchase_lot_id
+      FROM slaughterhouse_preliquidations sp
+      WHERE sp.id = $1 AND sp.company_id = $2
+    `, [preliquidationId, companyId]);
+    if (target.rows.length !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Preliquidacion no encontrada' });
+    }
+
+    const purchaseLotId = Number(target.rows[0].purchase_lot_id);
+    const lotLock = await client.query(`
+      SELECT id, status
+      FROM slaughterhouse_purchase_lots
+      WHERE id = $1 AND company_id = $2
+      FOR UPDATE
+    `, [purchaseLotId, companyId]);
+    if (lotLock.rows.length !== 1 || lotLock.rows[0].status === 'cancelled') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Lote inexistente o cancelado' });
+    }
+
+    const draftResult = await client.query(`
+      SELECT id, status, purchase_lot_id, source_snapshot
+      FROM slaughterhouse_preliquidations
+      WHERE id = $1 AND company_id = $2
+      FOR UPDATE
+    `, [preliquidationId, companyId]);
+    const draft = draftResult.rows[0];
+    if (!draft || draft.status !== 'draft' ||
+        Number(draft.purchase_lot_id) !== purchaseLotId ||
+        draft.source_snapshot?.source_type !== 'field_commercial_lines_v1') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'Solo se pueden completar lineas de un borrador comercial vigente',
+        code: 'COMMERCIAL_DRAFT_REQUIRED',
+      });
+    }
+
+    // Bloquear unicamente la fila comercial de la empresa y lote actuales.
+    const lineResult = await client.query(`
+      SELECT c.*, pl.status AS partial_status, pl.id AS partial_load_id
+      FROM slaughterhouse_field_partial_load_categories c
+      JOIN slaughterhouse_field_partial_loads pl
+        ON pl.id = c.partial_load_id AND pl.company_id = c.company_id
+      JOIN slaughterhouse_troops st
+        ON st.id = pl.troop_id AND st.company_id = pl.company_id
+        AND st.purchase_lot_id = pl.purchase_lot_id
+      WHERE c.id = $1 AND c.company_id = $2
+        AND pl.purchase_lot_id = $3
+        AND pl.status = 'certified'
+        AND st.status <> 'cancelled'
+      FOR UPDATE OF c
+    `, [fieldCategoryId, companyId, purchaseLotId]);
+    if (lineResult.rows.length !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        error: 'Linea comercial certificada no encontrada en este lote',
+      });
+    }
+    const original = lineResult.rows[0];
+    if (original.commercial_status === 'confirmed') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'Esta linea ya tiene precio confirmado. Su correccion requiere otro procedimiento.',
+        code: 'LINE_ALREADY_CONFIRMED',
+      });
+    }
+    if (!Number.isInteger(Number(original.quantity)) ||
+        Number(original.quantity) <= 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Cantidad certificada invalida' });
+    }
+
+    let shrinkPercent;
+    if (req.body?.shrink_percent === undefined || req.body?.shrink_percent === null) {
+      shrinkPercent = original.shrink_percent == null
+        ? 0 : Number(original.shrink_percent);
+    } else {
+      const shrinkText = String(req.body.shrink_percent).trim();
+      if (!/^\d{1,3}(\.\d{1,4})?$/.test(shrinkText)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Destare porcentual invalido' });
+      }
+      shrinkPercent = Number(shrinkText);
+    }
+    if (!Number.isFinite(shrinkPercent) || shrinkPercent < 0 || shrinkPercent > 100) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Destare fuera de rango (0-100)' });
+    }
+    if (pricingBasis === 'live_kg' && weightSource === 'origin' &&
+        (!Number.isFinite(Number(original.gross_weight_kg)) ||
+         Number(original.gross_weight_kg) <= 0)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'Falta el peso bruto certificado para liquidar kilo vivo',
+      });
+    }
+
+    // Solo se modifican condiciones ECONOMICAS. Todo lo fisico queda intacto.
+    const update = await client.query(`
+      UPDATE slaughterhouse_field_partial_load_categories
+      SET commercial_status = 'confirmed',
+          pricing_basis = $1,
+          weight_source = $2,
+          price_per_unit = $3,
+          currency = $4,
+          shrink_percent = $5,
+          price_confirmed_by = $6,
+          price_confirmed_at = NOW()
+      WHERE id = $7 AND company_id = $8
+      RETURNING id, line_number, commercial_status, pricing_basis,
+                weight_source, price_per_unit, currency, shrink_percent,
+                price_confirmed_by, price_confirmed_at
+    `, [pricingBasis, weightSource, priceText, currency, shrinkPercent,
+        userId, fieldCategoryId, companyId]);
+
+    await client.query(`
+      INSERT INTO slaughterhouse_audit_log
+        (company_id, user_id, entity_type, entity_id, action, old_data, new_data)
+      VALUES ($1, $2, 'field_partial_load_category', $3,
+              'confirm_commercial_price', $4::jsonb, $5::jsonb)
+    `, [companyId, userId, String(fieldCategoryId),
+        JSON.stringify({
+          purchase_lot_id: purchaseLotId,
+          preliquidation_id: preliquidationId,
+          commercial_status: original.commercial_status,
+          pricing_basis: original.pricing_basis,
+          weight_source: original.weight_source,
+          price_per_unit: original.price_per_unit,
+          currency: original.currency,
+          shrink_percent: original.shrink_percent,
+          gross_weight_kg: original.gross_weight_kg,
+          quantity: original.quantity,
+        }),
+        JSON.stringify({
+          purchase_lot_id: purchaseLotId,
+          preliquidation_id: preliquidationId,
+          ...update.rows[0],
+          reason,
+          recalculate_draft_required: true,
+        })]);
+
+    await client.query('COMMIT');
+    return res.json({
+      success: true,
+      field_category_id: fieldCategoryId,
+      commercial_line: update.rows[0],
+      recalculate_draft_required: true,
+      message: 'Precio confirmado; recalcule el borrador para actualizar los importes',
+    });
+  } catch (error) {
+    if (client) {
+      try { await client.query('ROLLBACK'); } catch (_) {}
+    }
+    console.error('CONFIRM COMMERCIAL LINE PRICE ERROR:', error);
+    return res.status(500).json({ error: 'Error confirmando precio comercial' });
+  } finally {
+    if (client) client.release();
+  }
+};
+
 exports.updatePreliquidationUnitPrice =
   async (req, res) => {
 
