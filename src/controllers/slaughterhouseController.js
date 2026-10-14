@@ -6508,6 +6508,29 @@ exports.updateLastSlaughterhouseCarcass =
         lastResult.rows[0];
 
 
+      // =================================================
+      // PROTECCIÓN: FAENA POR GRUPOS DE BALANZA
+      //
+      // La corrección tradicional de la última media
+      // no puede modificar registros de un grupo.
+      //
+      // Las medias agrupadas utilizarán un endpoint
+      // específico con auditoría y motivo obligatorio.
+      // =================================================
+
+      if (previous.scale_group_id != null) {
+
+        await client.query('ROLLBACK');
+
+        return res.status(409).json({
+          error:
+            'Esta media pertenece a un grupo de Balanza. ' +
+            'Utilice la corrección específica de Faena por grupos.',
+        });
+
+      }
+
+
       const carcassId =
         Number(
           previous.id,
@@ -7107,6 +7130,23 @@ exports.updateSlaughterhouseCarcass =
       const previous =
         carcassResult.rows[0];
 
+      // =================================================
+      // PROTECCIÓN: MEDIAS DE FAENA POR GRUPOS
+      // Las medias agrupadas se corrigen únicamente
+      // mediante el procedimiento específico de grupos.
+      // =================================================
+
+      if (previous.scale_group_id != null) {
+
+        await client.query('ROLLBACK');
+
+        return res.status(409).json({
+          error:
+            'Esta media pertenece a un grupo de Balanza. ' +
+            'Utilice la corrección de Faena por grupos.',
+        });
+
+      }
 
       // =================================================
       // CORREGIR ÚNICAMENTE PESO

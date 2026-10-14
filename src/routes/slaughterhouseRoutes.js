@@ -73,6 +73,10 @@ const {
   '../controllers/slaughterhouseGroupFinishController'
 );
 
+const {
+  correctSlaughterhouseScaleGroupCarcass,
+} = require('../controllers/slaughterhouseGroupCarcassCorrectionController');
+
 // =====================================================
 // 🔐 TODAS LAS RUTAS DE ESTE MÓDULO
 // REQUIEREN:
@@ -272,6 +276,20 @@ router.post(
   ),
 
   createSlaughterhouseScaleGroupCarcass,
+);
+
+// =====================================================
+// FAENA — CORREGIR PESO DE MEDIA POR GRUPO
+// =====================================================
+
+router.put(
+  '/scale/troops/:troopId/groups/:groupId/carcasses/:carcassId',
+
+  requireSlaughterhousePermission(
+    'slaughter.manage'
+  ),
+
+  correctSlaughterhouseScaleGroupCarcass,
 );
 
 // =====================================================
