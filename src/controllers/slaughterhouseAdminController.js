@@ -45156,6 +45156,13 @@ exports.getSellerPreliquidationPdf =
               seller.phone
                 AS seller_phone,
 
+              seller_method.method_type AS seller_payment_method_type,
+              seller_method.account_number AS seller_account_number,
+              seller_method.account_holder AS seller_account_holder,
+              seller_bank.name AS seller_bank_name,
+              COALESCE(approver.full_name, approver.name, approver.email)
+                AS approved_by_name,
+
               estate.name
                 AS estate_name,
 
@@ -45175,6 +45182,14 @@ exports.getSellerPreliquidationPdf =
             LEFT JOIN slaughterhouse_people seller
               ON seller.id =
                 spl.seller_person_id
+
+            LEFT JOIN slaughterhouse_person_payment_methods seller_method
+              ON seller_method.id = spl.seller_payment_method_id
+              AND seller_method.person_id = spl.seller_person_id
+            LEFT JOIN slaughterhouse_banks seller_bank
+              ON seller_bank.id = seller_method.bank_id
+            LEFT JOIN users approver
+              ON approver.id = sp.approved_by
 
             LEFT JOIN slaughterhouse_estates estate
               ON estate.id =
@@ -45209,6 +45224,15 @@ exports.getSellerPreliquidationPdf =
 
       const data =
         result.rows[0];
+
+      const {
+        loadCommercialDocumentLines,
+        commercialPricingLabel,
+        commercialWeightSourceLabel,
+      } = require('../utils/slaughterhouseCommercialDocuments');
+      const commercialDocument = await loadCommercialDocumentLines(
+        pool, companyId, data.purchase_lot_id, data
+      );
 
 
       // =================================================
@@ -45636,7 +45660,9 @@ exports.getSellerPreliquidationPdf =
 
       const numberValue =
         (value) => {
-
+          if (value === null || value === undefined || value === '') {
+            return null;
+          }
           const parsed =
             Number(value);
 
@@ -46024,14 +46050,15 @@ exports.getSellerPreliquidationPdf =
 
       detailRow(
         'Clasificación',
-        data.classification_name ||
-          data.classification_code,
+        commercialDocument
+          ? `${commercialDocument.lines.length} clasificaciones comerciales de Campo`
+          : data.classification_name || data.classification_code,
       );
 
 
       detailRow(
         'Modalidad de compra',
-        pricingBasisLabel,
+        commercialDocument ? 'Condiciones individuales por linea' : pricingBasisLabel,
       );
 
 
@@ -46072,6 +46099,17 @@ exports.getSellerPreliquidationPdf =
         data.estate_name,
       );
 
+      if (data.approved_at) {
+        detailRow('Fecha de aprobacion', formatDate(data.approved_at));
+        detailRow('Aprobada por', data.approved_by_name || `Usuario ${data.approved_by}`);
+      }
+      if (data.seller_payment_method_type) {
+        detailRow('Medio de cobro registrado', data.seller_payment_method_type);
+        if (data.seller_bank_name) detailRow('Banco', data.seller_bank_name);
+        if (data.seller_account_number) detailRow('Cuenta', data.seller_account_number);
+        if (data.seller_account_holder) detailRow('Titular de cuenta', data.seller_account_holder);
+      }
+
       // =================================================
       // RESUMEN DE FAENA
       // =================================================
@@ -46082,12 +46120,17 @@ exports.getSellerPreliquidationPdf =
 
 
       detailRow(
-        'Animales contratados',
-        formatNumber(
-          data.expected_quantity,
-          0,
-        ),
+        'Animales contratados (estimacion)',
+        formatNumber(data.expected_quantity, 0),
       );
+      if (commercialDocument) {
+        detailRow('Animales certificados Campo',
+          formatNumber(commercialDocument.quantity, 0));
+        if (commercialDocument.gross_weight_total_kg != null) {
+          detailRow('Peso bruto certificado Campo',
+            `${formatNumber(commercialDocument.gross_weight_total_kg)} kg`);
+        }
+      }
 
 
       detailRow(
@@ -46371,6 +46414,45 @@ exports.getSellerPreliquidationPdf =
       );
 
 
+      if (commercialDocument) {
+        detailRow('Criterio de liquidacion',
+          'Importes aprobados individualmente por clasificacion de Campo');
+        for (const line of commercialDocument.lines) {
+          ensureSpace(175);
+          doc.moveDown(0.35).font('Helvetica-Bold').fontSize(10)
+            .text(`Linea ${line.line_number} - ${safeText(line.classification_name)}`);
+          doc.moveDown(0.15);
+          detailRow('Carga / cantidad',
+            `Carga ${line.partial_number} · ${formatNumber(line.quantity, 0)} cabezas`);
+          detailRow('Modalidad / origen',
+            `${commercialPricingLabel(line.pricing_basis)} · ${commercialWeightSourceLabel(line.weight_source)}`);
+          if (line.gross_weight_kg != null) {
+            detailRow('Peso bruto Campo', `${formatNumber(line.gross_weight_kg)} kg`);
+          }
+          if (line.pricing_basis === 'live_kg') {
+            detailRow('Destare',
+              `${formatNumber(line.shrink_percent)} % · ${formatNumber(line.shrink_weight_kg)} kg`);
+            detailRow('Peso neto liquidable', `${formatNumber(line.net_weight_kg)} kg`);
+          }
+          if (line.hook_weight_kg != null) {
+            detailRow(line.pricing_basis === 'hook_kg'
+              ? 'Peso gancho liquidable' : 'Peso gancho de referencia',
+              `${formatNumber(line.hook_weight_kg)} kg`);
+          }
+          detailRow('Base de pago',
+            line.billable_quantity == null ? 'PENDIENTE' :
+            `${formatNumber(line.billable_quantity, line.pricing_basis === 'per_head' ? 0 : 2)} ${line.billable_unit}`);
+          detailRow('Precio unitario',
+            line.unit_price == null ? 'PENDIENTE' :
+            `${formatMoney(line.unit_price)} / ${line.pricing_basis === 'per_head' ? 'cabeza' : 'kg'}`);
+          detailRow('Subtotal',
+            line.amount == null ? 'PENDIENTE' : formatMoney(line.amount));
+        }
+        detailRow('SUBTOTAL COMERCIAL',
+          commercialDocument.total_amount == null
+            ? 'PENDIENTE' : formatMoney(commercialDocument.total_amount));
+      } else {
+
       const pricingBasis =
         safeText(
           data.pricing_basis ||
@@ -46608,6 +46690,8 @@ exports.getSellerPreliquidationPdf =
       }
 
 
+      }
+
       // =================================================
       // IMPORTE BASE
       // =================================================
@@ -46699,7 +46783,7 @@ exports.getSellerPreliquidationPdf =
         .font('Helvetica-Bold')
         .fontSize(14)
         .text(
-          `TOTAL A PAGAR: ${formatMoney(
+          `${data.status === 'approved' ? 'IMPORTE APROBADO A PAGAR' : 'IMPORTE PRELIMINAR'}: ${formatMoney(
             data.total_payable,
           )}`,
           {
@@ -46762,7 +46846,7 @@ exports.getSellerPreliquidationPdf =
         .font('Helvetica')
         .fontSize(8)
         .text(
-          'Documento emitido para el proveedor.',
+          'Documento de liquidacion; no acredita que el pago haya sido realizado.',
           {
             align: 'center',
           },
@@ -62731,6 +62815,8 @@ exports.exportFinalLotXlsx =
 
                 sc.half_number,
 
+                sc.field_category_id,
+
                 sc.hook_weight_kg,
 
                 sc.recorded_at
@@ -62905,6 +62991,15 @@ exports.exportFinalLotXlsx =
       const preliq =
         preliqResult.rows[0] ||
         null;
+
+      const {
+        loadCommercialDocumentLines,
+        commercialPricingLabel,
+        commercialWeightSourceLabel,
+      } = require('../utils/slaughterhouseCommercialDocuments');
+      const commercialDocument = await loadCommercialDocumentLines(
+        pool, companyId, purchaseLotId, preliq
+      );
 
 
       // =================================================
@@ -63541,6 +63636,7 @@ exports.exportFinalLotXlsx =
 
 
       const fieldQuantity =
+        commercialDocument ? commercialDocument.quantity :
         certifiedFieldRows.reduce(
           (
             total,
@@ -63904,6 +64000,12 @@ exports.exportFinalLotXlsx =
 
                 hookWeightKg:
                   excelHookWeightKg,
+                certifiedFieldGrossWeightKg:
+                  commercialDocument?.gross_weight_total_kg ?? null,
+                certifiedFieldWeightComplete:
+                  commercialDocument?.gross_weight_complete === true &&
+                  commercialDocument.quantity === receivedQuantity &&
+                  commercialDocument.lines.length > 0,
               });
 
             const calculatedCommission =
@@ -64306,6 +64408,8 @@ exports.exportFinalLotXlsx =
 
           legacyAnimals.push({
 
+            field_category_id: row.field_category_id,
+
             troop_id:
               row.troop_id,
 
@@ -64349,6 +64453,8 @@ exports.exportFinalLotXlsx =
           animalMap.set(
             key,
             {
+
+              field_category_id: row.field_category_id,
 
               troop_id:
                 row.troop_id,
@@ -64853,39 +64959,25 @@ exports.exportFinalLotXlsx =
 
         [
           'Clasificación',
-          text(
-            lot.classification_name
-          ),
+          commercialDocument ? `${commercialDocument.lines.length} lineas Campo` :
+            text(lot.classification_name),
           'Código',
-          text(
-            lot.classification_code
-          ),
+          commercialDocument ? 'Ver hoja CAMPO' : text(lot.classification_code),
         ],
 
         [
           'Base precio',
-          text(
-            lot.pricing_basis
-          ),
+          commercialDocument ? 'Por linea certificada' : text(lot.pricing_basis),
           'Origen peso',
-          text(
-            lot.weight_source
-          ),
+          commercialDocument ? 'Por linea certificada' : text(lot.weight_source),
         ],
 
         [
           'Precio original',
-          number(
-            lot.price_per_unit
-          ),
+          commercialDocument ? 'Ver precios por linea CAMPO' : number(lot.price_per_unit),
           'Precio liquidación',
-          preliq
-            ? number(
-                preliq.unit_price
-              )
-            : number(
-                lot.price_per_unit
-              ),
+          commercialDocument ? 'No aplica precio unico' :
+            preliq ? number(preliq.unit_price) : number(lot.price_per_unit),
         ],
 
         [
@@ -65108,6 +65200,31 @@ exports.exportFinalLotXlsx =
       ]);
 
 
+      summarySheet.addRow([]);
+      const obligationsTitle = summarySheet.addRow(['OBLIGACIONES FINANCIERAS (NO PAGOS REALIZADOS)']);
+      summarySheet.mergeCells(`A${obligationsTitle.number}:D${obligationsTitle.number}`);
+      obligationsTitle.getCell(1).style = sectionStyle;
+      const oblHeader = summarySheet.addRow(['Beneficiario', 'Base Bs', 'Ajustes netos Bs', 'Neto Bs']);
+      applyHeader(oblHeader);
+      for (const [label, f] of [
+        ['GANADERO', financialSummary.seller],
+        ['TRANSPORTE', financialSummary.transport],
+        ['COMISIONISTA', financialSummary.commissioner],
+      ]) {
+        const pending = f.calculation_pending === true;
+        summarySheet.addRow([
+          label,
+          pending ? 'PENDIENTE' : f.base_amount,
+          number(f.additions_total) - number(f.discounts_total),
+          pending ? 'PENDIENTE' : f.net_payable,
+        ]);
+      }
+      const obligationsTotalRow = summarySheet.addRow([
+        'TOTAL OBLIGACIONES', '', '',
+        financialSummary.total_obligations === null ? 'PENDIENTE' : financialSummary.total_obligations,
+      ]);
+      obligationsTotalRow.font = { bold: true };
+
       // =================================================
       // HOJA 2 — CAMPO
       // =================================================
@@ -65120,15 +65237,50 @@ exports.exportFinalLotXlsx =
 
       addTitle(
         fieldSheet,
-        `CAMPO · ${text(
-          lot.lot_number
-        )}`,
-        'K'
+        `CAMPO · ${text(lot.lot_number)}`,
+        commercialDocument ? 'P' : 'L'
       );
 
 
       fieldSheet.addRow([]);
 
+
+      if (commercialDocument) {
+        const header = fieldSheet.addRow([
+          'Carga', 'Linea', 'Clasificacion certificada', 'Cantidad',
+          'Modalidad', 'Origen peso', 'Bruto Campo kg', 'Destare %',
+          'Destare kg', 'Neto vivo kg', 'Gancho kg', 'Base liquidable',
+          'Precio unitario Bs', 'Moneda', 'Subtotal Bs', 'Estado',
+        ]);
+        applyHeader(header);
+        for (const line of commercialDocument.lines) {
+          const row = fieldSheet.addRow([
+            line.partial_number, line.line_number, line.classification_name,
+            line.quantity, commercialPricingLabel(line.pricing_basis),
+            commercialWeightSourceLabel(line.weight_source),
+            line.gross_weight_kg, line.shrink_percent,
+            line.shrink_weight_kg, line.net_weight_kg, line.hook_weight_kg,
+            line.billable_quantity, line.unit_price, line.currency,
+            line.amount, line.calculation_status,
+          ]);
+          for (const col of [7, 8, 9, 10, 11, 12, 13, 15]) {
+            row.getCell(col).numFmt = '#,##0.00';
+          }
+        }
+        const subtotal = fieldSheet.addRow([
+          'TOTAL CERTIFICADO', '', '', commercialDocument.quantity,
+          '', '', commercialDocument.gross_weight_total_kg,
+          '', '', '', '', '', '', '', commercialDocument.total_amount, '',
+        ]);
+        subtotal.font = { bold: true };
+        subtotal.getCell(7).numFmt = '#,##0.00';
+        subtotal.getCell(15).numFmt = '#,##0.00';
+        fieldSheet.columns.forEach((col) => { col.width = 17; });
+        fieldSheet.getColumn(3).width = 43;
+        fieldSheet.getColumn(5).width = 22;
+        fieldSheet.getColumn(6).width = 20;
+        fieldSheet.getColumn(16).width = 22;
+      } else {
 
       const fieldHeader =
         fieldSheet.addRow([
@@ -65241,6 +65393,8 @@ exports.exportFinalLotXlsx =
       ).width =
         20;
 
+
+      }
 
       fieldSheet.views = [
 
@@ -65492,7 +65646,7 @@ exports.exportFinalLotXlsx =
         `FAENA · ${text(
           lot.lot_number
         )}`,
-        'F'
+        'H'
       );
 
 
@@ -65514,6 +65668,10 @@ exports.exportFinalLotXlsx =
 
           'Estado',
 
+          'Linea Campo',
+
+          'Clasificacion Campo',
+
         ]);
 
 
@@ -65526,6 +65684,9 @@ exports.exportFinalLotXlsx =
         const animal
         of animals
       ) {
+        const commercialCategory = commercialDocument?.lines.find(
+          (line) => String(line.field_category_id) === String(animal.field_category_id)
+        );
 
         slaughterSheet.addRow([
 
@@ -65542,6 +65703,9 @@ exports.exportFinalLotXlsx =
           animal.complete
             ? 'COMPLETO'
             : 'INCOMPLETO',
+
+          commercialCategory?.line_number ?? '',
+          commercialCategory?.classification_name ?? '',
 
         ]);
 
@@ -65579,6 +65743,9 @@ exports.exportFinalLotXlsx =
           width:
             16,
         },
+
+        { width: 15 },
+        { width: 44 },
 
       ];
 
@@ -65802,13 +65969,9 @@ exports.exportFinalLotXlsx =
             lot.captador_name
           ),
           'Clasificación',
-          text(
-            lot.classification_code
-          ),
+          commercialDocument ? 'MULTIPLES LINEAS CAMPO' : text(lot.classification_code),
           'Descripción',
-          text(
-            lot.classification_name
-          ),
+          commercialDocument ? 'Ver hoja CAMPO' : text(lot.classification_name),
           'Fecha compra',
           dateOnlyText(
             lot.purchase_date
@@ -65822,13 +65985,9 @@ exports.exportFinalLotXlsx =
             lot.purchase_type
           ),
           'Base de precio',
-          text(
-            preliq.pricing_basis
-          ),
+          commercialDocument ? 'POR LINEA' : text(preliq.pricing_basis),
           'Origen de peso',
-          text(
-            preliq.weight_source
-          ),
+          commercialDocument ? 'POR LINEA' : text(preliq.weight_source),
           'Moneda',
           text(
             lot.currency
@@ -65885,6 +66044,30 @@ exports.exportFinalLotXlsx =
           'CÁLCULO DE COMPRA / GANADERO'
         );
 
+
+        if (commercialDocument) {
+          const detailHeader = preliqSheet.addRow([
+            'Linea', 'Clasificacion', 'Cantidad', 'Base kg/cabezas',
+            'Unidad de base', 'Precio unitario', 'Importe', 'Estado',
+          ]);
+          applyHeader(detailHeader);
+          for (const line of commercialDocument.lines) {
+            const r = preliqSheet.addRow([
+              line.line_number, line.classification_name, line.quantity,
+              line.billable_quantity, line.billable_unit,
+              line.unit_price, line.amount, line.calculation_status,
+            ]);
+            r.getCell(4).numFmt = '#,##0.00';
+            r.getCell(6).numFmt = '#,##0.00';
+            r.getCell(7).numFmt = '#,##0.00';
+          }
+          const subtotalRow = preliqSheet.addRow([
+            'SUBTOTAL LINEAS', '', commercialDocument.quantity, '', '', '',
+            commercialDocument.total_amount, '',
+          ]);
+          subtotalRow.font = { bold: true };
+          subtotalRow.getCell(7).numFmt = '#,##0.00';
+        } else {
 
         const sellerCalcHeader =
           preliqSheet.addRow([
@@ -65948,6 +66131,8 @@ exports.exportFinalLotXlsx =
           moneyFormat;
 
 
+        }
+
         addInfoRow([
           'Descuentos ganadero',
           number(
@@ -65957,7 +66142,7 @@ exports.exportFinalLotXlsx =
           number(
             preliq.additions_total
           ),
-          'TOTAL A PAGAR',
+          'NETO GANADERO (OBLIGACION)',
           number(
             preliq.total_payable
           ),
