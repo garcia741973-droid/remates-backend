@@ -43644,24 +43644,60 @@ exports.getPreliquidationById =
         );
 
 
+      // En lotes comerciales mixtos el peso vivo de planta
+      // proviene de Balanza, no del peso usado para pagar.
+      // No cambiar un NULL financiero por cero.
       const netLiveWeightKg =
-        Number(
-          preliquidation.net_weight_kg || 0
-        );
+        preliquidation.net_weight_kg == null
+          ? null
+          : Number(preliquidation.net_weight_kg);
 
+      const scaleWeightResult = await pool.query(
+        `
+          SELECT
+            COUNT(*)::int AS groups_count,
+            COUNT(*) FILTER (
+              WHERE sg.plant_live_weight_kg > 0
+            )::int AS weighed_groups,
+            COALESCE(
+              SUM(sg.plant_live_weight_kg),
+              0
+            )::numeric AS plant_live_weight_kg
+          FROM slaughterhouse_scale_groups sg
+          JOIN slaughterhouse_troops st
+            ON st.id = sg.troop_id
+           AND st.company_id = sg.company_id
+          WHERE sg.company_id = $1
+            AND st.purchase_lot_id = $2
+            AND st.status <> 'cancelled'
+        `,
+        [companyId, preliquidation.purchase_lot_id]
+      );
+
+      const scaleWeights = scaleWeightResult.rows[0];
+      const groupsCount = Number(scaleWeights.groups_count);
+      const weighedGroups = Number(scaleWeights.weighed_groups);
+      const plantLiveWeightKg =
+        groupsCount > 0 && weighedGroups === groupsCount
+          ? Number(scaleWeights.plant_live_weight_kg)
+          : null;
+
+      // Rendimiento fisico: peso gancho / peso vivo planta.
+      // En lotes historicos sin grupos, conservar el criterio
+      // anterior basado en el peso neto financiero.
+      const yieldWeightKg =
+        groupsCount > 0
+          ? plantLiveWeightKg
+          : netLiveWeightKg;
 
       const yieldPercent =
-        netLiveWeightKg > 0
+        yieldWeightKg != null && yieldWeightKg > 0
           ? Math.round(
               (
-                (
-                  slaughterHookWeightKg /
-                  netLiveWeightKg
-                ) *
-                100 +
+                slaughterHookWeightKg /
+                yieldWeightKg * 100 +
                 Number.EPSILON
-              ) *
-              100
+              ) * 100
             ) / 100
           : null;
 
@@ -43716,6 +43752,14 @@ exports.getPreliquidationById =
 
         net_live_weight_kg:
           netLiveWeightKg,
+
+        plant_live_weight_kg:
+          plantLiveWeightKg,
+
+        yield_basis:
+          groupsCount > 0
+            ? 'plant_live_weight_kg'
+            : 'net_live_weight_kg',
 
         yield_percent:
           yieldPercent,
@@ -44438,11 +44482,16 @@ exports.getPreliquidationById =
           );
 
 
+        // Este valor puede estar pendiente por precios
+        // individuales aun no confirmados.
         const sellerNetPayable =
-          Number(
-            preliquidation
-              .total_payable || 0
-          );
+          preliquidation.total_payable == null
+            ? null
+            : Number(preliquidation.total_payable);
+
+        const percentCommissionPending =
+          commissionType === 'percent' &&
+          sellerNetPayable === null;
 
 
         const {
@@ -44476,13 +44525,17 @@ exports.getPreliquidationById =
 
             receivedAnimals,
 
-            sellerNetPayable,
+            // La utilidad historica espera un numero. Si falta
+            // precio se bloquea el resultado porcentual abajo.
+            sellerNetPayable: sellerNetPayable ?? 0,
 
             ...commissionWeights,
           });
 
         const commissionBaseAmount =
-          calculatedCommission.base_amount;
+          percentCommissionPending
+            ? null
+            : calculatedCommission.base_amount;
 
 
         const relatedAdjustments =
@@ -44554,7 +44607,9 @@ exports.getPreliquidationById =
           });
 
         const commissionerNetPayable =
-          settledCommission.net_payable;
+          percentCommissionPending
+            ? null
+            : settledCommission.net_payable;
 
 
         commissioner = {
@@ -44581,13 +44636,17 @@ exports.getPreliquidationById =
             commissionValue,
 
           calculation_pending:
+            percentCommissionPending ||
             settledCommission.calculation_pending,
 
           base_calculation_pending:
+            percentCommissionPending ||
             settledCommission.base_calculation_pending,
 
           pending_reason:
-            settledCommission.pending_reason,
+            percentCommissionPending
+              ? 'seller_preliquidation_incomplete'
+              : settledCommission.pending_reason,
 
           override_active:
             settledCommission.override_active,
@@ -44683,10 +44742,9 @@ exports.getPreliquidationById =
       // =================================================
 
       const sellerNetPayable =
-        Number(
-          preliquidation
-            .total_payable || 0
-        );
+        preliquidation.total_payable == null
+          ? null
+          : Number(preliquidation.total_payable);
 
 
       const transportNetPayable =
@@ -44710,7 +44768,7 @@ exports.getPreliquidationById =
             );
 
       const totalObligations =
-        commissionerPending
+        sellerNetPayable === null || commissionerPending
           ? null
           : Math.round(
               (
@@ -44725,10 +44783,9 @@ exports.getPreliquidationById =
       const financialSummary = {
         seller: {
           base_amount:
-            Number(
-              preliquidation
-                .base_amount || 0
-            ),
+            preliquidation.base_amount == null
+              ? null
+              : Number(preliquidation.base_amount),
 
           discounts_total:
             Number(
@@ -44744,6 +44801,27 @@ exports.getPreliquidationById =
 
           net_payable:
             sellerNetPayable,
+
+          amount_pending:
+            sellerNetPayable === null,
+
+          pending_lines_count:
+            preliquidation.source_snapshot?.source_type ===
+              'field_commercial_lines_v1'
+              ? Number(
+                  preliquidation.source_snapshot
+                    .pending_lines_count || 0
+                )
+              : 0,
+
+          known_subtotals_by_currency:
+            preliquidation.source_snapshot?.source_type ===
+              'field_commercial_lines_v1'
+              ? (
+                  preliquidation.source_snapshot
+                    .known_subtotals_by_currency || {}
+                )
+              : {},
         },
 
 
