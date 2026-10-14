@@ -6119,6 +6119,8 @@ exports.getSlaughterhouseCarcasses =
             sc.sequence_number,
             sc.animal_sequence_number,
             sc.half_number,
+            sc.scale_group_id,
+            sc.field_category_id,
             sc.hook_weight_kg,
             sc.recorded_by,
             sc.recorded_at,
