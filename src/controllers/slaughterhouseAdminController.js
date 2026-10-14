@@ -51364,6 +51364,21 @@ exports.reviewPreliquidation =
         'BEGIN'
       );
 
+      // Mismo orden de bloqueos que al confirmar precios/recalcular:
+      // primero lote de compra, luego preliquidacion.
+      const commercialLotLock = await client.query(`
+        SELECT spl.id FROM slaughterhouse_purchase_lots spl
+        JOIN slaughterhouse_preliquidations sp
+          ON sp.purchase_lot_id = spl.id AND sp.company_id = spl.company_id
+        WHERE sp.id = $1 AND sp.company_id = $2
+        FOR UPDATE OF spl
+      `, [preliquidationId, companyId]);
+      if (commercialLotLock.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Preliquidacion no encontrada' });
+      }
+
+
 
       // =================================================
       // 2. BLOQUEAR PRELIQUIDACIÓN
@@ -51425,59 +51440,33 @@ exports.reviewPreliquidation =
 
       }
 
-      // =================================================
-      // PROTECCION DE PRELIQUIDACION POR LINEAS
-      //
-      // Mientras el motor comercial por lineas no este
-      // habilitado, ninguna preliquidacion de un lote
-      // con cargas parciales puede pasar a reviewed.
-      //
-      // Evita aprobar importes calculados mediante
-      // la modalidad general del lote.
-      // =================================================
-
-      const commercialGuardResult =
-        await client.query(
-          `
-            SELECT EXISTS (
-              SELECT 1
-
-              FROM slaughterhouse_field_partial_loads pl
-
-              JOIN slaughterhouse_troops st
-                ON st.id = pl.troop_id
-                AND st.company_id = pl.company_id
-
-              WHERE
-                pl.company_id = $1
-                AND pl.purchase_lot_id = $2
-                AND st.purchase_lot_id = pl.purchase_lot_id
-                AND st.status <> 'cancelled'
-            ) AS has_commercial_loads
-          `,
-          [
-            companyId,
-            preliquidation.purchase_lot_id,
-          ],
+      // Las lineas de Campo se revalidan contra la version economica
+      // congelada en el borrador. Diferencias contrato vs Campo NO bloquean.
+      const commercialGuardResult = await client.query(`
+        SELECT EXISTS (
+          SELECT 1 FROM slaughterhouse_field_partial_loads pl
+          JOIN slaughterhouse_troops st ON st.id = pl.troop_id
+            AND st.company_id = pl.company_id
+            AND st.purchase_lot_id = pl.purchase_lot_id
+          WHERE pl.company_id = $1 AND pl.purchase_lot_id = $2
+            AND st.status <> 'cancelled'
+        ) AS has_commercial_loads
+      `, [companyId, preliquidation.purchase_lot_id]);
+      if (commercialGuardResult.rows[0]?.has_commercial_loads === true) {
+        const { validateCommercialClosing } =
+          require('../utils/slaughterhouseCommercialClosing');
+        const validation = await validateCommercialClosing(
+          client, companyId, preliquidation
         );
-
-      if (
-        commercialGuardResult.rows[0]
-          ?.has_commercial_loads === true
-      ) {
-
-        await client.query('ROLLBACK');
-
-        return res.status(409).json({
-          error:
-            'Este lote requiere validacion financiera por lineas comerciales',
-
-          code:
-            'COMMERCIAL_LINES_REVIEW_REQUIRED',
-
-          purchase_lot_id:
-            preliquidation.purchase_lot_id,
-        });
+        if (!validation.ok) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({
+            error: validation.message,
+            code: validation.code,
+            ...validation,
+            requires_recalculation: true,
+          });
+        }
       }
 
       // =================================================
@@ -51896,6 +51885,21 @@ exports.approvePreliquidation =
         'BEGIN'
       );
 
+      // Mismo orden de bloqueos que al confirmar precios/recalcular:
+      // primero lote de compra, luego preliquidacion.
+      const commercialLotLock = await client.query(`
+        SELECT spl.id FROM slaughterhouse_purchase_lots spl
+        JOIN slaughterhouse_preliquidations sp
+          ON sp.purchase_lot_id = spl.id AND sp.company_id = spl.company_id
+        WHERE sp.id = $1 AND sp.company_id = $2
+        FOR UPDATE OF spl
+      `, [preliquidationId, companyId]);
+      if (commercialLotLock.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Preliquidacion no encontrada' });
+      }
+
+
 
       // =================================================
       // 2. BLOQUEAR PRELIQUIDACIÓN
@@ -51957,57 +51961,33 @@ exports.approvePreliquidation =
 
       }
 
-      // =================================================
-      // PROTECCION FINANCIERA DE LINEAS COMERCIALES
-      //
-      // TEMPORAL:
-      // Impide aprobar preliquidaciones de lotes
-      // con cargas parciales mientras no este
-      // implementada la revalidacion por linea.
-      // =================================================
-
-      const approvalCommercialGuardResult =
-        await client.query(
-          `
-            SELECT EXISTS (
-              SELECT 1
-
-              FROM slaughterhouse_field_partial_loads pl
-
-              JOIN slaughterhouse_troops st
-                ON st.id = pl.troop_id
-                AND st.company_id = pl.company_id
-                AND st.purchase_lot_id = pl.purchase_lot_id
-
-              WHERE
-                pl.company_id = $1
-                AND pl.purchase_lot_id = $2
-                AND st.status <> 'cancelled'
-            ) AS has_commercial_loads
-          `,
-          [
-            companyId,
-            preliquidation.purchase_lot_id,
-          ],
+      // Las lineas de Campo se revalidan contra la version economica
+      // congelada en el borrador. Diferencias contrato vs Campo NO bloquean.
+      const commercialGuardResult = await client.query(`
+        SELECT EXISTS (
+          SELECT 1 FROM slaughterhouse_field_partial_loads pl
+          JOIN slaughterhouse_troops st ON st.id = pl.troop_id
+            AND st.company_id = pl.company_id
+            AND st.purchase_lot_id = pl.purchase_lot_id
+          WHERE pl.company_id = $1 AND pl.purchase_lot_id = $2
+            AND st.status <> 'cancelled'
+        ) AS has_commercial_loads
+      `, [companyId, preliquidation.purchase_lot_id]);
+      if (commercialGuardResult.rows[0]?.has_commercial_loads === true) {
+        const { validateCommercialClosing } =
+          require('../utils/slaughterhouseCommercialClosing');
+        const validation = await validateCommercialClosing(
+          client, companyId, preliquidation
         );
-
-      if (
-        approvalCommercialGuardResult.rows[0]
-          ?.has_commercial_loads === true
-      ) {
-
-        await client.query('ROLLBACK');
-
-        return res.status(409).json({
-          error:
-            'No se puede aprobar una preliquidacion sin validacion comercial por lineas',
-
-          code:
-            'COMMERCIAL_LINES_APPROVAL_REQUIRED',
-
-          purchase_lot_id:
-            preliquidation.purchase_lot_id,
-        });
+        if (!validation.ok) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({
+            error: validation.message,
+            code: validation.code,
+            ...validation,
+            requires_recalculation: true,
+          });
+        }
       }
 
       // =================================================
@@ -52781,6 +52761,21 @@ exports.approvePreliquidation =
               true,
           });
         }
+      }
+
+      // Tambien al aprobar: alguien pudo reabrir una incidencia tras revisar.
+      const approvalIncidents = await client.query(`
+        SELECT id FROM slaughterhouse_slaughter_incidents
+        WHERE company_id = $1 AND purchase_lot_id = $2
+          AND requires_financial_review = TRUE AND review_status = 'pending'
+        LIMIT 1
+      `, [companyId, preliquidation.purchase_lot_id]);
+      if (approvalIncidents.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          code: 'PRELIQUIDATION_INCIDENTS_PENDING',
+          error: 'Existen incidencias pendientes de revision financiera',
+        });
       }
 
       // =================================================
