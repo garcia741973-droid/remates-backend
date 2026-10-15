@@ -55473,6 +55473,14 @@ exports.getReportsCatalog =
                 label: 'Cantidad contratada',
               },
               {
+                field: 'commercial_lines_count',
+                label: 'Líneas comerciales certificadas',
+              },
+              {
+                field: 'field_quantity',
+                label: 'Cantidad certificada Campo',
+              },
+              {
                 field: 'received_quantity',
                 label: 'Cantidad recibida',
               },
@@ -55481,8 +55489,16 @@ exports.getReportsCatalog =
                 label: 'Animales faenados',
               },
               {
+                field: 'field_gross_weight_kg',
+                label: 'Peso bruto certificado Campo (kg)',
+              },
+              {
+                field: 'field_net_weight_kg',
+                label: 'Peso vivo neto Campo (solo compras kg vivo)',
+              },
+              {
                 field: 'gross_weight_kg',
-                label: 'Peso bruto',
+                label: 'Peso bruto preliquidación (kg)',
               },
               {
                 field: 'shrink_weight_kg',
@@ -58079,16 +58095,36 @@ exports.getFinalLotsReport =
                 AS captador_name,
 
 
-              classification.generated_code
-                AS classification_code,
+              CASE
+                WHEN commercial_summary.lines_count > 0
+                THEN commercial_summary.classification_code
+                ELSE classification.generated_code
+              END AS classification_code,
 
-              classification.display_name
-                AS classification_name,
+              CASE
+                WHEN commercial_summary.lines_count > 0
+                THEN COALESCE(
+                  commercial_summary.classification_name,
+                  classification.display_name
+                )
+                ELSE classification.display_name
+              END AS classification_name,
 
 
-              spl.pricing_basis,
+              CASE
+                WHEN commercial_summary.lines_count > 0
+                THEN commercial_summary.pricing_basis
+                ELSE spl.pricing_basis
+              END AS pricing_basis,
 
-              spl.weight_source,
+              CASE
+                WHEN commercial_summary.lines_count > 0
+                THEN commercial_summary.weight_source
+                ELSE spl.weight_source
+              END AS weight_source,
+
+              COALESCE(commercial_summary.lines_count, 0)::int
+                AS commercial_lines_count,
 
               spl.expected_quantity,
 
@@ -58103,15 +58139,23 @@ exports.getFinalLotsReport =
               -- CAMPO
               -- ==========================================
 
-              COALESCE(
-                field_summary.field_quantity,
-                0
-              )::int
-                AS field_quantity,
+              CASE
+                WHEN commercial_summary.lines_count > 0
+                THEN commercial_summary.field_quantity
+                ELSE COALESCE(field_summary.field_quantity, 0)::int
+              END AS field_quantity,
 
-              field_summary.field_gross_weight_kg,
+              CASE
+                WHEN commercial_summary.lines_count > 0
+                THEN commercial_summary.field_gross_weight_kg
+                ELSE field_summary.field_gross_weight_kg
+              END AS field_gross_weight_kg,
 
-              field_summary.field_net_weight_kg,
+              CASE
+                WHEN commercial_summary.lines_count > 0
+                THEN commercial_summary.field_net_weight_kg
+                ELSE field_summary.field_net_weight_kg
+              END AS field_net_weight_kg,
 
 
               -- ==========================================
@@ -58853,7 +58897,85 @@ exports.getFinalLotsReport =
 
 
             -- ============================================
-            -- FECHAS DE RECEPCIÓN / FAENA
+            -- CONDICIONES REALES CERTIFICADAS EN CAMPO
+            -- Una fila por lote; no multiplica resultados.
+            -- ============================================
+
+            LEFT JOIN LATERAL (
+              SELECT
+                COUNT(*)::int AS lines_count,
+                COALESCE(SUM(c.quantity), 0)::int AS field_quantity,
+
+                CASE
+                  WHEN COUNT(*) > 0
+                   AND COUNT(c.gross_weight_kg) = COUNT(*)
+                  THEN SUM(c.gross_weight_kg)::numeric
+                  ELSE NULL
+                END AS field_gross_weight_kg,
+
+                CASE
+                  WHEN COUNT(*) > 0
+                   AND COUNT(c.gross_weight_kg) = COUNT(*)
+                   AND COUNT(DISTINCT c.pricing_basis) = 1
+                   AND MAX(c.pricing_basis) = 'live_kg'
+                  THEN SUM(
+                    ROUND(
+                      c.gross_weight_kg::numeric *
+                      (1 - COALESCE(c.shrink_percent, 0)::numeric / 100),
+                      2
+                    )
+                  )::numeric
+                  ELSE NULL
+                END AS field_net_weight_kg,
+
+                CASE
+                  WHEN COUNT(DISTINCT c.actual_classification_id) > 1
+                  THEN 'MIXTA'
+                  ELSE MAX(ac.generated_code)
+                END AS classification_code,
+
+                CASE
+                  WHEN COUNT(DISTINCT c.actual_classification_id) > 1
+                  THEN 'MIXTA (' || COUNT(*)::text || ' LÍNEAS)'
+                  WHEN COUNT(*) > 1
+                  THEN COALESCE(MAX(ac.display_name), 'CLASIFICACIÓN') ||
+                       ' (' || COUNT(*)::text || ' LÍNEAS)'
+                  ELSE MAX(ac.display_name)
+                END AS classification_name,
+
+                CASE
+                  WHEN COUNT(DISTINCT c.pricing_basis) > 1
+                  THEN 'MIXTA'
+                  ELSE MAX(c.pricing_basis)
+                END AS pricing_basis,
+
+                CASE
+                  WHEN COUNT(DISTINCT c.weight_source) > 1
+                  THEN 'MIXTO'
+                  ELSE MAX(c.weight_source)
+                END AS weight_source
+
+              FROM slaughterhouse_field_partial_loads pl
+              JOIN slaughterhouse_troops stc
+                ON stc.id = pl.troop_id
+               AND stc.company_id = pl.company_id
+               AND stc.purchase_lot_id = pl.purchase_lot_id
+              JOIN slaughterhouse_field_partial_load_categories c
+                ON c.company_id = pl.company_id
+               AND c.partial_load_id = pl.id
+              LEFT JOIN slaughterhouse_animal_classifications ac
+                ON ac.id = c.actual_classification_id
+               AND ac.company_id = c.company_id
+              WHERE pl.company_id = spl.company_id
+                AND pl.purchase_lot_id = spl.id
+                AND pl.status = 'certified'
+                AND stc.status <> 'cancelled'
+            ) commercial_summary
+              ON true
+
+
+              -- ============================================
+              -- FECHAS DE RECEPCIÓN / FAENA
             -- ============================================
 
             LEFT JOIN LATERAL (
@@ -59597,6 +59719,10 @@ exports.exportCustomReportXlsx =
       const numericFields =
         new Set([
           'expected_quantity',
+          'commercial_lines_count',
+          'field_quantity',
+          'field_gross_weight_kg',
+          'field_net_weight_kg',
           'received_quantity',
           'slaughtered_animals',
           'gross_weight_kg',
