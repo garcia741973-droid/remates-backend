@@ -45095,6 +45095,21 @@ exports.getPreliquidationById =
 // - obligaciones globales del frigorífico
 // =====================================================
 
+
+
+// Documentos certificados. Mantener la autorizacion en las rutas (reports.view).
+exports.issueSellerPdf = (req,res) =>
+  require('../utils/slaughterhouseIssuedDocuments').issue(
+    req,res,pool,'seller',exports.getSellerPreliquidationPdf);
+exports.issueCommissionerPdf = (req,res) =>
+  require('../utils/slaughterhouseIssuedDocuments').issue(req,res,pool,'commissioner');
+exports.issueTransportPdf = (req,res) =>
+  require('../utils/slaughterhouseIssuedDocuments').issue(req,res,pool,'transport');
+exports.verifyIssuedDocument = (req,res) =>
+  require('../utils/slaughterhouseIssuedDocuments').verify(req,res,pool);
+exports.revokeIssuedDocument = (req,res) =>
+  require('../utils/slaughterhouseIssuedDocuments').revoke(req,res,pool);
+
 exports.getSellerPreliquidationPdf =
   async (req, res) => {
 
@@ -46138,8 +46153,30 @@ exports.getSellerPreliquidationPdf =
         ensureSpace(72);
         doc.moveDown(0.25);
         detailRow('Subtotal compra', formatMoney(data.base_amount));
-        detailRow('Descuentos / adiciones',
-          `-${formatMoney(data.discounts_total)} / +${formatMoney(data.additions_total)}`);
+        // Motivo COMPLETO de cada ajuste en el RESUMEN, no solo total agregado.
+        for (const adjustment of sellerAdjustments) {
+          const type = adjustment.adjustment_type === 'discount'
+            ? 'DESCUENTO' : 'ADICION';
+          const description = safeText(adjustment.description,
+            adjustment.code || 'Ajuste sin motivo');
+          const title = `${type}: ${description}`;
+          const leftX = doc.page.margins.left;
+          const rightX = doc.page.width - doc.page.margins.right;
+          const titleW = pageWidth - 118;
+          doc.font('Helvetica').fontSize(8);
+          const needed = Math.max(18, doc.heightOfString(title, {width:titleW}) + 7);
+          ensureSpace(needed + 5);
+          const y = doc.y;
+          doc.text(title, leftX, y, {width:titleW});
+          doc.font('Helvetica-Bold').fontSize(8).text(
+            `${adjustment.adjustment_type === 'discount' ? '-' : '+'}${formatMoney(adjustment.amount)}`,
+            rightX - 116, y, {width:116, align:'right'});
+          doc.y = y + needed + 4;
+        }
+        if (sellerAdjustments.length === 0) {
+          detailRow('Descuentos / adiciones',
+            `-${formatMoney(data.discounts_total)} / +${formatMoney(data.additions_total)}`);
+        }
         const y = doc.y;
         doc.font('Helvetica-Bold').fontSize(12)
           .text('NETO APROBADO AL GANADERO', left, y,
@@ -46889,9 +46926,35 @@ exports.getSellerPreliquidationPdf =
               ? parts.join('  ·  ')
               : '-',
           );
+          if (commercialDocument) {
+            detailRow('Tipo / raza / condición',
+              category ? safeText(category.classification_name) :
+                'SIN CLASIFICACIÓN COMERCIAL ASIGNADA');
+          }
 
         }
 
+      }
+
+      // QR unico de emision: solo se añade al PDF definitivo aprobado.
+      if (req.documentVerification) {
+        ensureSpace(166);
+        sectionTitle('CERTIFICACION Y VALIDACION DOCUMENTAL');
+        const qrY = doc.y;
+        const qrX = doc.page.margins.left;
+        doc.image(req.documentVerification.png, qrX, qrY,
+          {width:93,height:93});
+        doc.font('Helvetica-Bold').fontSize(9)
+          .text('PLAZA GANADERA - VERIFICACION', qrX + 105, qrY,
+            {width:pageWidth - 110});
+        doc.font('Helvetica').fontSize(8)
+          .text(`Codigo: ${req.documentVerification.code}`,
+            qrX + 105, qrY + 23,{width:pageWidth - 110});
+        doc.text('Escanee el QR para comprobar autenticidad,',
+          qrX + 105, qrY + 42,{width:pageWidth - 110});
+        doc.text('importe aprobado y vigencia del documento.',
+          qrX + 105, qrY + 56,{width:pageWidth - 110});
+        doc.y = qrY + 102;
       }
 
       // =================================================

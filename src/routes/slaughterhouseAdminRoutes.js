@@ -271,6 +271,11 @@ const {
 // 👤 SESIÓN
 // =====================================================
 
+// Consulta PUBLICA limitada: no expone cuentas ni PDF privado.
+router.get('/documents/verify/:token', (req,res) =>
+  require('../controllers/slaughterhouseAdminController')
+    .verifyIssuedDocument(req,res));
+
 router.get(
   '/session',
   requireAuth,
@@ -1573,6 +1578,39 @@ router.get(
 
   getSellerPreliquidationPdf,
 
+);
+
+// Emisión DEFINITIVA: endpoint separado de la vista previa existente.
+router.get('/preliquidations/:id/seller-certified-pdf',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission('reports.view'),
+  (req,res) => require('../controllers/slaughterhouseAdminController')
+    .issueSellerPdf(req,res)
+);
+
+
+// Solo informes autorizados. Una liquidacion NO acredita pago.
+router.get('/preliquidations/:id/commissioner-pdf',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission('reports.view'),
+  (req,res) => require('../controllers/slaughterhouseAdminController')
+    .issueCommissionerPdf(req,res)
+);
+router.get('/preliquidations/:id/transports/:negotiationId/pdf',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission('reports.view'),
+  (req,res) => require('../controllers/slaughterhouseAdminController')
+    .issueTransportPdf(req,res)
+);
+router.post('/issued-documents/:documentId/revoke',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission('preliquidation.manage'),
+  (req,res) => require('../controllers/slaughterhouseAdminController')
+    .revokeIssuedDocument(req,res)
 );
 
 router.get(
