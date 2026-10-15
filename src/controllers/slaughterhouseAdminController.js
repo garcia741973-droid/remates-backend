@@ -45105,6 +45105,13 @@ exports.issueCommissionerPdf = (req,res) =>
   require('../utils/slaughterhouseIssuedDocuments').issue(req,res,pool,'commissioner');
 exports.issueTransportPdf = (req,res) =>
   require('../utils/slaughterhouseIssuedDocuments').issue(req,res,pool,'transport');
+// Lectura inmutable del PDF certificado: SIN crear documentos.
+exports.downloadIssuedSellerPdf = (req,res) =>
+  require('../utils/slaughterhouseIssuedDocuments').download(req,res,pool,'seller');
+exports.downloadIssuedCommissionerPdf = (req,res) =>
+  require('../utils/slaughterhouseIssuedDocuments').download(req,res,pool,'commissioner');
+exports.downloadIssuedTransportPdf = (req,res) =>
+  require('../utils/slaughterhouseIssuedDocuments').download(req,res,pool,'transport');
 exports.verifyIssuedDocument = (req,res) =>
   require('../utils/slaughterhouseIssuedDocuments').verify(req,res,pool);
 exports.revokeIssuedDocument = (req,res) =>

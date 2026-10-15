@@ -1581,27 +1581,54 @@ router.get(
 );
 
 // Emisión DEFINITIVA: endpoint separado de la vista previa existente.
+// Descargar SOLO documentos previamente emitidos; GET nunca crea certificados.
 router.get('/preliquidations/:id/seller-certified-pdf',
   requireAuth,
   requireSlaughterhouseAdmin,
   requireSlaughterhousePermission('reports.view'),
+  (req,res) => require('../controllers/slaughterhouseAdminController')
+    .downloadIssuedSellerPdf(req,res)
+);
+// Emision irreversible: requiere permiso financiero y confirmacion en la web.
+router.post('/preliquidations/:id/seller-certified-pdf',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission('preliquidation.manage'),
   (req,res) => require('../controllers/slaughterhouseAdminController')
     .issueSellerPdf(req,res)
 );
 
 
 // Solo informes autorizados. Una liquidacion NO acredita pago.
+// Descargar SOLO documentos previamente emitidos; GET nunca crea certificados.
 router.get('/preliquidations/:id/commissioner-pdf',
   requireAuth,
   requireSlaughterhouseAdmin,
   requireSlaughterhousePermission('reports.view'),
   (req,res) => require('../controllers/slaughterhouseAdminController')
+    .downloadIssuedCommissionerPdf(req,res)
+);
+// Emision irreversible: requiere permiso financiero y confirmacion en la web.
+router.post('/preliquidations/:id/commissioner-pdf',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission('preliquidation.manage'),
+  (req,res) => require('../controllers/slaughterhouseAdminController')
     .issueCommissionerPdf(req,res)
 );
+// Descargar SOLO documentos previamente emitidos; GET nunca crea certificados.
 router.get('/preliquidations/:id/transports/:negotiationId/pdf',
   requireAuth,
   requireSlaughterhouseAdmin,
   requireSlaughterhousePermission('reports.view'),
+  (req,res) => require('../controllers/slaughterhouseAdminController')
+    .downloadIssuedTransportPdf(req,res)
+);
+// Emision irreversible: requiere permiso financiero y confirmacion en la web.
+router.post('/preliquidations/:id/transports/:negotiationId/pdf',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission('preliquidation.manage'),
   (req,res) => require('../controllers/slaughterhouseAdminController')
     .issueTransportPdf(req,res)
 );

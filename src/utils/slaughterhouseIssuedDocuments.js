@@ -341,7 +341,7 @@ async function issue(req,res,pool,kind,renderSeller) {
     }
     // Separación multempresa incluso en revocación y descargas.
     const old=await client.query(`
-      SELECT id,pdf_bytes,pdf_sha256,revoked_at
+      SELECT id,document_code,pdf_bytes,pdf_sha256,revoked_at
       FROM slaughterhouse_issued_documents
       WHERE company_id=$1 AND preliquidation_id=$2 AND document_kind=$3 AND reference_id=$4
       FOR UPDATE
@@ -353,7 +353,7 @@ async function issue(req,res,pool,kind,renderSeller) {
       const previous=old.rows[0].pdf_bytes;
       if(sha(previous)!==old.rows[0].pdf_sha256) throw new Error('DOCUMENT_HASH_MISMATCH');
       await client.query('COMMIT');
-      return sendPdf(res,previous,`PG_empresa_${companyId}_${kind}_preliquidacion_${preliquidationId}${ref ? `_negociacion_${ref}` : ''}.pdf`);
+      return res.json({status:'existing',document_code:old.rows[0].document_code});
     }
     const adjustments=await loadAdjustments(client,p.id,companyId);
     const token=crypto.randomBytes(32).toString('base64url');
@@ -382,12 +382,46 @@ async function issue(req,res,pool,kind,renderSeller) {
     `,[companyId,preliquidationId,kind,ref,code,sha(token),sha(buf),buf,
       JSON.stringify(metadata),Number(req.slaughterhouseAdmin.user_id)]);
     await client.query('COMMIT');
-    return sendPdf(res,buf,`PG_empresa_${companyId}_${kind}_preliquidacion_${preliquidationId}${ref ? `_negociacion_${ref}` : ''}.pdf`);
+    return res.status(201).json({status:'issued',document_code:code});
   } catch(err) {
     if(client) {try{await client.query('ROLLBACK');}catch(_) {}}
     console.error('FRIGOSI ISSUE CERTIFIED PDF ERROR:',err);
     if(!res.headersSent) return res.status(err.status||500).json({error:err.status?err.message:'No se pudo emitir documento certificado'});
   } finally {if(client)client.release();}
+}
+
+// Descarga protegida, estrictamente de solo lectura.
+// Un GET no puede insertar filas ni congelar un PDF accidentalmente.
+async function download(req,res,pool,kind) {
+  try {
+    const companyId = Number(req.slaughterhouseAdmin?.company_id);
+    const preliquidationId = Number(req.params.id);
+    const ref = kind==='transport' ? Number(req.params.negotiationId) : 0;
+    if (!Number.isSafeInteger(companyId) || companyId<=0 ||
+        !Number.isSafeInteger(preliquidationId) || preliquidationId<=0 ||
+        !Number.isSafeInteger(ref) || ref<0 || (kind==='transport' && ref===0)) {
+      return res.status(400).json({error:'Identificador de documento invalido'});
+    }
+    const q = await pool.query(`
+      SELECT d.pdf_bytes,d.pdf_sha256,d.revoked_at
+      FROM slaughterhouse_issued_documents d
+      JOIN slaughterhouse_preliquidations sp
+        ON sp.id=d.preliquidation_id AND sp.company_id=d.company_id
+      WHERE d.company_id=$1 AND d.preliquidation_id=$2
+        AND d.document_kind=$3 AND d.reference_id=$4
+      LIMIT 1
+    `,[companyId,preliquidationId,kind,ref]);
+    if (!q.rowCount) return res.status(404).json({error:'Documento aun no emitido'});
+    const d=q.rows[0];
+    if (d.revoked_at) return res.status(410).json({error:'Documento revocado'});
+    if (sha(d.pdf_bytes)!==d.pdf_sha256)
+      return res.status(500).json({error:'Error de integridad del documento'});
+    return sendPdf(res,d.pdf_bytes,
+      `PG_empresa_${companyId}_${kind}_preliquidacion_${preliquidationId}${ref ? `_negociacion_${ref}` : ''}.pdf`);
+  } catch(e) {
+    console.error('FRIGOSI DOWNLOAD CERTIFIED PDF ERROR:',e);
+    if (!res.headersSent) return res.status(500).json({error:'No se pudo descargar documento certificado'});
+  }
 }
 
 function sendPdf(res,buf,filename) {
@@ -441,4 +475,4 @@ async function revoke(req,res,pool) {
   }catch(e){console.error(e);return res.status(500).json({error:'No se pudo revocar'});}
 }
 
-module.exports={issue,verify,revoke,commissionFinancial,renderTransport,renderCommission};
+module.exports={issue,download,verify,revoke,commissionFinancial,renderTransport,renderCommission};
