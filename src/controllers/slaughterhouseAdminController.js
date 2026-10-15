@@ -45229,9 +45229,13 @@ exports.getSellerPreliquidationPdf =
         loadCommercialDocumentLines,
         commercialPricingLabel,
         commercialWeightSourceLabel,
+        loadScaleGroupSummary,
       } = require('../utils/slaughterhouseCommercialDocuments');
       const commercialDocument = await loadCommercialDocumentLines(
         pool, companyId, data.purchase_lot_id, data
+      );
+      const scaleSummary = await loadScaleGroupSummary(
+        pool, companyId, data.purchase_lot_id
       );
 
 
@@ -45317,6 +45321,9 @@ exports.getSellerPreliquidationPdf =
 
                 sc.troop_id,
 
+                sc.field_category_id,
+                sc.scale_group_id,
+
                 NULL::integer
                   AS animal_sequence_number,
 
@@ -45356,6 +45363,9 @@ exports.getSellerPreliquidationPdf =
                 ) AS animal_key,
 
                 sc.troop_id,
+
+                MAX(sc.field_category_id) AS field_category_id,
+                MAX(sc.scale_group_id) AS scale_group_id,
 
                 sc.animal_sequence_number,
 
@@ -45482,6 +45492,8 @@ exports.getSellerPreliquidationPdf =
 
                     'troop_id',
                       troop_id,
+                    'field_category_id', field_category_id,
+                    'scale_group_id', scale_group_id,
 
                     'animal_sequence_number',
                       animal_sequence_number,
@@ -45610,21 +45622,16 @@ exports.getSellerPreliquidationPdf =
         );
 
 
-      const yieldPercent =
-        netLiveWeightKg > 0 &&
-        hookWeightKg > 0
-          ? Math.round(
-              (
-                (
-                  hookWeightKg /
-                  netLiveWeightKg
-                ) *
-                100 +
-                Number.EPSILON
-              ) *
-              100
-            ) / 100
-          : null;
+      // Rendimiento fisico = gancho planta / vivo planta de GRUPOS.
+      // Peso vivo comercial certificado Campo no sustituye a Balanza.
+      const plantLiveWeightKg = scaleSummary.has_groups
+        ? scaleSummary.total_plant_live_weight_kg
+        : null;
+      const yieldPercent = plantLiveWeightKg > 0 && hookWeightKg > 0
+        ? Math.round((hookWeightKg / plantLiveWeightKg * 100 + Number.EPSILON) * 100) / 100
+        : (!commercialDocument && !scaleSummary.has_groups && netLiveWeightKg > 0 && hookWeightKg > 0
+          ? Math.round((hookWeightKg / netLiveWeightKg * 100 + Number.EPSILON) * 100) / 100
+          : null);
 
       const averageLiveWeightKg =
         netLiveWeightKg > 0 &&
@@ -46110,6 +46117,39 @@ exports.getSellerPreliquidationPdf =
         if (data.seller_account_holder) detailRow('Titular de cuenta', data.seller_account_holder);
       }
 
+      // Resumen ejecutivo al comienzo: el ganadero no debe ir a la
+      // ultima pagina para descubrir el neto aprobado.
+      if (commercialDocument) {
+        sectionTitle('RESUMEN COMERCIAL Y MONTO APROBADO');
+        const left = doc.page.margins.left;
+        const amountRight = doc.page.width - doc.page.margins.right;
+        const labelWidth = pageWidth - 122;
+        for (const line of commercialDocument.lines) {
+          ensureSpace(22);
+          const y = doc.y;
+          const name = `Carga ${line.partial_number} / Linea ${line.line_number} - ${line.classification_name}`;
+          doc.font('Helvetica').fontSize(8).text(name, left, y,
+            {width: labelWidth, lineBreak: false, ellipsis: true});
+          doc.font('Helvetica-Bold').fontSize(8).text(
+            line.amount == null ? 'PENDIENTE' : formatMoney(line.amount),
+            amountRight - 116, y, {width: 116, align: 'right', lineBreak: false});
+          doc.y = y + 20;
+        }
+        ensureSpace(72);
+        doc.moveDown(0.25);
+        detailRow('Subtotal compra', formatMoney(data.base_amount));
+        detailRow('Descuentos / adiciones',
+          `-${formatMoney(data.discounts_total)} / +${formatMoney(data.additions_total)}`);
+        const y = doc.y;
+        doc.font('Helvetica-Bold').fontSize(12)
+          .text('NETO APROBADO AL GANADERO', left, y,
+            {width: pageWidth * 0.61});
+        doc.text(formatMoney(data.total_payable), left + pageWidth * 0.61, y,
+          {width: pageWidth * 0.39, align: 'right'});
+        doc.moveDown(0.65).font('Helvetica').fontSize(8)
+          .text('Obligacion aprobada. Este documento NO acredita pago efectuado.');
+      }
+
       // =================================================
       // RESUMEN DE FAENA
       // =================================================
@@ -46191,6 +46231,14 @@ exports.getSellerPreliquidationPdf =
 
       }
 
+
+      if (plantLiveWeightKg != null) {
+        detailRow('Peso vivo en planta - Balanza',
+          `${formatNumber(plantLiveWeightKg)} kg`);
+      } else if (scaleSummary.has_groups) {
+        detailRow('Peso vivo en planta - Balanza',
+          `SIN DATO: ${scaleSummary.unweighed_groups_count} grupo(s) sin peso`);
+      }
 
       if (
         hookWeightKg > 0
@@ -46282,124 +46330,6 @@ exports.getSellerPreliquidationPdf =
 
 
       // =================================================
-      // DETALLE DE CARCASAS
-      // =================================================
-
-      if (
-        carcassDetails.length > 0
-      ) {
-
-        sectionTitle(
-          'DETALLE DE CARCASAS',
-        );
-
-
-        for (
-          let i = 0;
-          i < carcassDetails.length;
-          i++
-        ) {
-
-          const carcass =
-            carcassDetails[i];
-
-
-          const half1 =
-            numberValue(
-              carcass[
-                'half_1_weight_kg'
-              ],
-            );
-
-
-          const half2 =
-            numberValue(
-              carcass[
-                'half_2_weight_kg'
-              ],
-            );
-
-
-          const total =
-            numberValue(
-              carcass[
-                'carcass_weight_kg'
-              ],
-            );
-
-
-          const complete =
-            carcass[
-              'is_complete'
-            ] === true;
-
-
-          const parts = [];
-
-
-          if (
-            half1 !== null
-          ) {
-
-            parts.push(
-              `Media 1: ${formatNumber(
-                half1,
-                2,
-              )} kg`,
-            );
-
-          }
-
-
-          if (
-            half2 !== null
-          ) {
-
-            parts.push(
-              `Media 2: ${formatNumber(
-                half2,
-                2,
-              )} kg`,
-            );
-
-          }
-
-
-          if (
-            total !== null
-          ) {
-
-            parts.push(
-              `Total: ${formatNumber(
-                total,
-                2,
-              )} kg`,
-            );
-
-          }
-
-
-          if (!complete) {
-
-            parts.push(
-              'REGISTRO INCOMPLETO',
-            );
-
-          }
-
-
-          detailRow(
-            `Animal ${i + 1}`,
-            parts.length > 0
-              ? parts.join('  ·  ')
-              : '-',
-          );
-
-        }
-
-      }
-      
-      // =================================================
       // BASE DE CÁLCULO
       // =================================================
 
@@ -46420,7 +46350,7 @@ exports.getSellerPreliquidationPdf =
         for (const line of commercialDocument.lines) {
           ensureSpace(175);
           doc.moveDown(0.35).font('Helvetica-Bold').fontSize(10)
-            .text(`Linea ${line.line_number} - ${safeText(line.classification_name)}`);
+            .text(`Carga ${line.partial_number} / Linea ${line.line_number} - ${safeText(line.classification_name)}`);
           doc.moveDown(0.15);
           detailRow('Carga / cantidad',
             `Carga ${line.partial_number} · ${formatNumber(line.quantity, 0)} cabezas`);
@@ -46833,6 +46763,136 @@ exports.getSellerPreliquidationPdf =
 
       }
 
+
+      // El detalle individual se separa de la liquidacion comercial.
+      if (carcassDetails.length > 0) doc.addPage();
+
+      // =================================================
+      // DETALLE DE CARCASAS
+      // =================================================
+
+      if (
+        carcassDetails.length > 0
+      ) {
+
+        sectionTitle(
+          'ANEXO - DETALLE DE CARCASAS',
+        );
+
+
+        for (
+          let i = 0;
+          i < carcassDetails.length;
+          i++
+        ) {
+
+          const carcass =
+            carcassDetails[i];
+
+
+          const half1 =
+            numberValue(
+              carcass[
+                'half_1_weight_kg'
+              ],
+            );
+
+
+          const half2 =
+            numberValue(
+              carcass[
+                'half_2_weight_kg'
+              ],
+            );
+
+
+          const total =
+            numberValue(
+              carcass[
+                'carcass_weight_kg'
+              ],
+            );
+
+
+          const complete =
+            carcass[
+              'is_complete'
+            ] === true;
+
+
+          const parts = [];
+
+
+          if (
+            half1 !== null
+          ) {
+
+            parts.push(
+              `Media 1: ${formatNumber(
+                half1,
+                2,
+              )} kg`,
+            );
+
+          }
+
+
+          if (
+            half2 !== null
+          ) {
+
+            parts.push(
+              `Media 2: ${formatNumber(
+                half2,
+                2,
+              )} kg`,
+            );
+
+          }
+
+
+          if (
+            total !== null
+          ) {
+
+            parts.push(
+              `Total: ${formatNumber(
+                total,
+                2,
+              )} kg`,
+            );
+
+          }
+
+
+          if (!complete) {
+
+            parts.push(
+              'REGISTRO INCOMPLETO',
+            );
+
+          }
+
+
+          const category = commercialDocument?.lines.find(
+            (l) => String(l.field_category_id) === String(carcass.field_category_id)
+          );
+          const group = scaleSummary.groups.find(
+            (g) => String(g.group_id) === String(carcass.scale_group_id)
+          );
+          const trace = category
+            ? ` - C${category.partial_number}/L${category.line_number}` : '';
+          if (group) parts.push(`Grupo Balanza ${group.group_number}`);
+          detailRow(
+            `Animal ${i + 1}${trace}`,
+            parts.length > 0
+              ? parts.join('  ·  ')
+              : '-',
+          );
+
+        }
+
+      }
 
       // =================================================
       // PIE
@@ -62816,6 +62876,7 @@ exports.exportFinalLotXlsx =
                 sc.half_number,
 
                 sc.field_category_id,
+                sc.scale_group_id,
 
                 sc.hook_weight_kg,
 
@@ -62996,9 +63057,13 @@ exports.exportFinalLotXlsx =
         loadCommercialDocumentLines,
         commercialPricingLabel,
         commercialWeightSourceLabel,
+        loadScaleGroupSummary,
       } = require('../utils/slaughterhouseCommercialDocuments');
       const commercialDocument = await loadCommercialDocumentLines(
         pool, companyId, purchaseLotId, preliq
+      );
+      const scaleSummary = await loadScaleGroupSummary(
+        pool, companyId, purchaseLotId
       );
 
 
@@ -64409,6 +64474,7 @@ exports.exportFinalLotXlsx =
           legacyAnimals.push({
 
             field_category_id: row.field_category_id,
+            scale_group_id: row.scale_group_id,
 
             troop_id:
               row.troop_id,
@@ -64455,6 +64521,7 @@ exports.exportFinalLotXlsx =
             {
 
               field_category_id: row.field_category_id,
+              scale_group_id: row.scale_group_id,
 
               troop_id:
                 row.troop_id,
@@ -64586,27 +64653,20 @@ exports.exportFinalLotXlsx =
         );
 
 
-        const plantLiveWeightKg =
-        troopsResult.rows.reduce(
-            (
-            total,
-            row
-            ) =>
-            total +
-            number(
-                row.reception_live_weight_kg
-            ),
-            0
-        );
-
-
-        const carcassYieldPercent =
-        plantLiveWeightKg > 0
-            ? (
-                hookWeightKg /
-                plantLiveWeightKg
-            ) * 100
-            : 0;
+      // Para compras modernas, Balanza pesa por GRUPO, no por camion.
+      // No mezclar pesos parciales ni declarar 0% cuando falta medicion.
+      const legacyWeightValues = troopRows
+        .filter((row) => row.troop_status !== 'cancelled')
+        .map((row) => Number(row.reception_live_weight_kg))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      const legacyPlantLiveKg = legacyWeightValues.length
+        ? legacyWeightValues.reduce((a, b) => a + b, 0) : null;
+      const plantLiveWeightKg = scaleSummary.has_groups
+        ? scaleSummary.total_plant_live_weight_kg
+        : (commercialDocument ? null : legacyPlantLiveKg);
+      const carcassYieldPercent = plantLiveWeightKg > 0 && hookWeightKg > 0
+        ? Math.round((hookWeightKg / plantLiveWeightKg * 100 + Number.EPSILON) * 100) / 100
+        : null;
 
       const animalWeights =
         completedAnimals
@@ -65225,6 +65285,16 @@ exports.exportFinalLotXlsx =
       ]);
       obligationsTotalRow.font = { bold: true };
 
+      summarySheet.addRow([
+        'Peso vivo Balanza kg', plantLiveWeightKg ?? 'SIN DATO',
+        'Rendimiento %', carcassYieldPercent ?? 'SIN DATO',
+      ]);
+      if (scaleSummary.has_groups && !scaleSummary.complete) {
+        summarySheet.addRow([
+          'AVISO BALANZA', `${scaleSummary.unweighed_groups_count} grupo(s) sin peso; rendimiento no disponible`,
+        ]);
+      }
+
       // =================================================
       // HOJA 2 — CAMPO
       // =================================================
@@ -65632,6 +65702,38 @@ exports.exportFinalLotXlsx =
 
 
       // =================================================
+      // GRUPOS DE BALANZA (un registro por grupo)
+      // =================================================
+      const scaleSheet = workbook.addWorksheet('BALANZA');
+      addTitle(scaleSheet, `BALANZA · ${text(lot.lot_number)}`, 'G');
+      scaleSheet.addRow([]);
+      const scaleHead = scaleSheet.addRow([
+        'Grupo ID', 'Tropa', 'Grupo', 'Estado', 'Cabezas asignadas',
+        'Peso vivo planta kg', 'Pesado en',
+      ]);
+      applyHeader(scaleHead);
+      for (const group of scaleSummary.groups) {
+        const r = scaleSheet.addRow([
+          group.group_id, group.troop_id, group.group_number, group.status,
+          group.assigned_quantity, group.plant_live_weight_kg ?? 'SIN DATO',
+          dateText(group.plant_weighed_at),
+        ]);
+        r.getCell(6).numFmt = '#,##0.00';
+      }
+      const scaleTotal = scaleSheet.addRow([
+        'TOTAL BALANZA', '', '', '',
+        scaleSummary.groups.reduce((a, g) => a + g.assigned_quantity, 0),
+        scaleSummary.total_plant_live_weight_kg ?? 'SIN DATO', '',
+      ]);
+      scaleTotal.font = {bold: true};
+      scaleTotal.getCell(6).numFmt = '#,##0.00';
+      scaleSheet.columns = [
+        {width: 16}, {width: 13}, {width: 13}, {width: 21},
+        {width: 22}, {width: 24}, {width: 26},
+      ];
+      scaleSheet.views = [{state: 'frozen', ySplit: 3}];
+
+      // =================================================
       // HOJA 4 — FAENA
       // =================================================
 
@@ -65646,7 +65748,7 @@ exports.exportFinalLotXlsx =
         `FAENA · ${text(
           lot.lot_number
         )}`,
-        'H'
+        'K'
       );
 
 
@@ -65668,9 +65770,11 @@ exports.exportFinalLotXlsx =
 
           'Estado',
 
+          'Carga Campo',
           'Linea Campo',
-
+          'ID linea Campo',
           'Clasificacion Campo',
+          'Grupo Balanza',
 
         ]);
 
@@ -65704,8 +65808,13 @@ exports.exportFinalLotXlsx =
             ? 'COMPLETO'
             : 'INCOMPLETO',
 
+          commercialCategory?.partial_number ?? '',
           commercialCategory?.line_number ?? '',
+          animal.field_category_id ?? '',
           commercialCategory?.classification_name ?? '',
+          scaleSummary.groups.find(
+            (g) => String(g.group_id) === String(animal.scale_group_id)
+          )?.group_number ?? '',
 
         ]);
 
@@ -65744,8 +65853,11 @@ exports.exportFinalLotXlsx =
             16,
         },
 
-        { width: 15 },
+        { width: 16 },
+        { width: 16 },
+        { width: 19 },
         { width: 44 },
+        { width: 17 },
 
       ];
 
@@ -66412,11 +66524,11 @@ exports.exportFinalLotXlsx =
         const yieldRow =
         addInfoRow([
             'Rendimiento carcasa',
-            carcassYieldPercent,
+            carcassYieldPercent ?? 'SIN DATO',
             'Fórmula',
-            'Peso gancho / peso vivo planta',
+            'Peso gancho / peso vivo planta (Balanza por grupos)',
             'Peso vivo planta kg',
-            plantLiveWeightKg,
+            plantLiveWeightKg ?? 'SIN DATO',
             'Peso gancho kg',
             hookWeightKg,
         ]);

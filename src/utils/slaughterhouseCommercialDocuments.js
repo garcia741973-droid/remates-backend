@@ -146,8 +146,56 @@ async function loadCommercialDocumentLines(pool, companyId, purchaseLotId, preli
   };
 }
 
+// Peso vivo REAL de Balanza: cada grupo se suma solo una vez.
+// Nunca se obtiene de la suma de lineas (un grupo puede contener varias).
+// Si existe un grupo sin pesaje, NO se publica un rendimiento parcial.
+async function loadScaleGroupSummary(pool, companyId, purchaseLotId) {
+  const result = await pool.query(`
+    SELECT sg.id AS group_id, sg.troop_id, sg.group_number, sg.status,
+           sg.plant_live_weight_kg, sg.plant_weighed_at,
+           COALESCE((
+             SELECT SUM(gl.quantity)
+             FROM slaughterhouse_scale_group_lines gl
+             WHERE gl.company_id = sg.company_id AND gl.group_id = sg.id
+           ), 0) AS assigned_quantity
+    FROM slaughterhouse_scale_groups sg
+    JOIN slaughterhouse_troops st ON st.id = sg.troop_id
+      AND st.company_id = sg.company_id
+      AND st.purchase_lot_id = $2 AND st.status <> 'cancelled'
+    WHERE sg.company_id = $1
+    ORDER BY sg.troop_id, sg.group_number, sg.id
+  `, [companyId, purchaseLotId]);
+  const groups = result.rows.map((g) => {
+    const weight = g.plant_live_weight_kg == null
+      ? null : Number(g.plant_live_weight_kg);
+    return {
+      group_id: g.group_id,
+      troop_id: g.troop_id,
+      group_number: g.group_number,
+      status: g.status,
+      assigned_quantity: Number(g.assigned_quantity),
+      plant_live_weight_kg:
+        Number.isFinite(weight) && weight > 0 ? weight : null,
+      plant_weighed_at: g.plant_weighed_at,
+    };
+  });
+  const unweighed = groups.filter((g) => g.plant_live_weight_kg == null).length;
+  const complete = groups.length > 0 && unweighed === 0;
+  return {
+    groups,
+    has_groups: groups.length > 0,
+    complete,
+    unweighed_groups_count: unweighed,
+    total_plant_live_weight_kg: complete
+      ? Math.round((groups.reduce((acc, g) => acc + g.plant_live_weight_kg, 0)
+          + Number.EPSILON) * 100) / 100
+      : null,
+  };
+}
+
 module.exports = {
   loadCommercialDocumentLines,
   commercialPricingLabel,
   commercialWeightSourceLabel,
+  loadScaleGroupSummary,
 };
