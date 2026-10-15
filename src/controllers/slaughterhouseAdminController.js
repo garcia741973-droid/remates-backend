@@ -55667,12 +55667,44 @@ exports.getReportsCatalog =
                 label: 'Total compra',
               },
               {
+                field: 'commission_weight_basis_kg',
+                label: 'Peso base comisión (kg)',
+              },
+              {
                 field: 'commission_amount',
                 label: 'Base comisión',
               },
               {
+                field: 'commission_discounts_total',
+                label: 'Descuentos comisión',
+              },
+              {
+                field: 'commission_additions_total',
+                label: 'Adiciones comisión',
+              },
+              {
+                field: 'commission_adjustment_notes',
+                label: 'Detalle de ajustes',
+              },
+              {
+                field: 'commission_override_amount',
+                label: 'Importe autorizado manualmente',
+              },
+              {
+                field: 'commission_override_reason',
+                label: 'Motivo importe autorizado',
+              },
+              {
                 field: 'commission_net_payable',
                 label: 'Neto comisión',
+              },
+              {
+                field: 'commission_calculation_pending',
+                label: 'Cálculo pendiente',
+              },
+              {
+                field: 'commission_pending_reason',
+                label: 'Motivo pendiente',
               },
               {
                 field: 'preliquidation_status',
@@ -56865,7 +56897,26 @@ exports.getCaptadorPaymentsReport =
                       WHERE spa.adjustment_type = 'addition'
                     ),
                     0
-                  ) AS additions_total
+                  ) AS additions_total,
+
+                  STRING_AGG(
+                    CONCAT(
+                      CASE spa.adjustment_type
+                        WHEN 'discount' THEN 'DESCUENTO: '
+                        WHEN 'addition' THEN 'ADICIÓN: '
+                        ELSE 'AJUSTE: '
+                      END,
+                      COALESCE(
+                        NULLIF(TRIM(spa.description), ''),
+                        NULLIF(TRIM(spa.code), ''),
+                        'Sin detalle'
+                      ),
+                      ' (Bs ',
+                      ROUND(spa.amount::numeric, 2)::text,
+                      ')'
+                    ),
+                    ' | ' ORDER BY spa.id
+                  ) AS adjustment_notes
 
                 FROM slaughterhouse_preliquidation_adjustments spa
 
@@ -56897,6 +56948,8 @@ exports.getCaptadorPaymentsReport =
                 Number(adjustment.discounts_total),
               additions_total:
                 Number(adjustment.additions_total),
+              adjustment_notes:
+                adjustment.adjustment_notes || null,
             });
           }
         }
@@ -56962,6 +57015,68 @@ exports.getCaptadorPaymentsReport =
               incompleteAnimals += 1;
             }
 
+            // El modelo comercial por líneas guarda el peso BRUTO
+            // certificado por línea en el snapshot de preliquidación.
+            // En una obligación aprobada dicho snapshot es la referencia
+            // histórica; NO se sustituye por peso neto o peso en planta.
+            const sourceSnapshot =
+              typeof row.commission_source_snapshot === 'string'
+                ? JSON.parse(row.commission_source_snapshot)
+                : row.commission_source_snapshot;
+
+            let certifiedFieldGrossWeightKg = null;
+            let certifiedFieldWeightComplete = false;
+
+            if (
+              row.commission_type === 'per_kg_initial' &&
+              sourceSnapshot?.source_type ===
+                'field_commercial_lines_v1' &&
+              sourceSnapshot.calculation_complete === true &&
+              Array.isArray(sourceSnapshot.commercial_lines) &&
+              sourceSnapshot.commercial_lines.length > 0
+            ) {
+              const lines = sourceSnapshot.commercial_lines;
+              const ids = new Set();
+              let gross = 0;
+              let heads = 0;
+              let valid =
+                Number(sourceSnapshot.pending_lines_count) === 0 &&
+                Number(sourceSnapshot.blocked_lines_count) === 0 &&
+                Number(sourceSnapshot.commercial_lines_count) ===
+                  lines.length;
+
+              for (const line of lines) {
+                const id = Number(line?.field_category_id);
+                const kg = line?.gross_weight_kg == null
+                  ? NaN : Number(line.gross_weight_kg);
+                const quantity = Number(line?.quantity);
+
+                if (
+                  !Number.isSafeInteger(id) || id <= 0 ||
+                  ids.has(id) ||
+                  !Number.isFinite(kg) || kg <= 0 ||
+                  !Number.isSafeInteger(quantity) || quantity <= 0 ||
+                  line?.calculation_status !== 'ready'
+                ) {
+                  valid = false;
+                  break;
+                }
+
+                ids.add(id);
+                gross += kg;
+                heads += quantity;
+              }
+
+              if (
+                valid &&
+                heads === Number(row.received_quantity) &&
+                Number.isFinite(gross) && gross > 0
+              ) {
+                certifiedFieldGrossWeightKg = gross;
+                certifiedFieldWeightComplete = true;
+              }
+            }
+
             const weights =
               resolveCommissionWeights({
                 sourceSnapshot:
@@ -56976,6 +57091,8 @@ exports.getCaptadorPaymentsReport =
                 incompleteAnimals,
 
                 hookWeightKg,
+                certifiedFieldGrossWeightKg,
+                certifiedFieldWeightComplete,
               });
 
             const calculated =
@@ -57023,6 +57140,7 @@ exports.getCaptadorPaymentsReport =
                     commissionAdjustmentTotals.get(adjustmentKey) || {
                       discounts_total: 0,
                       additions_total: 0,
+                      adjustment_notes: null,
                     };
 
                   const discountsTotal =
@@ -57063,6 +57181,9 @@ exports.getCaptadorPaymentsReport =
 
           commission_additions_total:
             additionsTotal,
+
+          commission_adjustment_notes:
+            adjustments.adjustment_notes,
 
           commission_net_payable:
             commissionNetPayable,
@@ -59490,10 +59611,18 @@ exports.exportCustomReportXlsx =
 
           'commission_value',
           'purchase_total_payable',
+          'commission_weight_basis_kg',
           'commission_amount',
+          'commission_discounts_total',
+          'commission_additions_total',
+          'commission_override_amount',
+          'commission_net_payable',
 
           'transported_quantity',
           'trip_price',
+          'transport_discounts_total',
+          'transport_additions_total',
+          'transport_net_payable',
         ]);
 
       const dateTimeFields =
