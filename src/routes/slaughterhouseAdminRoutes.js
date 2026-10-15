@@ -53,6 +53,7 @@ const {
   getBanks,
 
   createBank,
+  updateBank,
 
   setBankActive,
 
@@ -635,6 +636,14 @@ router.post(
 
   createBank,
 
+);
+
+router.patch(
+  '/banks/:id',
+  requireAuth,
+  requireSlaughterhouseAdmin,
+  requireSlaughterhousePermission('catalogs.manage'),
+  updateBank,
 );
 
 router.patch(

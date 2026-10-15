@@ -5092,154 +5092,178 @@ exports.setEstateActive =
 // GET /slaughterhouse/admin/banks
 // =====================================================
 
-exports.getBanks =
-  async (req, res) => {
+exports.getBanks = async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT b.id, b.name, b.is_active, b.created_at,
+        (SELECT COUNT(*)::int
+           FROM slaughterhouse_person_payment_methods pm
+          WHERE pm.bank_id = b.id) AS linked_accounts,
+        (SELECT COUNT(*)::int
+           FROM slaughterhouse_person_payment_methods pm
+          WHERE pm.bank_id = b.id AND pm.is_active = true) AS active_accounts
+      FROM slaughterhouse_banks b
+      ORDER BY b.is_active DESC, b.name ASC, b.id ASC
+    `);
+    return res.json({
+      success: true,
+      count: result.rows.length,
+      banks: result.rows,
+    });
+  } catch (error) {
+    console.error('GET SLAUGHTERHOUSE BANKS ERROR:', error);
+    return res.status(500).json({ error: 'Error obteniendo bancos' });
+  }
+};
 
-    try {
-
-      const result =
-        await pool.query(
-          `
-            SELECT
-              id,
-              name,
-              is_active,
-              created_at
-
-            FROM slaughterhouse_banks
-
-            ORDER BY
-              is_active DESC,
-              name ASC,
-              id ASC
-          `
-        );
-
-
-      return res.json({
-        success: true,
-
-        count:
-          result.rows.length,
-
-        banks:
-          result.rows,
-      });
-
-    } catch (error) {
-
-      console.error(
-        'GET SLAUGHTERHOUSE BANKS ERROR:',
-        error
-      );
-
-
-      return res.status(500).json({
-        error:
-          'Error obteniendo bancos',
-      });
-
-    }
-
-  };
-  
 // =====================================================
 // ➕ CREAR BANCO
-// POST /slaughterhouse/admin/banks
-//
-// Body:
-// {
-//   "name": "Banco Ganadero"
-// }
 // =====================================================
 
-exports.createBank =
-  async (req, res) => {
+exports.createBank = async (req, res) => {
+  const name = req.body?.name?.toString().trim()
+    .replace(/\s+/g, ' ').toUpperCase();
+  if (!name || name.length > 100) {
+    return res.status(400).json({
+      error: 'El nombre es obligatorio y no debe superar 100 caracteres',
+    });
+  }
 
-    try {
+  const client = await pool.connect();
+  try {
+    const companyId = Number(req.slaughterhouseAdmin.company_id);
+    const userId = Number(req.slaughterhouseAdmin.user_id);
+    await client.query('BEGIN');
 
-      const name =
-        req.body.name
-          ?.toString()
-          .trim();
-
-
-      if (!name) {
-
-        return res.status(400).json({
-          error:
-            'El nombre del banco es obligatorio',
-        });
-
-      }
-
-
-      const result =
-        await pool.query(
-          `
-            INSERT INTO slaughterhouse_banks (
-              name
-            )
-
-            VALUES (
-              $1
-            )
-
-            RETURNING
-              id,
-              name,
-              is_active,
-              created_at
-          `,
-          [
-            name,
-          ],
-        );
-
-
-      return res.status(201).json({
-        success: true,
-
-        message:
-          'Banco creado correctamente',
-
-        bank:
-          result.rows[0],
-      });
-
-    } catch (error) {
-
-      console.error(
-        'CREATE SLAUGHTERHOUSE BANK ERROR:',
-        error
-      );
-
-
-      if (
-        error.code ===
-        '23505'
-      ) {
-
-        return res.status(409).json({
-          error:
-            'Ya existe un banco con ese nombre',
-        });
-
-      }
-
-
-      return res.status(500).json({
-        error:
-          'Error creando banco',
-      });
-
+    const duplicate = await client.query(`
+      SELECT id FROM slaughterhouse_banks
+      WHERE lower(trim(name)) = lower($1)
+      LIMIT 1
+    `, [name]);
+    if (duplicate.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Ya existe una entidad con ese nombre' });
     }
 
-  };
-  
+    const result = await client.query(`
+      INSERT INTO slaughterhouse_banks (name)
+      VALUES ($1)
+      RETURNING id, name, is_active, created_at
+    `, [name]);
+    const bank = result.rows[0];
+
+    await client.query(`
+      INSERT INTO slaughterhouse_audit_log
+        (company_id, user_id, entity_type, entity_id, action, old_data, new_data)
+      VALUES ($1, $2, 'bank', $3, 'create', NULL, $4::jsonb)
+    `, [companyId, userId, String(bank.id), JSON.stringify(bank)]);
+
+    await client.query('COMMIT');
+    return res.status(201).json({
+      success: true, message: 'Entidad creada correctamente', bank,
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('CREATE SLAUGHTERHOUSE BANK ERROR:', error);
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'Ya existe una entidad con ese nombre' });
+    }
+    return res.status(500).json({ error: 'Error creando entidad financiera' });
+  } finally {
+    client.release();
+  }
+};
+
+// =====================================================
+// EDITAR NOMBRE DE ENTIDAD FINANCIERA (catalogo global)
+// PATCH /slaughterhouse/admin/banks/:id
+// Mantiene el mismo ID y audita los cambios.
+// =====================================================
+exports.updateBank = async (req, res) => {
+  const bankId = Number(req.params.id);
+  const name = req.body?.name?.toString().trim()
+    .replace(/\s+/g, ' ').toUpperCase();
+
+  if (!Number.isInteger(bankId) || bankId <= 0) {
+    return res.status(400).json({ error: 'ID de entidad invalido' });
+  }
+  if (!name || name.length > 100) {
+    return res.status(400).json({
+      error: 'El nombre es obligatorio y no debe superar 100 caracteres',
+    });
+  }
+
+  const client = await pool.connect();
+  try {
+    const companyId = Number(req.slaughterhouseAdmin.company_id);
+    const userId = Number(req.slaughterhouseAdmin.user_id);
+    await client.query('BEGIN');
+
+    const previousResult = await client.query(`
+      SELECT id, name, is_active, created_at
+      FROM slaughterhouse_banks
+      WHERE id = $1
+      FOR UPDATE
+    `, [bankId]);
+
+    if (previousResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Entidad no encontrada' });
+    }
+    const previous = previousResult.rows[0];
+
+    const duplicate = await client.query(`
+      SELECT id FROM slaughterhouse_banks
+      WHERE lower(trim(name)) = lower($1) AND id <> $2
+      LIMIT 1
+    `, [name, bankId]);
+    if (duplicate.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Ya existe otra entidad con ese nombre' });
+    }
+
+    if (previous.name === name) {
+      await client.query('COMMIT');
+      return res.json({
+        success: true, message: 'El nombre no tiene cambios', bank: previous,
+      });
+    }
+
+    const result = await client.query(`
+      UPDATE slaughterhouse_banks
+      SET name = $1
+      WHERE id = $2
+      RETURNING id, name, is_active, created_at
+    `, [name, bankId]);
+    const bank = result.rows[0];
+
+    await client.query(`
+      INSERT INTO slaughterhouse_audit_log
+        (company_id, user_id, entity_type, entity_id, action, old_data, new_data)
+      VALUES ($1, $2, 'bank', $3, 'update', $4::jsonb, $5::jsonb)
+    `, [
+      companyId, userId, String(bankId),
+      JSON.stringify(previous), JSON.stringify(bank),
+    ]);
+
+    await client.query('COMMIT');
+    return res.json({
+      success: true, message: 'Nombre de entidad actualizado', bank,
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('UPDATE SLAUGHTERHOUSE BANK ERROR:', error);
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'Ya existe una entidad con ese nombre' });
+    }
+    return res.status(500).json({ error: 'Error actualizando entidad financiera' });
+  } finally {
+    client.release();
+  }
+};
+
 // =====================================================
 // 🔄 ACTIVAR / DESACTIVAR BANCO
-// PATCH /slaughterhouse/admin/banks/:id/active
 // =====================================================
 
 exports.setBankActive =
