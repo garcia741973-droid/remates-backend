@@ -951,6 +951,84 @@ ${process.env.APP_URL}/transport/shared-guide/${shareToken}`;
         created_at:
           admin.firestore.FieldValue.serverTimestamp(),
       });
+      
+    // =====================================================
+    // 🔔 FRIGOSI WEB — NOTIFICAR MANIFIESTO EN EL CHAT
+    // =====================================================
+    // El manifiesto ya fue registrado en SQL y Firestore.
+    // Notificamos usando el mismo mecanismo del chat normal.
+    //
+    // No debe fallar la creación del manifiesto si el
+    // servicio de notificaciones presenta un problema.
+    // =====================================================
+
+    try {
+      if (negotiation_id) {
+        const notificationContext = await pool.query(
+          `
+          SELECT
+            tr.id AS request_id,
+            tr.requester_company_id
+          FROM transport_negotiations tn
+          JOIN transport_requests tr
+            ON tr.id = tn.request_id
+          WHERE tn.id = $1
+            AND tn.transporter_id = $2
+          LIMIT 1
+          `,
+          [
+            negotiation_id,
+            userId,
+          ]
+        );
+
+        if (notificationContext.rows.length > 0) {
+          const notificationData =
+            notificationContext.rows[0];
+
+          if (notificationData.requester_company_id) {
+            await sendSlaughterhouseOperatorNotification({
+              companyId:
+                Number(notificationData.requester_company_id),
+
+              permissionCode:
+                'transport.negotiate',
+
+              title:
+                '📄 Nuevo manifiesto de transporte',
+
+              body:
+                `El camionero generó un manifiesto. Revisa el chat de la negociación ${negotiation_id}.`,
+
+              data: {
+                type:
+                  'transport_negotiation',
+
+                negotiation_id:
+                  Number(negotiation_id),
+
+                request_id:
+                  Number(notificationData.request_id),
+
+                source:
+                  'transport_chat',
+
+                guide_id:
+                  result.rows[0].id,
+              },
+
+              eventKey:
+                `slaughterhouse_transport_manifest:${negotiation_id}:${result.rows[0].id}`,
+            });
+          }
+        }
+      }
+    } catch (notificationError) {
+      console.error(
+        'CREATE GUIDE WEB NOTIFICATION ERROR:',
+        notificationError
+      );
+    }
 
     res.json(result.rows[0]);
 
