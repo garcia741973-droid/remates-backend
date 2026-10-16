@@ -2528,21 +2528,48 @@ exports.certifyFieldLot =
           );
         }
 
+        // =====================================================
+        // COMPATIBILIDAD QR FIRMADO OFFLINE
+        //
+        // Una carga nueva puede ser firmada sin partial_code.
+        // El servidor genera posteriormente T28-01, por ejemplo.
+        //
+        // Aceptar la ausencia del código firmado SOLAMENTE
+        // cuando el código del servidor sea el determinístico.
+        // Los demás datos firmados siguen siendo obligatorios.
+        // =====================================================
+
+        const reviewedCode = normalizeString(
+          reviewedPartial.partial_code
+        );
+
+        const serverCode = normalizeString(
+          partial.partial_code
+        );
+
+        const defaultPartialCode =
+          `T${Number(partial.troop_id)}-${String(
+            Number(partial.partial_number)
+          ).padStart(2, '0')}`;
+
+        const missingOfflineCode =
+          reviewedPartial.partial_code == null ||
+          String(reviewedPartial.partial_code).trim() === '';
+
+        const partialCodeMatches =
+          reviewedCode === serverCode ||
+          (
+            missingOfflineCode &&
+            serverCode === normalizeString(defaultPartialCode)
+          );
+
         if (
-          normalizeString(
-            reviewedPartial
-              .partial_code
-          ) !==
-            normalizeString(
-              partial.partial_code
-            ) ||
+          !partialCodeMatches ||
           Number(
-            reviewedPartial
-              .total_quantity
+            reviewedPartial.total_quantity
           ) !==
             Number(
-              partial
-                .total_quantity
+              partial.total_quantity
             ) ||
           normalizeString(
             reviewedPartial
