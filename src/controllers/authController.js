@@ -2,6 +2,10 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const { pool } = require('../config/db');
 
+const {
+  sendCompanyAdminNotification
+} = require('../services/notificationService');
+
 
 // 🔐 LOGIN FINAL (YA CON company_id)
 exports.login = async (req, res) => {
@@ -297,6 +301,14 @@ exports.registerParticipant =
       });
     }
 
+    const normalizedEmail = String(email).trim().toLowerCase();
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return res.status(400).json({
+        error: 'Ingresa un correo electrónico válido',
+      });
+    }
+
     /// 🔍 BUSCAR EXISTENTE
     const existing =
         await pool.query(
@@ -305,11 +317,13 @@ exports.registerParticipant =
       SELECT
         id,
         email,
+        password,
+        role,
         kyc_status
       FROM users
-      WHERE email = $1
+      WHERE LOWER(TRIM(email)) = $1
       `,
-      [email]
+      [normalizedEmail]
     );
 
     /// 🔥 YA EXISTE
@@ -319,6 +333,22 @@ exports.registerParticipant =
 
       const user =
           existing.rows[0];
+
+      const passwordValid =
+        user.password &&
+        await bcrypt.compare(password, user.password);
+
+      if (!passwordValid) {
+        return res.status(401).json({
+          error: 'La cuenta ya existe. Contraseña incorrecta.'
+        });
+      }
+
+      if (user.role !== 'client') {
+        return res.status(403).json({
+          error: 'Esta cuenta debe ingresar mediante su acceso correspondiente'
+        });
+      }
 
       /// 🔍 VERIFICAR RELACIÓN EMPRESA
       const companyCheck =
@@ -423,7 +453,7 @@ exports.registerParticipant =
       `,
 
       [
-        email,
+        normalizedEmail,
         hashed,
       ],
     );
@@ -450,7 +480,10 @@ exports.registerParticipant =
         $1,
         $2,
         'client',
-        'approved',
+        CASE
+          WHEN $2::integer = 1 THEN 'approved'
+          ELSE 'pending'
+        END,
         NOW()
 
       )
@@ -461,6 +494,29 @@ exports.registerParticipant =
         company_id,
       ],
     );
+
+    // Avisar a la rematadora sobre el nuevo acceso pendiente.
+    // Un fallo del servicio de notificaciones no debe
+    // impedir que el usuario termine de registrarse.
+    if (Number(company_id) !== 1) {
+      try {
+        await sendCompanyAdminNotification({
+          companyId: company_id,
+          title: '👤 Nuevo acceso pendiente',
+          body: `Usuario ${user.id} solicita acceso a la rematadora`,
+          data: {
+            type: 'company_access_request',
+            user_id: String(user.id),
+            company_id: String(company_id)
+          }
+        });
+      } catch (notificationError) {
+        console.error(
+          'ERROR NOTIFICANDO REGISTRO A REMATADORA:',
+          notificationError
+        );
+      }
+    }
 
     /// 🔐 TOKEN
     const token = jwt.sign(
@@ -534,24 +590,28 @@ exports.checkParticipant =
       });
     }
 
+    const normalizedEmail = String(email).trim().toLowerCase();
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return res.status(400).json({
+        error: 'Ingresa un correo electrónico válido',
+      });
+    }
+
     /// 🔍 BUSCAR USER
     const existing =
         await pool.query(
 
       `
       SELECT
-
         id,
-
         email,
-
         kyc_status
-
       FROM users
 
-      WHERE email = $1
+      WHERE LOWER(TRIM(email)) = $1
       `,
-      [email]
+      [normalizedEmail]
     );
 
     /// ❌ NO EXISTE

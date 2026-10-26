@@ -13,7 +13,10 @@ const {
   getKycByUser // 🔥 ESTE FALTABA
 } = require("../controllers/kycController.cjs");
 
-const { requireAuth, requireAdmin } = require("../middleware/authMiddleware");
+const {
+  requireAuth,
+  requireAdmin
+} = require("../middleware/authMiddleware");
 
 // CLIENT
 router.get("/me", requireAuth, getMyKyc);
@@ -24,9 +27,11 @@ router.post("/submit", requireAuth, submitKyc);
 
 // ADMIN
 router.get("/pending", requireAuth, requireAdmin, getPendingKyc);
+
 router.post("/:userId/approve", requireAuth, requireAdmin, approveKyc);
+
 router.post("/:userId/reject", requireAuth, requireAdmin, rejectKyc);
 
-router.get('/admin/:userId', requireAuth, getKycByUser);
+router.get('/admin/:userId', requireAuth, requireAdmin, getKycByUser);
 
 module.exports = router;
