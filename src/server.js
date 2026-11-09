@@ -77,6 +77,7 @@ const { pool } = require('./config/db');
 
 /// 🔥 ROUTES
 const authRoutes = require('./routes/authRoutes');
+const minicoreIdentityRoutes = require('./routes/minicoreIdentityRoutes');
 const testRoutes = require('./routes/testRoutes');
 const lotsRoutes = require('./routes/lotsRoutes');
 const auctionsRoutes = require('./routes/auctionsRoutes');
@@ -280,6 +281,7 @@ app.get('/test-db', async (req, res) => {
 
 /// 🔥 ROUTES
 app.use('/auth', authRoutes);
+app.use('/internal/minicore-identity', minicoreIdentityRoutes);
 app.use('/test', testRoutes);
 app.use('/lots', lotsRoutes);
 app.use('/auctions', auctionsRoutes);
