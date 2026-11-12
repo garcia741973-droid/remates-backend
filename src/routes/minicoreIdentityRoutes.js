@@ -45,6 +45,8 @@ router.use(rateLimit({
   legacyHeaders: false,
 }));
 
+router.use('/register', require('./minicoreIdentityRegistrationRoutes'));
+
 // Valida credenciales de una cuenta existente sin asignar empresas ni roles.
 router.post('/verify', async (req, res) => {
   try {
