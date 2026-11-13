@@ -10686,6 +10686,76 @@ const previewLocationForEstancia = async (req, res) => {
   }
 };
 
+// C03.5G: compartir copias voluntarias de rutas de Plaza Estancia (48 horas).
+// Este endpoint no otorga acceso a sesiones ni a ubicaciones de Plaza Transporte.
+const estanciaCopyLimits = new Map();
+function checkEstanciaCopyLimit(req, res, limit) {
+  const ip = String(req.ip || req.socket?.remoteAddress || 'unknown');
+  const now = Date.now();
+  const item = estanciaCopyLimits.get(ip) || {start: now, count: 0};
+  if (now - item.start > 3600000) { item.start = now; item.count = 0; }
+  item.count++;
+  estanciaCopyLimits.set(ip, item);
+  if (estanciaCopyLimits.size > 10000) estanciaCopyLimits.clear();
+  if (item.count > limit) {
+    res.status(429).json({error:'Demasiadas solicitudes. Inténtalo más tarde.'});
+    return false;
+  }
+  return true;
+}
+const publishEstanciaRouteCopy = async (req, res) => {
+  res.set('Cache-Control','no-store');
+  if (!checkEstanciaCopyLimit(req,res,6)) return;
+  try {
+    const raw = req.body;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return res.status(400).json({error:'Datos inválidos'});
+    const name = typeof raw.name === 'string' ? raw.name.trim() : '';
+    const points = raw.route_points;
+    if (!name || name.length > 100 || !Array.isArray(points) || points.length < 2 || points.length > 1500) {
+      return res.status(400).json({error:'Nombre o geometría inválidos (máximo 1500 puntos)'});
+    }
+    // Admite las estructuras que entrega Transporte, pero nunca campos comerciales.
+    if (points.some(p => !p || typeof p !== 'object' || Array.isArray(p) ||
+      !Number.isFinite(Number(p.lat ?? p.latitude)) || !Number.isFinite(Number(p.lng ?? p.lon ?? p.longitude)) ||
+      Math.abs(Number(p.lat ?? p.latitude)) > 90 || Math.abs(Number(p.lng ?? p.lon ?? p.longitude)) > 180)) {
+      return res.status(400).json({error:'Coordenadas inválidas'});
+    }
+    const safePoints = points.map(p => ({lat:Number(p.lat ?? p.latitude),lng:Number(p.lng ?? p.lon ?? p.longitude)}));
+    const geometry = JSON.stringify(safePoints);
+    if (Buffer.byteLength(geometry,'utf8') > 100000) return res.status(413).json({error:'Ruta demasiado grande'});
+    // Retirar físicamente copias caducadas al crear nuevas comparticiones.
+    await pool.query('DELETE FROM estancia_route_copy_tokens WHERE expires_at <= NOW()');
+    const code = 'E' + crypto.randomBytes(15).toString('hex').toUpperCase();
+    await pool.query(`INSERT INTO estancia_route_copy_tokens (token_hash, name, route_points, expires_at)
+      VALUES ($1, $2, $3::jsonb, NOW() + INTERVAL '48 hours')`,
+      [crypto.createHash('sha256').update(code).digest('hex'),name,geometry]);
+    return res.status(201).json({code,expires_in_hours:48});
+  } catch (error) {
+    console.error('ESTANCIA COPY CREATE ERROR:',error);
+    return res.status(500).json({error:'No se pudo crear el código'});
+  }
+};
+const previewEstanciaRouteCopy = async (req, res) => {
+  res.set('Cache-Control','no-store');
+  if (!checkEstanciaCopyLimit(req,res,30)) return;
+  try {
+    const code = typeof req.body?.token === 'string' ? req.body.token.trim().toUpperCase() : '';
+    if (!/^E[A-F0-9]{30}$/.test(code)) return res.status(400).json({error:'Código inválido'});
+    const result = await pool.query(`SELECT name, route_points FROM estancia_route_copy_tokens
+      WHERE token_hash=$1 AND expires_at > NOW() LIMIT 1`,
+      [crypto.createHash('sha256').update(code).digest('hex')]);
+    if (!result.rows.length) return res.status(404).json({error:'Código vencido o inexistente'});
+    return res.json({location_name:result.rows[0].name,routes:[{
+      name:result.rows[0].name, route_type:'importada_estancia',
+      route_points:result.rows[0].route_points,
+      distance_km:null,duration_minutes:null
+    }]});
+  } catch (error) {
+    console.error('ESTANCIA COPY PREVIEW ERROR:',error);
+    return res.status(500).json({error:'No se pudo consultar el código'});
+  }
+};
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -10738,6 +10808,8 @@ module.exports = {
   shareLocation,
   importLocation,
   previewLocationForEstancia,
+  publishEstanciaRouteCopy,
+  previewEstanciaRouteCopy,
   createLocationRoute,
   getLocationRoutes,
   getSharedTripMap,

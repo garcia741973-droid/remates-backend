@@ -56,6 +56,8 @@ const {
   shareLocation,
   importLocation,
   previewLocationForEstancia,
+  publishEstanciaRouteCopy,
+  previewEstanciaRouteCopy,
   createLocationRoute,
   getLocationRoutes, 
   getSharedTripMap, 
@@ -362,6 +364,9 @@ router.post(
   requireAuth,
   shareLocation
 );
+
+router.post('/publish-estancia-route-copy', express.json({limit:'125kb'}), publishEstanciaRouteCopy);
+router.post('/preview-estancia-route-copy', previewEstanciaRouteCopy);
 
 router.post(
   '/preview-location-for-estancia',
