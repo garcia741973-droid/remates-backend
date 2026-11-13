@@ -10638,6 +10638,54 @@ const uploadTransportAttachment =
 
   };
 
+
+// Acceso de solo lectura a un recorrido compartido por su propietario.
+const estanciaPreviewAttempts = new Map();
+// El código es un secreto de 48 horas; no se registra, persiste ni se coloca en URL.
+const previewLocationForEstancia = async (req, res) => {
+  try {
+    const ip = String(req.ip || req.socket?.remoteAddress || 'unknown');
+    const now = Date.now();
+    const bucket = estanciaPreviewAttempts.get(ip) || { start: now, count: 0 };
+    if (now - bucket.start > 60000) { bucket.start = now; bucket.count = 0; }
+    bucket.count += 1;
+    estanciaPreviewAttempts.set(ip, bucket);
+    if (estanciaPreviewAttempts.size > 10000) { estanciaPreviewAttempts.clear(); }
+    if (bucket.count > 8) { return res.status(429).json({ error: 'Demasiados intentos. Prueba más tarde.' }); }
+    const token = typeof req.body?.token === 'string'
+      ? req.body.token.trim().toUpperCase() : '';
+    if (!/^[A-Z0-9-]{4,32}$/.test(token)) {
+      return res.status(400).json({ error: 'Código inválido' });
+    }
+    res.set('Cache-Control', 'no-store');
+    const result = await pool.query(`
+      SELECT l.id, l.name
+      FROM transport_location_share_tokens t
+      JOIN transport_saved_locations l ON l.id = t.saved_location_id
+      WHERE t.share_token = $1 AND t.expires_at > NOW()
+      LIMIT 1
+    `, [token]);
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'Código vencido o inexistente' });
+    }
+    const location = result.rows[0];
+    const routes = await pool.query(`
+      SELECT name, route_type, route_points, distance_km, duration_minutes
+      FROM transport_location_routes
+      WHERE saved_location_id = $1
+      ORDER BY created_at DESC
+      LIMIT 100
+    `, [location.id]);
+    return res.json({
+      location_name: location.name,
+      routes: routes.rows,
+    });
+  } catch (error) {
+    console.error('PREVIEW ESTANCIA LOCATION ERROR:', error);
+    return res.status(500).json({ error: 'No se pudo consultar la ruta' });
+  }
+};
+
 module.exports = {
   registerTruck,
   getMyTruck,
@@ -10689,6 +10737,7 @@ module.exports = {
   deleteSavedLocation,
   shareLocation,
   importLocation,
+  previewLocationForEstancia,
   createLocationRoute,
   getLocationRoutes,
   getSharedTripMap,

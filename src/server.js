@@ -166,6 +166,9 @@ const lotWatchersRoutes =
 
 const app = express();
 
+// Render: confiar en el proxy inmediato.
+app.set('trust proxy', 1);
+
 const upcomingAuctionsRoutes =
     require(
       './routes/upcomingAuctionsRoutes'

@@ -55,6 +55,7 @@ const {
   deleteSavedLocation,
   shareLocation,
   importLocation,
+  previewLocationForEstancia,
   createLocationRoute,
   getLocationRoutes, 
   getSharedTripMap, 
@@ -360,6 +361,11 @@ router.post(
   '/share-location',
   requireAuth,
   shareLocation
+);
+
+router.post(
+  '/preview-location-for-estancia',
+  previewLocationForEstancia
 );
 
 router.post(
