@@ -10725,10 +10725,17 @@ const publishEstanciaRouteCopy = async (req, res) => {
     if (Buffer.byteLength(geometry,'utf8') > 100000) return res.status(413).json({error:'Ruta demasiado grande'});
     // Retirar físicamente copias caducadas al crear nuevas comparticiones.
     await pool.query('DELETE FROM estancia_route_copy_tokens WHERE expires_at <= NOW()');
-    const code = 'E' + crypto.randomBytes(15).toString('hex').toUpperCase();
-    await pool.query(`INSERT INTO estancia_route_copy_tokens (token_hash, name, route_points, expires_at)
-      VALUES ($1, $2, $3::jsonb, NOW() + INTERVAL '48 hours')`,
-      [crypto.createHash('sha256').update(code).digest('hex'),name,geometry]);
+        let code = null;
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const candidate = Array.from({length: 6}, () => alphabet[crypto.randomInt(alphabet.length)]).join('');
+      const inserted = await pool.query(`INSERT INTO estancia_route_copy_tokens (token_hash, name, route_points, expires_at)
+        VALUES ($1, $2, $3::jsonb, NOW() + INTERVAL '48 hours')
+        ON CONFLICT (token_hash) DO NOTHING RETURNING token_hash`,
+        [crypto.createHash('sha256').update(candidate).digest('hex'),name,geometry]);
+      if (inserted.rowCount === 1) { code = candidate; break; }
+    }
+    if (!code) return res.status(503).json({error:'No se pudo asignar un código único'});
     return res.status(201).json({code,expires_in_hours:48});
   } catch (error) {
     console.error('ESTANCIA COPY CREATE ERROR:',error);
@@ -10740,7 +10747,7 @@ const previewEstanciaRouteCopy = async (req, res) => {
   if (!checkEstanciaCopyLimit(req,res,30)) return;
   try {
     const code = typeof req.body?.token === 'string' ? req.body.token.trim().toUpperCase() : '';
-    if (!/^E[A-F0-9]{30}$/.test(code)) return res.status(400).json({error:'Código inválido'});
+    if (!(/^[A-HJ-NP-Z2-9]{6}$/.test(code) || /^E[A-F0-9]{30}$/.test(code))) return res.status(400).json({error:'Código inválido'});
     const result = await pool.query(`SELECT name, route_points FROM estancia_route_copy_tokens
       WHERE token_hash=$1 AND expires_at > NOW() LIMIT 1`,
       [crypto.createHash('sha256').update(code).digest('hex')]);
